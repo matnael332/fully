@@ -20,6 +20,9 @@ required = [
     ROOT / "src/App.Web/appsettings.json",
     ROOT / "src/App.Infrastructure/Health/DependencyProbe.cs",
     ROOT / "eng/dev.ps1",
+    ROOT / "eng/db.ps1",
+    ROOT / "infra/local/postgres/init/10-runtime-role.sh",
+    ROOT / "src/App.Infrastructure/Persistence/WorkContinuityModel.cs",
 ]
 
 for path in required:
@@ -29,7 +32,7 @@ for path in required:
 try:
     compose = yaml.safe_load((ROOT / "infra/local/docker-compose.yml").read_text(encoding="utf-8"))
     services = set((compose or {}).get("services", {}))
-    expected_services = {"postgres", "mssql", "servicebus-emulator", "web", "worker"}
+    expected_services = {"postgres", "mssql", "servicebus-emulator", "db-migrator", "web", "worker"}
     if services != expected_services:
         errors.append(f"compose services mismatch: expected {sorted(expected_services)}, got {sorted(services)}")
 except Exception as exc:
@@ -50,6 +53,17 @@ if "ACCEPT_EULA=N" not in example_env:
     errors.append(".env.example must require explicit EULA acceptance")
 if "CHANGE_ME" not in example_env:
     errors.append(".env.example should contain obvious non-secret placeholders")
+if "POSTGRES_APP_PASSWORD" not in example_env:
+    errors.append(".env.example must document the non-owner runtime role password")
+
+# The local image must carry pgvector; plain postgres images do not.
+compose_text = (ROOT / "infra/local/docker-compose.yml").read_text(encoding="utf-8")
+if "pgvector/pgvector:pg17" not in compose_text:
+    errors.append("local postgres image must provide the pgvector extension")
+
+# The application must never connect as the schema owner: a superuser bypasses row-level security.
+if "Username=${POSTGRES_APP_USER" not in compose_text:
+    errors.append("web/worker must connect as the non-owner runtime role")
 
 ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
 if ".env" not in ignore:
@@ -79,6 +93,8 @@ if errors:
 
 print("LOCAL ENV STRUCTURE CHECK: PASS")
 print("- docker-compose structure valid")
+print("- pgvector-capable PostgreSQL image configured")
+print("- runtime role separated from the schema owner")
 print("- Service Bus emulator configuration valid")
 print("- secrets remain external to source control")
 print("- Web/Worker health-check foundation present")

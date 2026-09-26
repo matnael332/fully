@@ -38,7 +38,7 @@ function Validate-LocalSecrets {
         throw "ACCEPT_EULA must be explicitly set to Y in .env before starting the Service Bus emulator."
     }
 
-    foreach ($key in @("POSTGRES_PASSWORD", "MSSQL_SA_PASSWORD")) {
+    foreach ($key in @("POSTGRES_PASSWORD", "POSTGRES_APP_PASSWORD", "MSSQL_SA_PASSWORD")) {
         $value = $envValues[$key]
         if (-not $value -or $value.Contains("CHANGE_ME")) {
             throw "$key still contains a placeholder. Use a local-only strong password in .env."
@@ -80,6 +80,15 @@ switch ($Command) {
         $workerId = docker compose --env-file $EnvFile -f $ComposeFile ps -q worker
         if ($LASTEXITCODE -ne 0 -or -not $workerId) { throw "Worker container is not running" }
 
+        # The one-shot migrator must have completed cleanly; compose gates web/worker on it, so a
+        # non-zero exit here means the schema is not current.
+        $migratorId = docker compose --env-file $EnvFile -f $ComposeFile ps -aq db-migrator
+        if ($LASTEXITCODE -ne 0 -or -not $migratorId) { throw "Migration container did not run" }
+        $migratorExit = docker inspect --format '{{.State.ExitCode}}' $migratorId
+        if ($LASTEXITCODE -ne 0 -or $migratorExit -ne "0") {
+            throw "Database migration failed (exit $migratorExit). Inspect: ./eng/dev.ps1 logs"
+        }
+
         $sbPort = if ($envValues["EMULATOR_HTTP_PORT"]) { $envValues["EMULATOR_HTTP_PORT"] } else { "5300" }
         $webPort = if ($envValues["WEB_HTTP_PORT"]) { $envValues["WEB_HTTP_PORT"] } else { "8080" }
 
@@ -87,6 +96,7 @@ switch ($Command) {
         Wait-Http "http://localhost:$webPort/health/ready" "Web readiness"
 
         Write-Host "LOCAL DEV CHECK: PASS" -ForegroundColor Green
+        Write-Host "- Database migrations applied"
         Write-Host "- PostgreSQL reachable through Web readiness"
         Write-Host "- Service Bus emulator healthy"
         Write-Host "- Web API ready"

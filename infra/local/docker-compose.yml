@@ -2,15 +2,23 @@ name: work-continuity-local
 
 services:
   postgres:
-    image: postgres:17-alpine
+    # pgvector/pgvector:pg17 is PostgreSQL 17 with the vector extension already built in. The plain
+    # postgres:17-alpine image ships no vector extension files, so CREATE EXTENSION would fail.
+    # This is a local-image change only: the production target remains Azure Database for PostgreSQL
+    # Flexible Server, where pgvector is an allow-listed extension rather than a bundled binary.
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-workcontinuity_app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # Runs only on first initialization of an empty data directory.
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -49,6 +57,24 @@ services:
         aliases:
           - servicebus-emulator
 
+  # Schema migration is a one-shot service that must finish before the applications start. Running it
+  # here rather than inside Web and Worker keeps two instances from racing to migrate the same schema,
+  # and mirrors how a deployment applies migrations as an explicit step.
+  db-migrator:
+    build:
+      context: ../..
+      dockerfile: src/App.Worker/Dockerfile
+    command: ["--migrate-database"]
+    environment:
+      # The only service given the administrative connection.
+      ConnectionStrings__PostgresAdmin: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - local
+
   web:
     build:
       context: ../..
@@ -59,11 +85,15 @@ services:
       Dependencies__Postgres__Host: postgres
       Dependencies__Postgres__Port: "5432"
       Dependencies__ServiceBusEmulator__HealthUrl: http://servicebus-emulator:${EMULATOR_HTTP_PORT:-5300}/health
+      # The non-owner runtime role, so row-level security applies to every query.
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_APP_USER:-workcontinuity_app};Password=${POSTGRES_APP_PASSWORD}"
     ports:
       - "${WEB_HTTP_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrator:
+        condition: service_completed_successfully
       servicebus-emulator:
         condition: service_started
     networks:
@@ -77,9 +107,12 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       SERVICEBUS_HEALTH_URL: http://servicebus-emulator:${EMULATOR_HTTP_PORT:-5300}/health
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_APP_USER:-workcontinuity_app};Password=${POSTGRES_APP_PASSWORD}"
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrator:
+        condition: service_completed_successfully
       servicebus-emulator:
         condition: service_started
     networks:

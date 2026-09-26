@@ -165,13 +165,73 @@ public sealed class DependencyBoundaryTests
     }
 
     [Fact]
+    public void Core_references_no_persistence_package_or_namespace()
+    {
+        // Persistence lives in Infrastructure. Core must stay persistence-agnostic so the storage
+        // technology can change without touching the domain contracts.
+        var core = Single("App.Core");
+
+        Assert.Empty(RepositoryLayout.PackageReferences(core));
+
+        string[] forbiddenFragments =
+        [
+            "Microsoft.EntityFrameworkCore",
+            "Npgsql",
+            "DbContext",
+            "DbSet",
+            "pgvector",
+            "Pgvector",
+        ];
+
+        var violations = new List<string>();
+
+        foreach (var file in RepositoryLayout.CoreSourceFiles)
+        {
+            var text = File.ReadAllText(file.FullName);
+
+            foreach (var fragment in forbiddenFragments)
+            {
+                if (text.Contains(fragment, StringComparison.Ordinal))
+                {
+                    violations.Add($"{RepositoryLayout.RelativePath(file)} mentions '{fragment}'");
+                }
+            }
+        }
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Only_infrastructure_references_the_persistence_packages()
+    {
+        string[] persistencePackages = ["Npgsql.EntityFrameworkCore.PostgreSQL", "Microsoft.EntityFrameworkCore.Design"];
+
+        var violations = new List<string>();
+
+        foreach (var projectFile in RepositoryLayout.ProductionProjectFiles)
+        {
+            var name = RepositoryLayout.ProjectName(projectFile);
+            var packages = RepositoryLayout.PackageReferences(projectFile);
+
+            foreach (var package in persistencePackages)
+            {
+                if (packages.Contains(package) && name != "App.Infrastructure")
+                {
+                    violations.Add($"{name} references {package}; persistence belongs to App.Infrastructure");
+                }
+            }
+        }
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
     public void No_production_project_references_an_ai_or_cloud_provider_package_yet()
     {
         string[] forbiddenPackagePrefixes =
         [
             "Azure.",
             "Microsoft.Azure.",
-            "Npgsql",
             "OpenAI",
             "Anthropic",
             "Microsoft.SemanticKernel",

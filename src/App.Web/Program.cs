@@ -3,6 +3,7 @@ using WorkContinuity.Core.Features;
 using WorkContinuity.Core.Tenancy;
 using WorkContinuity.Core.Time;
 using WorkContinuity.Infrastructure.Health;
+using WorkContinuity.Infrastructure.Persistence;
 using WorkContinuity.Web.Platform;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,6 +15,10 @@ builder.Services.AddSingleton<ICorrelationContextAccessor, CorrelationContextAcc
 builder.Services.AddSingleton<ITenantContextAccessor, TenantContextAccessor>();
 builder.Services.AddSingleton<IFeatureFlagProvider>(_ => new InMemoryFeatureFlagProvider());
 builder.Services.AddSingleton<DependencyProbe>();
+
+// Tenant-scoped persistence only. The administrative connection used for migrations is deliberately
+// not registered here, so request handling cannot resolve an elevated database connection.
+builder.Services.AddPersistence(builder.Configuration);
 
 var app = builder.Build();
 
@@ -30,7 +35,7 @@ app.UseMiddleware<PlatformExceptionMiddleware>();
 app.MapGet("/", () => Results.Ok(new
 {
     service = "work-continuity-web",
-    gate = "1C",
+    gate = "1D",
     status = "foundation"
 }));
 

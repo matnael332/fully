@@ -64,6 +64,10 @@ For every task:
 - Development Gate 1A: **PASS**. Runtime verified: `dotnet restore` PASS, `dotnet build` PASS (0 warnings, 0 errors), architecture dependency rules PASS.
 - Development Gate 1B: **PASS**. Runtime verified: Docker local smoke test PASS, PostgreSQL healthy, Service Bus emulator healthy, Web readiness healthy, Worker dependencies ready.
 - Development Gate 1C: **PASS**. Core platform primitives (tenant context, identity, correlation, clock, result/error, feature flags, audit contracts, operation context). `dotnet build` PASS (0 warnings, 0 errors); `dotnet test` PASS with 188 tests.
+- Development Gate 1D: **PASS**. PostgreSQL database foundation (EF Core migrations, tenant-aware persistence, row-level security, pgvector, raw-receipt inbox, transactional outbox). `dotnet build` PASS (0 warnings, 0 errors); `dotnet test` PASS with 230 tests.
 - Architecture/PRD contradictions: none found.
+- Persistence lives in `App.Infrastructure` only. `App.Core` has zero packages and must stay persistence-agnostic.
+- The application connects as the non-owner role `workcontinuity_app`; the schema owner is for migrations only, because a PostgreSQL superuser bypasses row-level security.
+- `dotnet test` requires the local Docker stack, because the database tests are real integration tests.
 - Test framework: `xunit.v3` only. `dotnet test` requires the `test.runner` opt-in in `global.json`; the .NET 10 SDK removed the VSTest path.
 - Next approved development work must be explicitly authorized by the product owner.

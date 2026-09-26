@@ -3,12 +3,21 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <!--
-    Production projects intentionally reference no external packages yet; Core in particular stays
-    on the base class library so it cannot acquire a provider or SDK dependency.
-    xunit.v3 is the single test dependency authorized by Gate 1C. It is self-executing on
-    Microsoft.Testing.Platform, so no separate runner or VSTest adapter package is required.
+    App.Core intentionally references no external package at all, so it cannot acquire a web,
+    Azure, database, AI or SaaS dependency even transitively. The persistence packages below are
+    referenced only by App.Infrastructure.
+    All versions are stable releases compatible with .NET 10 / EF Core 10; no preview packages.
+    The EF Core Design version is held at the exact version the Npgsql provider is built against.
+    Taking a newer Design package makes MSBuild resolve two EF Core assembly versions and emit
+    MSB3277, and an EF provider is coupled tightly enough to EF internals that running it against a
+    different patch band is not worth the risk.
   -->
-  <ItemGroup>
+  <ItemGroup Label="Persistence">
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.4" />
+  </ItemGroup>
+  <ItemGroup Label="Test">
+    <!-- xunit.v3 is self-executing on Microsoft.Testing.Platform: no runner or adapter package. -->
     <PackageVersion Include="xunit.v3" Version="4.0.1" />
   </ItemGroup>
 </Project>

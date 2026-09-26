@@ -18,8 +18,9 @@ Claude Code and human developers must read:
 - Gate 1A — Repository & Solution Skeleton: **PASS**. `dotnet restore` PASS; `dotnet build` PASS with 0 warnings and 0 errors; architecture dependency rules PASS.
 - Gate 1B — Local Development Environment: **PASS**. Docker local smoke test PASS; PostgreSQL healthy; Service Bus emulator healthy; Web readiness healthy; Worker dependencies ready.
 - Gate 1C — Core Platform Skeleton: **PASS**. Tenant context, identity abstractions, correlation context, clock, result/error model, feature flags, audit contracts and operation context. `dotnet test` PASS with 188 tests.
+- Gate 1D — Database Foundation: **PASS**. PostgreSQL migrations, tenant-aware persistence, row-level security, pgvector, raw-receipt inbox and transactional outbox. `dotnet test` PASS with 230 tests.
 - Architecture/PRD contradictions: none.
-- Gate 1D onward: do not start without explicit product-owner approval.
+- Gate 1E onward: do not start without explicit product-owner approval.
 
 See `docs/canonical/PROJECT-STATUS.md` for the full verified evidence table.
 
@@ -53,3 +54,14 @@ python eng/verify-local-env.py
 ```
 
 On a Windows development machine with Docker Desktop, use the repository local-development script to perform the live smoke test documented in Gate 1B.
+
+Database commands:
+
+```powershell
+./eng/db.ps1 status    # list applied and pending migrations
+./eng/db.ps1 migrate   # apply pending migrations
+./eng/db.ps1 reset     # destroy and recreate the LOCAL database volume
+```
+
+The database tests are real integration tests against the local PostgreSQL container, so
+`dotnet test` requires the local stack to be running (`./eng/dev.ps1 up`).

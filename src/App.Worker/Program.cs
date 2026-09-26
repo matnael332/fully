@@ -1,10 +1,12 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
 using WorkContinuity.Core.Correlation;
 using WorkContinuity.Core.Identity;
 using WorkContinuity.Core.Operations;
 using WorkContinuity.Core.Tenancy;
 using WorkContinuity.Core.Time;
 using WorkContinuity.Infrastructure.Health;
+using WorkContinuity.Infrastructure.Persistence;
 
 var postgresHost = Environment.GetEnvironmentVariable("POSTGRES_HOST") ?? "localhost";
 var postgresPort = int.TryParse(Environment.GetEnvironmentVariable("POSTGRES_PORT"), out var configuredPort)
@@ -34,6 +36,39 @@ IOperationContext StartOperation()
         clock);
 }
 
+// Schema migration is an explicit, separately invoked operation, never a side effect of starting the
+// worker loop. It is the only path given the administrative connection, and it applies pending
+// migrations without ever dropping or recreating anything.
+if (args.Contains("--migrate-database", StringComparer.OrdinalIgnoreCase))
+{
+    var administrativeConnectionString =
+        Environment.GetEnvironmentVariable("ConnectionStrings__PostgresAdmin");
+
+    if (string.IsNullOrWhiteSpace(administrativeConnectionString))
+    {
+        Console.Error.WriteLine(
+            "ConnectionStrings__PostgresAdmin is not set. Migration requires the administrative connection.");
+        return 2;
+    }
+
+    var operation = StartOperation();
+    var migrator = DatabaseMigrator.ForConnection(
+        administrativeConnectionString,
+        NullLogger<DatabaseMigrator>.Instance);
+
+    var status = await migrator.MigrateAsync();
+
+    Console.WriteLine(JsonSerializer.Serialize(new
+    {
+        correlationId = operation.CorrelationId.Value,
+        migratedAt = operation.StartedAtUtc,
+        appliedMigrations = status.Applied,
+        pendingMigrations = status.Pending,
+    }));
+
+    return 0;
+}
+
 if (args.Contains("--check-dependencies", StringComparer.OrdinalIgnoreCase))
 {
     var operation = StartOperation();
@@ -50,7 +85,7 @@ if (args.Contains("--check-dependencies", StringComparer.OrdinalIgnoreCase))
     return report.Ready ? 0 : 1;
 }
 
-Console.WriteLine("Work Continuity Worker — Gate 1C foundation started");
+Console.WriteLine("Work Continuity Worker — Gate 1D foundation started");
 
 while (true)
 {
