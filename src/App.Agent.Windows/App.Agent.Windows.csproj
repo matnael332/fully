@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>WorkContinuity.Agent.Windows</AssemblyName>
+    <RootNamespace>WorkContinuity.Agent.Windows</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../App.Core/App.Core.csproj" />
+  </ItemGroup>
+</Project>

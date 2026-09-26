@@ -1,0 +1,13 @@
+.git
+**/bin
+**/obj
+.vs
+.vscode
+.idea
+TestResults
+artifacts
+.env
+.env.*
+!.env.example
+*.pfx
+*.snk

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>WorkContinuity.Worker</AssemblyName>
+    <RootNamespace>WorkContinuity.Worker</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../App.Core/App.Core.csproj" />
+    <ProjectReference Include="../App.Infrastructure/App.Infrastructure.csproj" />
+    <ProjectReference Include="../App.Connectors.Monday/App.Connectors.Monday.csproj" />
+  </ItemGroup>
+</Project>

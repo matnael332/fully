@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <!-- External package versions are intentionally deferred until a restore-capable .NET environment is available. -->
+</Project>

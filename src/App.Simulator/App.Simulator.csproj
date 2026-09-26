@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>WorkContinuity.Simulator</AssemblyName>
+    <RootNamespace>WorkContinuity.Simulator</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../App.Core/App.Core.csproj" />
+  </ItemGroup>
+</Project>
