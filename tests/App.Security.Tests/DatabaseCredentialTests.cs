@@ -12,7 +12,13 @@ public sealed class DatabaseCredentialTests
 {
     private static IEnumerable<FileInfo> CommittedTextFiles()
     {
-        string[] extensions = [".cs", ".json", ".yml", ".yaml", ".props", ".csproj", ".ps1", ".sh", ".sql", ".md"];
+        // Bicep sources and parameter files are included: infrastructure is exactly where a connection
+        // string with a literal password is most likely to be pasted.
+        string[] extensions =
+        [
+            ".cs", ".json", ".yml", ".yaml", ".props", ".csproj", ".ps1", ".sh", ".sql", ".md",
+            ".bicep", ".bicepparam",
+        ];
 
         return RepositoryLayout.Root
             .EnumerateFiles("*", SearchOption.AllDirectories)

@@ -31,7 +31,20 @@ PostgreSQL row-level security as a second isolation boundary, pgvector enabled, 
 (inbox) and transactional outbox storage, and base persistence abstractions. Four tables only; no
 event pipeline, no Service Bus publishing, no Work Memory, no AI, no authentication.
 
-### Gate 1E onward
+### Gate 1E — Azure Infrastructure as Code
+Status: **IaC PHASE PASS — final Gate PENDING REAL DEPLOYMENT**
+
+Modular Bicep for the Dev and Synthetic environments: resource group per environment, VNet with
+delegated subnets, Log Analytics, Application Insights, private ACR (admin disabled), Key Vault
+(RBAC, per-secret access), Blob Storage (no shared keys), Service Bus Standard with the three canonical
+queues (local auth disabled), private PostgreSQL Flexible Server with the `vector` extension
+allow-listed, three per-workload managed identities with least-privilege RBAC, VNet-integrated
+Container Apps environment, Web and Worker apps, and a manual migration job. All 22 resource types use
+GA API versions. Bicep build and lint are clean. Dev/Synthetic isolation is proven by diffing the
+compiled parameters. No Azure resource has been deployed; this machine holds no Azure credentials, so
+validation, what-if and Israel Central SKU availability are pending authentication.
+
+### Gate 1F onward
 Status: **NOT STARTED unless explicitly approved by the product owner**
 
 ## Verified evidence for Gate 1A / 1B
@@ -118,7 +131,28 @@ Two operational notes for developers:
 
 See `docs/gates/gate-1D-report.md` for the full report.
 
+## Verified evidence for Gate 1E (IaC phase)
+
+Verified on 2026-09-27. Azure CLI 2.90.0, Bicep CLI 0.47.16.
+
+| Check | Result |
+|---|---|
+| `az bicep build` (main + both parameter files) | PASS — 0 warnings, 0 errors |
+| `az bicep lint` | PASS — 0 diagnostics |
+| Preview API versions | none |
+| Repository secret scan | PASS |
+| `dotnet build` / `dotnet test` | PASS — 230/230 |
+| Architecture verification | PASS |
+| Gate 1B regression (clean slate) | PASS |
+| Azure authentication | not logged in |
+| Azure validation / what-if / region-SKU availability | pending authentication |
+| Azure resources deployed | none |
+
+See `docs/gates/gate-1E-report.md` for the full report, including the remaining blockers before a
+real deployment (login, Israel Central availability, validate/what-if, the Azure runtime-role bootstrap
+job, real images).
+
 ## Immediate recommended next action in Claude Code
 
-Gate 1A through Gate 1D are closed. Do not begin Gate 1E without explicit product-owner
-authorization.
+Gate 1A through Gate 1D are closed; Gate 1E is complete as code and awaits an approved real
+deployment. Do not deploy, and do not begin Gate 1F, without explicit product-owner authorization.

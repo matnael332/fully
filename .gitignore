@@ -13,3 +13,5 @@ secrets.json
 *.pfx
 *.snk
 artifacts/
+# Compiled ARM output from `az bicep build`; the .bicep sources are the committed artefact.
+infra/bicep/**/*.json

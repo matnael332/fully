@@ -19,8 +19,9 @@ Claude Code and human developers must read:
 - Gate 1B — Local Development Environment: **PASS**. Docker local smoke test PASS; PostgreSQL healthy; Service Bus emulator healthy; Web readiness healthy; Worker dependencies ready.
 - Gate 1C — Core Platform Skeleton: **PASS**. Tenant context, identity abstractions, correlation context, clock, result/error model, feature flags, audit contracts and operation context. `dotnet test` PASS with 188 tests.
 - Gate 1D — Database Foundation: **PASS**. PostgreSQL migrations, tenant-aware persistence, row-level security, pgvector, raw-receipt inbox and transactional outbox. `dotnet test` PASS with 230 tests.
+- Gate 1E — Azure Infrastructure as Code: **IaC phase PASS**, final Gate pending an approved real deployment. Modular Bicep for Dev and Synthetic; build and lint clean; no resource deployed.
 - Architecture/PRD contradictions: none.
-- Gate 1E onward: do not start without explicit product-owner approval.
+- Gate 1F onward: do not start without explicit product-owner approval.
 
 See `docs/canonical/PROJECT-STATUS.md` for the full verified evidence table.
 
@@ -65,3 +66,11 @@ Database commands:
 
 The database tests are real integration tests against the local PostgreSQL container, so
 `dotnet test` requires the local stack to be running (`./eng/dev.ps1 up`).
+
+Azure infrastructure (Bicep) commands — see `infra/bicep/README.md`:
+
+```powershell
+./eng/infra.ps1 build                                              # local
+./eng/infra.ps1 lint                                               # local
+./eng/infra.ps1 whatif -Environment dev -SubscriptionId <id>       # read-only, needs az login
+```

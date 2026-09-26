@@ -1,0 +1,46 @@
+// Dev environment.
+//
+// Everything that differs between Dev and Synthetic is a parameter here. The infrastructure itself is
+// one set of templates. The two environments never share a database, a secret, an identity or an
+// address space: each gets its own resource group and its own instance of every resource, and the
+// secrets are read from environment-specific variables so a Dev password can never be handed to
+// Synthetic by accident.
+
+using '../main.bicep'
+
+param environmentName = 'dev'
+param location = 'israelcentral'
+param regionToken = 'ilc'
+
+// 10.10.0.0/16 for Dev. Synthetic uses 10.20.0.0/16, so the two can never be peered into one network.
+param vnetAddressPrefix = '10.10.0.0/16'
+param appsSubnetPrefix = '10.10.0.0/23'
+param postgresSubnetPrefix = '10.10.2.0/28'
+
+param postgresAdministratorLogin = 'wce_admin'
+param databaseName = 'workcontinuity'
+param postgresRuntimeRoleName = 'workcontinuity_app'
+
+// Secrets are supplied by the operator's environment at deployment time and are never written here.
+// The variable names are environment-specific on purpose. The empty default lets the parameter file
+// compile for local validation; eng/infra.ps1 refuses to validate, what-if or deploy while either
+// variable is unset, and Azure itself rejects an empty administrator password.
+param postgresAdministratorPassword = readEnvironmentVariable('WCE_DEV_POSTGRES_ADMIN_PASSWORD', '')
+param postgresRuntimeRolePassword = readEnvironmentVariable('WCE_DEV_POSTGRES_RUNTIME_ROLE_PASSWORD', '')
+
+// Smallest supported footprint. Dev exists to prove the foundation, not to carry load.
+param postgresSkuName = 'Standard_B1ms'
+param postgresSkuTier = 'Burstable'
+param postgresStorageSizeGb = 32
+param maxReplicas = 2
+param logRetentionInDays = 30
+param logDailyQuotaGb = 1
+
+// Placeholder images until the CI/CD Gate publishes real ones to the environment's registry.
+param webImage = 'mcr.microsoft.com/k8se/quickstart:latest'
+param workerImage = 'mcr.microsoft.com/k8se/quickstart:latest'
+
+param additionalTags = {
+  dataBoundary: 'dev'
+  purpose: 'foundation-development'
+}
