@@ -2,5 +2,13 @@
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
-  <!-- External package versions are intentionally deferred until a restore-capable .NET environment is available. -->
+  <!--
+    Production projects intentionally reference no external packages yet; Core in particular stays
+    on the base class library so it cannot acquire a provider or SDK dependency.
+    xunit.v3 is the single test dependency authorized by Gate 1C. It is self-executing on
+    Microsoft.Testing.Platform, so no separate runner or VSTest adapter package is required.
+  -->
+  <ItemGroup>
+    <PackageVersion Include="xunit.v3" Version="4.0.1" />
+  </ItemGroup>
 </Project>

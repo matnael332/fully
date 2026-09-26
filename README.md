@@ -17,9 +17,9 @@ Claude Code and human developers must read:
 
 - Gate 1A — Repository & Solution Skeleton: **PASS**. `dotnet restore` PASS; `dotnet build` PASS with 0 warnings and 0 errors; architecture dependency rules PASS.
 - Gate 1B — Local Development Environment: **PASS**. Docker local smoke test PASS; PostgreSQL healthy; Service Bus emulator healthy; Web readiness healthy; Worker dependencies ready.
+- Gate 1C — Core Platform Skeleton: **PASS**. Tenant context, identity abstractions, correlation context, clock, result/error model, feature flags, audit contracts and operation context. `dotnet test` PASS with 188 tests.
 - Architecture/PRD contradictions: none.
-- Real test-project infrastructure is deferred to a later Gate; `dotnet test` currently discovers zero tests.
-- Gate 1C onward: do not start without explicit product-owner approval.
+- Gate 1D onward: do not start without explicit product-owner approval.
 
 See `docs/canonical/PROJECT-STATUS.md` for the full verified evidence table.
 

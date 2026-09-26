@@ -23,6 +23,23 @@ The MVP is a modular monolith with explicit compile-time boundaries.
 - The simulator must not become a production dependency.
 - No production project may reference any project under `/tests`.
 
+## Test projects
+
+Test projects may reference production projects; production projects may never reference a test
+project. `App.Architecture.Tests` deliberately references no production project: it inspects the
+project files on disk, so it cannot perturb the graph it validates.
+
+## Package rules
+
+`App.Core` references no external package at all, so it cannot acquire a web, Azure, database, AI or
+SaaS dependency — not even transitively. No production project may reference an Azure, Npgsql or AI
+provider package until the Gate that introduces it.
+
+## Enforcement
+
+These rules are enforced twice: by `eng/verify-architecture.py` and by the assertions in
+`tests/App.Architecture.Tests`, so a violation fails both the gate script and the build.
+
 ## Architectural intent
 
 Business contracts and invariants live in `App.Core`. Infrastructure implements interfaces from Core. Composition roots are `App.Web` and `App.Worker`. SaaS adapters are replaceable. The Windows agent remains a limited sensor/executor rather than a business authority.

@@ -1,3 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <!--
+    Deliberately references no production project. The dependency-boundary assertions inspect the
+    project files on disk, so this project cannot itself perturb the graph it validates.
+  -->
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
 </Project>

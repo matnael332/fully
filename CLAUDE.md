@@ -63,6 +63,7 @@ For every task:
 - System Architecture v1: frozen baseline.
 - Development Gate 1A: **PASS**. Runtime verified: `dotnet restore` PASS, `dotnet build` PASS (0 warnings, 0 errors), architecture dependency rules PASS.
 - Development Gate 1B: **PASS**. Runtime verified: Docker local smoke test PASS, PostgreSQL healthy, Service Bus emulator healthy, Web readiness healthy, Worker dependencies ready.
+- Development Gate 1C: **PASS**. Core platform primitives (tenant context, identity, correlation, clock, result/error, feature flags, audit contracts, operation context). `dotnet build` PASS (0 warnings, 0 errors); `dotnet test` PASS with 188 tests.
 - Architecture/PRD contradictions: none found.
-- Real test-project infrastructure is not yet implemented and remains scheduled for a later Gate; do not add a test framework without explicit product-owner approval.
+- Test framework: `xunit.v3` only. `dotnet test` requires the `test.runner` opt-in in `global.json`; the .NET 10 SDK removed the VSTest path.
 - Next approved development work must be explicitly authorized by the product owner.

@@ -1,0 +1,20 @@
+<Project>
+
+  <!--
+    Directory.Build.props discovery stops at the first file found walking up, so the repository-wide
+    settings are imported explicitly before the test-specific ones are applied.
+  -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <!-- xunit.v3 test projects are self-executing Microsoft.Testing.Platform applications. -->
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
