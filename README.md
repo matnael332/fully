@@ -19,9 +19,9 @@ Claude Code and human developers must read:
 - Gate 1B — Local Development Environment: **PASS**. Docker local smoke test PASS; PostgreSQL healthy; Service Bus emulator healthy; Web readiness healthy; Worker dependencies ready.
 - Gate 1C — Core Platform Skeleton: **PASS**. Tenant context, identity abstractions, correlation context, clock, result/error model, feature flags, audit contracts and operation context. `dotnet test` PASS with 188 tests.
 - Gate 1D — Database Foundation: **PASS**. PostgreSQL migrations, tenant-aware persistence, row-level security, pgvector, raw-receipt inbox and transactional outbox. `dotnet test` PASS with 230 tests.
-- Gate 1E — Azure Infrastructure as Code: **IaC phase PASS**, final Gate pending an approved real deployment. Modular Bicep for Dev and Synthetic; build and lint clean; no resource deployed.
+- Gate 1E — Azure Infrastructure as Code: **PASS**. Modular Bicep for Dev and Synthetic; Dev deployed and verified in North Europe on 2026-09-27 with placeholder images; Synthetic defined, not deployed.
 - Architecture/PRD contradictions: none.
-- Gate 1F onward: do not start without explicit product-owner approval.
+- Gate 1F — CI/CD & Identity: **NEXT / NOT STARTED**. Do not start without explicit product-owner approval.
 
 See `docs/canonical/PROJECT-STATUS.md` for the full verified evidence table.
 

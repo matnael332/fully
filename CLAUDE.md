@@ -65,10 +65,11 @@ For every task:
 - Development Gate 1B: **PASS**. Runtime verified: Docker local smoke test PASS, PostgreSQL healthy, Service Bus emulator healthy, Web readiness healthy, Worker dependencies ready.
 - Development Gate 1C: **PASS**. Core platform primitives (tenant context, identity, correlation, clock, result/error, feature flags, audit contracts, operation context). `dotnet build` PASS (0 warnings, 0 errors); `dotnet test` PASS with 188 tests.
 - Development Gate 1D: **PASS**. PostgreSQL database foundation (EF Core migrations, tenant-aware persistence, row-level security, pgvector, raw-receipt inbox, transactional outbox). `dotnet build` PASS (0 warnings, 0 errors); `dotnet test` PASS with 230 tests.
-- Development Gate 1E: **IaC phase PASS; final Gate PENDING REAL DEPLOYMENT.** Modular Bicep under `infra/bicep/`; build and lint clean; no Azure resource has been deployed. Never run `az deployment` without explicit product-owner approval; use `eng/infra.ps1`, which requires `-Approve`.
+- Development Gate 1E: **PASS**. Modular Bicep under `infra/bicep/`; Dev deployed to `rg-wce-dev-neu` in North Europe on 2026-09-27 (attempt 2 succeeded: 22/22 modules, Web and Worker Healthy/Running, PostgreSQL Ready, 13 role assignments). Placeholder images only: real health endpoints, runtime-role bootstrap, database connectivity and telemetry are Gate 1F follow-ups. Synthetic is defined but not deployed. Never run `az deployment` without explicit product-owner approval; use `eng/infra.ps1`, which requires `-Approve`.
 - Architecture/PRD contradictions: none found.
 - Persistence lives in `App.Infrastructure` only. `App.Core` has zero packages and must stay persistence-agnostic.
 - The application connects as the non-owner role `workcontinuity_app`; the schema owner is for migrations only, because a PostgreSQL superuser bypasses row-level security.
 - `dotnet test` requires the local Docker stack, because the database tests are real integration tests.
 - Test framework: `xunit.v3` only. `dotnet test` requires the `test.runner` opt-in in `global.json`; the .NET 10 SDK removed the VSTest path.
+- Development Gate 1F (CI/CD & Identity): **NEXT / NOT STARTED**.
 - Next approved development work must be explicitly authorized by the product owner.

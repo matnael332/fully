@@ -2,19 +2,28 @@
 
 ## Status
 
+**Gate 1E: PASS** — declared by the product owner on 2026-09-27 after the verified Dev deployment.
+
 **IaC phase: PASS.** Every locally verifiable acceptance criterion holds.
 
-**Final Gate 1E: PENDING REAL DEPLOYMENT.** The first real Dev deployment (2026-09-27) failed at the
-Web and Worker apps; the rest of the environment exists. See *Deployment attempts*.
-On 2026-09-27 Azure authentication, subscription nomination, resource-provider registration (a
-subscription setting, approved by the product owner), region eligibility and full server-side
-validation of the Dev template were completed; see *Region selection*. What-if has been run and reviewed
-(30 to create, 0 to modify, 0 to delete). The real deployment remains pending product-owner approval.
+**Real deployment: PASS (Dev).** Dev deployment attempt 2 (`wce-dev-20260927-121957`) succeeded on
+2026-09-27: all 22 module deployments succeeded; Web and Worker are Healthy/Running; PostgreSQL is
+Ready; the 13 intended role assignments are present; the Application Insights Key Vault secret access
+issue and the PostgreSQL subnet drift are resolved; the Web root returns HTTP 200 with the placeholder
+image. See *Deployment attempts* and *Post-deployment verification*.
+
+**Carried forward, not part of this Gate's acceptance:** real application health endpoints, the
+runtime-role bootstrap, database connectivity and telemetry remain future work because real images are
+not deployed yet (CI/CD is Gate 1F). Synthetic IaC exists and remains isolated but has not been
+deployed; its current Israel Central parameter cannot be used for Container Apps and requires a later
+region/subscription decision.
 
 ## Scope
 
 Modular Bicep for the Dev and Synthetic environments defined in System Architecture v1, plus the
-scripts to build, lint, validate, preview and deploy them. Nothing in this Gate deploys anything.
+scripts to build, lint, validate, preview and deploy them. The IaC phase deployed nothing; the Gate
+closed after two approved Dev deployment attempts: attempt 1 failed, attempt 2 succeeded and was
+verified (see *Deployment attempts*).
 
 Excluded on purpose: Azure Front Door/WAF (required before the Human Pilot, not to prove the
 foundation), Kubernetes, API Management, Redis, AI Search, native mobile infrastructure.
@@ -39,7 +48,7 @@ parameters — no infrastructure is copied.
 | 3 user-assigned managed identities | `managedIdentity.bicep` | One per workload: web, worker, jobs |
 | 13 role assignments | `roleAssignments.bicep` | Least privilege; Key Vault scoped **per secret** (11 originally; two added after deployment attempt 1, see problem 7) |
 | Container Apps environment | `containerAppsEnvironment.bicep` | VNet-integrated; external ingress for webhooks, private egress |
-| Web/API Container App | `containerApp.bicep` | External ingress, liveness `/health/live`, readiness `/health/ready` |
+| Web/API Container App | `containerApp.bicep` | External ingress; liveness `/health/live` and readiness `/health/ready` with a real image, port 80 and no probes with the placeholder (problem 6) |
 | Worker Container App | `containerApp.bicep` | No ingress |
 | Migration Container Apps Job | `containerAppsJob.bicep` | Manual trigger, runs `--migrate-database`; the foundation for scheduled/synthetic jobs |
 
@@ -132,13 +141,13 @@ invokes `az deployment`.
 | Azure validation (`az deployment sub validate`, Dev) | **PASS in North Europe — 38 resources, provisioningState Succeeded** (2026-09-27) |
 | Azure what-if (`az deployment sub what-if`, Dev, North Europe) | Before attempt 1: **30 to create, 0 to modify, 0 to delete**, 11 unsupported (the role assignments, whose IDs depend on principal IDs that exist only once the identities are created). After the problem-7 fix, against the partially deployed environment: **0 to create, 14 to modify, 16 no change, 2 to ignore, 13 unsupported** — the 13 are the role assignments including the two new ones; the 14 "modify" entries are what-if noise (server-side defaults, read-only properties and `reference()` expressions) plus the two failed apps, which re-provision; the 2 ignored are the smart-detection resources Application Insights created on its own (2026-09-27, reviewed by the product owner) |
 | Region/SKU availability | Verified 2026-09-27; Israel Central and West Europe rejected, North Europe selected — see *Region selection* |
-| Azure resources deployed | Dev attempt 1 (`wce-dev-20260927-113601`) **FAILED** at the Web and Worker apps; 20 of 22 module deployments succeeded and the environment otherwise exists in `rg-wce-dev-neu` — see *Deployment attempts* |
+| Azure resources deployed | Dev environment deployed in `rg-wce-dev-neu`, North Europe: attempt 1 failed at the apps (problem 7), **attempt 2 succeeded** (`wce-dev-20260927-121957`, 22 of 22 modules) — see *Deployment attempts* and *Post-deployment verification* |
 
 Azure-facing commands run on 2026-09-27, each shown to the product owner first: `az login` (tenant-scoped),
 `az account` queries, read-only `az rest` GETs and `az provider show/list`, `az provider register`
 (approved), `az postgres flexible-server list-skus`, `az deployment sub validate` and
-`az deployment sub what-if`. `az deployment sub create` was run once, by the product owner through
-`eng/infra.ps1 deploy -Approve` (attempt 1, failed; see *Deployment attempts*).
+`az deployment sub what-if`. `az deployment sub create` was run twice, by the product owner through
+`eng/infra.ps1 deploy -Approve` (attempt 1 failed, attempt 2 succeeded; see *Deployment attempts*).
 
 ## Problems found and fixed
 
@@ -178,7 +187,7 @@ Azure-facing commands run on 2026-09-27, each shown to the product owner first: 
    removal on the next VNet update, which Azure may refuse on an in-use delegated subnet. Fixed by
    declaring the endpoint on `snet-postgres` only; no other subnet or networking property changed.
 
-## Remaining blockers before a real deployment
+## Blockers resolved and follow-ups
 
 1. **Azure access — resolved 2026-09-27.** Tenant-scoped `az login` (MFA enforced), subscription
    `Azure subscription 1` (Free Trial, spending limit on) nominated by the product owner, eleven resource
@@ -186,12 +195,10 @@ Azure-facing commands run on 2026-09-27, each shown to the product owner first: 
 2. **Region — resolved 2026-09-27.** The region is a Gate 1E parameter, not an architecture requirement.
    Israel Central and West Europe were rejected on evidence and North Europe selected after full
    validation; see *Region selection*.
-3. **Deployment approval.** Attempt 1 (2026-09-27) failed at the Web and Worker apps for a missing role
-   assignment (problem 7). After the fix, `validate` passed again and `whatif` against the partially
-   deployed environment shows 0 create, 14 modify (noise plus the two apps re-provisioning), 16 no change,
-   2 ignore and 13 unsupported role assignments. Attempt 2 awaits explicit product-owner approval and must
-   be run interactively by the product owner with the **same two Dev passwords as attempt 1**, because the
-   PostgreSQL administrator password is set from that parameter on every deployment.
+3. **Deployment — resolved 2026-09-27.** Attempt 1 failed at the Web and Worker apps for a missing role
+   assignment (problem 7). After that fix and the subnet-drift fix (problem 8), `validate` and `whatif`
+   were re-run and attempt 2 succeeded, run by the product owner with the same two Dev passwords as
+   attempt 1 (the PostgreSQL administrator password is set from that parameter on every deployment).
 4. **Runtime-role bootstrap in Azure is not implemented.** Locally, `workcontinuity_app` is created by a
    container init script. In Azure the equivalent must read `postgres-runtime-role-password` from Key
    Vault at run time and `CREATE ROLE` — a job entry point, not a migration, because a migration must
@@ -209,6 +216,26 @@ Azure-facing commands run on 2026-09-27, each shown to the product owner first: 
 | Attempt | When (UTC) | Result | Detail |
 |---|---|---|---|
 | 1 — `wce-dev-20260927-113601`, run by the product owner via `eng/infra.ps1 deploy -Approve` | 2026-09-27 08:38–08:47 | **FAILED** after 9 min 29 s | 20 of 22 module deployments succeeded: resource group, network, private DNS zone and link, Log Analytics, Application Insights, registry, Key Vault and its four secrets, storage, Service Bus and queues, PostgreSQL server and database, three identities, 11 role assignments, Container Apps environment, migration job. `container-app-web` and `container-app-worker` failed with `ContainerAppOperationError`: unable to fetch secret `appinsights-connection-string` with the app's managed identity. Root cause: no role assignment on `application-insights-connection-string` for either identity (problem 7). Both apps exist in provisioning state Failed and will be re-provisioned by the next incremental deployment. |
+| 2 — `wce-dev-20260927-121957`, run by the product owner via `eng/infra.ps1 deploy -Approve` after commits `525aec6` and `5309f91`, same two passwords as attempt 1 | 2026-09-27 09:22–09:25 | **SUCCEEDED** in 3 min 18 s | All 22 module deployments succeeded; 13 role assignments created; both apps provisioned and Healthy/Running; no failed operation. |
+
+## Post-deployment verification (2026-09-27, read-only)
+
+| Check | Result |
+|---|---|
+| Latest subscription deployment | `wce-dev-20260927-121957` **Succeeded**, 3 min 18 s |
+| Module deployments | **22 of 22 Succeeded**; 0 failed operations in `wce-dev`, `container-app-web`, `container-app-worker`, `role-assignments`, `network`, `postgres` |
+| `ca-wce-dev-neu-web` | provisioning Succeeded, Running; revision Provisioned / **Healthy** / Running, 1 replica; ingress target port 80 (placeholder) |
+| `ca-wce-dev-neu-worker` | provisioning Succeeded, Running; revision Provisioned / **Healthy** / Running, 1 replica; no ingress |
+| Key Vault-backed secrets | both apps carry `postgres-app-connection-string` and `appinsights-connection-string`; both revisions provisioned without error — the attempt-1 failure is resolved |
+| Role assignments | **exactly 13** inside `rg-wce-dev-neu`, all attributable to the three identities; Web and Worker each hold Key Vault Secrets User on `postgres-app-connection-string` and `application-insights-connection-string`; no vault-wide assignment |
+| PostgreSQL | `psql-wce-dev-neu-33f52b` **Ready**, version 17, `Standard_B1ms`, 32 GB, public network access Disabled |
+| PostgreSQL subnet | delegation intact; `Microsoft.Storage` service endpoint present (drift resolved, problem 8) |
+| Web ingress | `GET /` → **HTTP 200** (quickstart page); `/health/live` and `/health/ready` → 404, expected with the placeholder image |
+| Migration job | provisioned, manual trigger, never executed (must not be triggered with the placeholder image) |
+| Resources in the group | 19 listed by `az resource list` (child resources such as queues, secrets and the database are not listed separately): 17 from the template plus the two smart-detection resources Application Insights creates on its own |
+
+Not verified, by design of the placeholder stage: real health endpoints, database connectivity, the
+runtime-role bootstrap, telemetry flow and Log Analytics ingestion. These depend on real images (Gate 1F).
 
 ## Region selection (2026-09-27)
 
@@ -234,4 +261,5 @@ access path, Bicep as IaC, Dev/Synthetic as separate boundaries with no shared d
 all as written in System Architecture v1 §9 and the invariants (52, 53, 56, 63, 68, 69). No
 contradiction found. No canonical document was changed.
 
-**Gate 1F was not started.**
+**Gate 1E: PASS. Gate 1F (CI/CD & Identity) is NEXT and NOT STARTED; it requires explicit product-owner
+authorization.**

@@ -32,19 +32,32 @@ PostgreSQL row-level security as a second isolation boundary, pgvector enabled, 
 event pipeline, no Service Bus publishing, no Work Memory, no AI, no authentication.
 
 ### Gate 1E — Azure Infrastructure as Code
-Status: **IaC PHASE PASS — final Gate PENDING REAL DEPLOYMENT**
+Status: **PASS — Dev deployed, verified and product-owner approved (2026-09-27)**
 
 Modular Bicep for the Dev and Synthetic environments: resource group per environment, VNet with
 delegated subnets, Log Analytics, Application Insights, private ACR (admin disabled), Key Vault
 (RBAC, per-secret access), Blob Storage (no shared keys), Service Bus Standard with the three canonical
 queues (local auth disabled), private PostgreSQL Flexible Server with the `vector` extension
-allow-listed, three per-workload managed identities with least-privilege RBAC, VNet-integrated
-Container Apps environment, Web and Worker apps, and a manual migration job. All 22 resource types use
-GA API versions. Bicep build and lint are clean. Dev/Synthetic isolation is proven by diffing the
-compiled parameters. No Azure resource has been deployed; this machine holds no Azure credentials, so
-validation, what-if and Israel Central SKU availability are pending authentication.
+allow-listed, three per-workload managed identities with 13 least-privilege role assignments,
+VNet-integrated Container Apps environment, Web and Worker apps, and a manual migration job. All 22
+resource types use GA API versions. Dev/Synthetic isolation is proven by diffing the compiled parameters.
 
-### Gate 1F onward
+Dev is deployed in `rg-wce-dev-neu`, North Europe (Israel Central lacks Azure Container Apps; West Europe
+rejects new customers on this subscription). Deployment attempt 1 failed at the Web and Worker apps
+because no role assignment existed on the Application Insights Key Vault secret; after that fix and the
+declaration of the `Microsoft.Storage` service endpoint Flexible Server adds to its subnet, attempt 2
+succeeded: 22 of 22 module deployments, Web and Worker Healthy/Running, PostgreSQL Ready, 13 role
+assignments present, Web root HTTP 200 with the placeholder image.
+
+Carried forward, not Gate 1E acceptance: real application health endpoints, runtime-role bootstrap,
+database connectivity and telemetry wait for real images (Gate 1F). Synthetic IaC exists and remains
+isolated but is not deployed; its Israel Central parameter cannot host Container Apps and needs a later
+region/subscription decision (the Free Trial allows one Container Apps environment per region).
+
+### Gate 1F — CI/CD & Identity
+Status: **NEXT / NOT STARTED — requires explicit product-owner authorization**
+
+### Gate 1G onward
 Status: **NOT STARTED unless explicitly approved by the product owner**
 
 ## Verified evidence for Gate 1A / 1B
@@ -131,7 +144,7 @@ Two operational notes for developers:
 
 See `docs/gates/gate-1D-report.md` for the full report.
 
-## Verified evidence for Gate 1E (IaC phase)
+## Verified evidence for Gate 1E
 
 Verified on 2026-09-27. Azure CLI 2.90.0, Bicep CLI 0.47.16.
 
@@ -144,15 +157,18 @@ Verified on 2026-09-27. Azure CLI 2.90.0, Bicep CLI 0.47.16.
 | `dotnet build` / `dotnet test` | PASS — 230/230 |
 | Architecture verification | PASS |
 | Gate 1B regression (clean slate) | PASS |
-| Azure authentication | not logged in |
-| Azure validation / what-if / region-SKU availability | pending authentication |
-| Azure resources deployed | none |
+| Azure authentication | tenant-scoped `az login` (MFA enforced); Free Trial subscription nominated by the product owner |
+| Region eligibility | Israel Central rejected (no Container Apps); West Europe rejected (not accepting new customers); North Europe selected after full validation |
+| Azure validation / what-if (Dev, North Europe) | PASS; what-if reviewed before each attempt |
+| Dev deployment | attempt 1 FAILED (missing role assignment on the Application Insights secret); **attempt 2 SUCCEEDED** — 22 of 22 modules |
+| Post-deployment verification (read-only) | Web and Worker Healthy/Running; PostgreSQL Ready; 13 role assignments; subnet endpoint present; Web root HTTP 200 (placeholder) |
+| Synthetic | IaC defined and isolated; **not deployed** |
 
-See `docs/gates/gate-1E-report.md` for the full report, including the remaining blockers before a
-real deployment (login, Israel Central availability, validate/what-if, the Azure runtime-role bootstrap
-job, real images).
+See `docs/gates/gate-1E-report.md` for the full report: region selection, both deployment attempts, the
+post-deployment verification, and the follow-ups carried into later Gates (runtime-role bootstrap job,
+real images, Synthetic deployment decision).
 
 ## Immediate recommended next action in Claude Code
 
-Gate 1A through Gate 1D are closed; Gate 1E is complete as code and awaits an approved real
-deployment. Do not deploy, and do not begin Gate 1F, without explicit product-owner authorization.
+Gate 1A through Gate 1E are closed. Gate 1F (CI/CD & Identity) is next and has not started; do not begin
+it, and do not deploy or change Azure resources, without explicit product-owner authorization.
