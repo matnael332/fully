@@ -4,7 +4,8 @@
 
 **IaC phase: PASS.** Every locally verifiable acceptance criterion holds.
 
-**Final Gate 1E: PENDING REAL DEPLOYMENT.** No Azure resource has been created, updated or deleted.
+**Final Gate 1E: PENDING REAL DEPLOYMENT.** The first real Dev deployment (2026-09-27) failed at the
+Web and Worker apps; the rest of the environment exists. See *Deployment attempts*.
 On 2026-09-27 Azure authentication, subscription nomination, resource-provider registration (a
 subscription setting, approved by the product owner), region eligibility and full server-side
 validation of the Dev template were completed; see *Region selection*. What-if has been run and reviewed
@@ -36,7 +37,7 @@ parameters — no infrastructure is copied.
 | Service Bus Standard + 3 queues | `serviceBus.bicep` | `event-processing`, `ai-jobs`, `action-jobs`; **local auth disabled** |
 | PostgreSQL Flexible Server + database | `postgres.bicep` | Private access only; `vector` allow-listed |
 | 3 user-assigned managed identities | `managedIdentity.bicep` | One per workload: web, worker, jobs |
-| 11 role assignments | `roleAssignments.bicep` | Least privilege; Key Vault scoped **per secret** |
+| 13 role assignments | `roleAssignments.bicep` | Least privilege; Key Vault scoped **per secret** (11 originally; two added after deployment attempt 1, see problem 7) |
 | Container Apps environment | `containerAppsEnvironment.bicep` | VNet-integrated; external ingress for webhooks, private egress |
 | Web/API Container App | `containerApp.bicep` | External ingress, liveness `/health/live`, readiness `/health/ready` |
 | Worker Container App | `containerApp.bicep` | No ingress |
@@ -129,14 +130,15 @@ invokes `az deployment`.
 | `az account show` | Authenticated 2026-09-27 via tenant-scoped login (MFA enforced); subscription `Azure subscription 1`, Free Trial, product-owner nominated |
 | Resource providers | 11 namespaces registered 2026-09-27 with product-owner approval |
 | Azure validation (`az deployment sub validate`, Dev) | **PASS in North Europe — 38 resources, provisioningState Succeeded** (2026-09-27) |
-| Azure what-if (`az deployment sub what-if`, Dev, North Europe) | **30 resources to create, 0 to modify, 0 to delete**; 11 entries reported as "unsupported", all of them the role assignments, because their resource IDs depend on managed-identity principal IDs that exist only once the deployment creates the identities (2026-09-27, reviewed by the product owner) |
+| Azure what-if (`az deployment sub what-if`, Dev, North Europe) | Before attempt 1: **30 to create, 0 to modify, 0 to delete**, 11 unsupported (the role assignments, whose IDs depend on principal IDs that exist only once the identities are created). After the problem-7 fix, against the partially deployed environment: **0 to create, 14 to modify, 16 no change, 2 to ignore, 13 unsupported** — the 13 are the role assignments including the two new ones; the 14 "modify" entries are what-if noise (server-side defaults, read-only properties and `reference()` expressions) plus the two failed apps, which re-provision; the 2 ignored are the smart-detection resources Application Insights created on its own (2026-09-27, reviewed by the product owner) |
 | Region/SKU availability | Verified 2026-09-27; Israel Central and West Europe rejected, North Europe selected — see *Region selection* |
-| Azure resources deployed | **NONE** |
+| Azure resources deployed | Dev attempt 1 (`wce-dev-20260927-113601`) **FAILED** at the Web and Worker apps; 20 of 22 module deployments succeeded and the environment otherwise exists in `rg-wce-dev-neu` — see *Deployment attempts* |
 
 Azure-facing commands run on 2026-09-27, each shown to the product owner first: `az login` (tenant-scoped),
 `az account` queries, read-only `az rest` GETs and `az provider show/list`, `az provider register`
 (approved), `az postgres flexible-server list-skus`, `az deployment sub validate` and
-`az deployment sub what-if`. No `az deployment sub create` has been invoked.
+`az deployment sub what-if`. `az deployment sub create` was run once, by the product owner through
+`eng/infra.ps1 deploy -Approve` (attempt 1, failed; see *Deployment attempts*).
 
 ## Problems found and fixed
 
@@ -162,6 +164,19 @@ Azure-facing commands run on 2026-09-27, each shown to the product owner first: 
    what-if output (2026-09-27). Fixed in `environment.bicep`: the Web app's port and probes now follow
    the image, so the placeholder provisions and the real image keeps 8080 with `/health/live` and
    `/health/ready`. The Worker has no ingress and no probes and needed no change.
+7. **Web and Worker could not read the Application Insights connection string.** Dev deployment attempt 1
+   failed at both apps with `ContainerAppOperationError`: "unable to fetch secret
+   'appinsights-connection-string' using Managed identity". Both apps reference the Key Vault secret
+   `application-insights-connection-string`, but `roleAssignments.bicep` granted Web and Worker only
+   `postgres-app-connection-string`; listing every role assignment in the subscription confirmed that no
+   assignment on the Application Insights secret existed for either identity. A missing assignment, not
+   RBAC propagation. The identity table above described the intended grants, not the deployed ones. Fixed
+   by adding two per-secret `Key Vault Secrets User` assignments (13 in total); no vault-wide access.
+8. **The PostgreSQL subnet drifted from the template after attempt 1.** Flexible Server adds a
+   `Microsoft.Storage` service endpoint to its delegated subnet on creation (confirmed on the live
+   `snet-postgres`). `network.bicep` did not declare it, so the what-if before attempt 2 predicted its
+   removal on the next VNet update, which Azure may refuse on an in-use delegated subnet. Fixed by
+   declaring the endpoint on `snet-postgres` only; no other subnet or networking property changed.
 
 ## Remaining blockers before a real deployment
 
@@ -171,11 +186,12 @@ Azure-facing commands run on 2026-09-27, each shown to the product owner first: 
 2. **Region — resolved 2026-09-27.** The region is a Gate 1E parameter, not an architecture requirement.
    Israel Central and West Europe were rejected on evidence and North Europe selected after full
    validation; see *Region selection*.
-3. **Deployment approval.** `validate` and `whatif` have both passed for Dev in North Europe and the
-   what-if result has been reviewed (30 create, 0 modify, 0 delete, 11 role assignments unpredictable by
-   design). `deploy -Approve` awaits explicit product-owner approval and must be run interactively by the
-   product owner, because the script confirms against a live what-if and needs the two durable Dev
-   passwords in that shell.
+3. **Deployment approval.** Attempt 1 (2026-09-27) failed at the Web and Worker apps for a missing role
+   assignment (problem 7). After the fix, `validate` passed again and `whatif` against the partially
+   deployed environment shows 0 create, 14 modify (noise plus the two apps re-provisioning), 16 no change,
+   2 ignore and 13 unsupported role assignments. Attempt 2 awaits explicit product-owner approval and must
+   be run interactively by the product owner with the **same two Dev passwords as attempt 1**, because the
+   PostgreSQL administrator password is set from that parameter on every deployment.
 4. **Runtime-role bootstrap in Azure is not implemented.** Locally, `workcontinuity_app` is created by a
    container init script. In Azure the equivalent must read `postgres-runtime-role-password` from Key
    Vault at run time and `CREATE ROLE` — a job entry point, not a migration, because a migration must
@@ -187,6 +203,12 @@ Azure-facing commands run on 2026-09-27, each shown to the product owner first: 
    Container Apps (scale-to-zero for Worker is not used since `minReplicas` is 1 for both apps),
    Log Analytics ingestion (capped), Storage, Key Vault operations, ACR Basic. Key Vault purge
    protection is off so foundation environments can be torn down; Human Pilot must enable it.
+
+## Deployment attempts
+
+| Attempt | When (UTC) | Result | Detail |
+|---|---|---|---|
+| 1 — `wce-dev-20260927-113601`, run by the product owner via `eng/infra.ps1 deploy -Approve` | 2026-09-27 08:38–08:47 | **FAILED** after 9 min 29 s | 20 of 22 module deployments succeeded: resource group, network, private DNS zone and link, Log Analytics, Application Insights, registry, Key Vault and its four secrets, storage, Service Bus and queues, PostgreSQL server and database, three identities, 11 role assignments, Container Apps environment, migration job. `container-app-web` and `container-app-worker` failed with `ContainerAppOperationError`: unable to fetch secret `appinsights-connection-string` with the app's managed identity. Root cause: no role assignment on `application-insights-connection-string` for either identity (problem 7). Both apps exist in provisioning state Failed and will be re-provisioned by the next incremental deployment. |
 
 ## Region selection (2026-09-27)
 

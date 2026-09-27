@@ -313,11 +313,13 @@ module roleAssignments 'modules/roleAssignments.bicep' = {
     applicationConnectionSecretName: secretNames.applicationConnectionString
     administrativeConnectionSecretName: secretNames.administrativeConnectionString
     runtimeRolePasswordSecretName: secretNames.runtimeRolePassword
+    applicationInsightsConnectionSecretName: secretNames.applicationInsightsConnectionString
   }
   dependsOn: [
     applicationConnectionSecret
     administrativeConnectionSecret
     runtimeRolePasswordSecret
+    applicationInsightsSecret
   ]
 }
 

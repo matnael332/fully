@@ -3,9 +3,9 @@ Least-privilege role assignments for the workload identities.
 
 Each workload has its own identity and receives only the roles it needs:
 
-- Web and Worker can pull images and read the *application* database secret. Neither can read the
-  administrative credential, so a compromise of a request-handling container cannot obtain the schema
-  owner's password.
+- Web and Worker can pull images and read two secrets: the *application* database connection string
+  and the Application Insights connection string. Neither can read the administrative credential, so
+  a compromise of a request-handling container cannot obtain the schema owner's password.
 - The jobs identity can read the administrative credential and the runtime-role password, because it
   performs migration and database bootstrap. It is never attached to an app that serves traffic.
 - Key Vault access is granted per secret rather than per vault, which is the difference between "can
@@ -42,6 +42,9 @@ param administrativeConnectionSecretName string
 @description('Secret holding the runtime role password.')
 param runtimeRolePasswordSecretName string
 
+@description('Secret holding the Application Insights connection string, read by Web and Worker for telemetry.')
+param applicationInsightsConnectionSecretName string
+
 // Built-in role definition ids rather than names, so an assignment stays stable if a role is renamed.
 var roles = {
   acrPull: '7f951dda-4ed3-4680-a7ca-43fe172d538d'
@@ -72,6 +75,11 @@ resource administrativeConnectionSecret 'Microsoft.KeyVault/vaults/secrets@2023-
 resource runtimeRolePasswordSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
   parent: vault
   name: runtimeRolePasswordSecretName
+}
+
+resource applicationInsightsConnectionSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: vault
+  name: applicationInsightsConnectionSecretName
 }
 
 resource serviceBus 'Microsoft.ServiceBus/namespaces@2024-01-01' existing = {
@@ -129,6 +137,29 @@ resource webApplicationSecret 'Microsoft.Authorization/roleAssignments@2022-04-0
 resource workerApplicationSecret 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: applicationConnectionSecret
   name: guid(applicationConnectionSecret.id, workerPrincipalId, roles.keyVaultSecretsUser)
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.keyVaultSecretsUser)
+    principalId: workerPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Telemetry: both apps reference the Application Insights connection string as a Container Apps
+// secret, so each needs read access to exactly that secret. Without these two assignments, revision
+// provisioning fails with "unable to fetch secret using managed identity" (Dev attempt 1, 2026-09-27).
+resource webApplicationInsightsSecret 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: applicationInsightsConnectionSecret
+  name: guid(applicationInsightsConnectionSecret.id, webPrincipalId, roles.keyVaultSecretsUser)
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.keyVaultSecretsUser)
+    principalId: webPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource workerApplicationInsightsSecret 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: applicationInsightsConnectionSecret
+  name: guid(applicationInsightsConnectionSecret.id, workerPrincipalId, roles.keyVaultSecretsUser)
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.keyVaultSecretsUser)
     principalId: workerPrincipalId
@@ -204,4 +235,4 @@ resource workerStorageContributor 'Microsoft.Authorization/roleAssignments@2022-
   }
 }
 
-output assignedRoleCount int = 11
+output assignedRoleCount int = 13

@@ -69,6 +69,14 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2023-11-01' = {
               }
             }
           ]
+          // Flexible Server adds this endpoint to its delegated subnet when the server is created.
+          // Declaring it keeps the template identical to the live subnet, so a redeployment does not
+          // try to remove it (seen in the what-if before Dev deployment attempt 2, 2026-09-27).
+          serviceEndpoints: [
+            {
+              service: 'Microsoft.Storage'
+            }
+          ]
         }
       }
     ]
