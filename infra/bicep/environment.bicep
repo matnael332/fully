@@ -76,6 +76,18 @@ param maxReplicas int = 2
 @description('Additional resource tags.')
 param additionalTags object = {}
 
+@description('GitHub repository (owner/name) allowed to deploy images through CD. Empty disables the deployment identity.')
+param githubRepository string = ''
+
+@description('GitHub numeric owner id, part of the immutable OIDC subject.')
+param githubOwnerId string = ''
+
+@description('GitHub numeric repository id, part of the immutable OIDC subject.')
+param githubRepositoryId string = ''
+
+@description('The only branch whose workflow runs may deploy.')
+param githubBranch string = 'main'
+
 // ---------------------------------------------------------------------------------------------
 // Naming. Deterministic: the same inputs always produce the same names, and the unique token is
 // derived from the subscription and environment so Dev and Synthetic never collide, while globally
@@ -102,6 +114,7 @@ var names = {
   webIdentity: 'id-${baseName}-web'
   workerIdentity: 'id-${baseName}-worker'
   jobsIdentity: 'id-${baseName}-jobs'
+  githubIdentity: 'id-${baseName}-github'
 }
 
 var secretNames = {
@@ -496,6 +509,30 @@ module migrationJob 'modules/containerAppsJob.bicep' = {
 }
 
 // ---------------------------------------------------------------------------------------------
+// GitHub Actions deployment identity (Gate 1F). Created only when a repository is configured, so
+// Synthetic gets no CD identity until it is deliberately given one. Scoped to the registry and the
+// two apps it may update; never attached to a workload.
+// ---------------------------------------------------------------------------------------------
+
+var deployFromGitHub = !empty(githubRepository)
+
+module deploymentIdentity 'modules/deploymentIdentity.bicep' = if (deployFromGitHub) {
+  name: 'deployment-identity-github'
+  params: {
+    name: names.githubIdentity
+    location: location
+    tags: union(tags, { gate: '1F' })
+    githubRepository: githubRepository
+    githubOwnerId: githubOwnerId
+    githubRepositoryId: githubRepositoryId
+    githubBranch: githubBranch
+    containerRegistryName: containerRegistry.outputs.name
+    webAppName: webApp.outputs.name
+    workerAppName: workerApp.outputs.name
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Outputs for the CI/CD Gate. Resource identity and endpoints only; never a secret value.
 // ---------------------------------------------------------------------------------------------
 
@@ -524,3 +561,5 @@ output applicationInsightsName string = applicationInsights.outputs.name
 output webIdentityClientId string = webIdentity.outputs.clientId
 output workerIdentityClientId string = workerIdentity.outputs.clientId
 output jobsIdentityClientId string = jobsIdentity.outputs.clientId
+output deploymentIdentityClientId string = deployFromGitHub ? deploymentIdentity!.outputs.clientId : ''
+output deploymentIdentityFederatedSubject string = deployFromGitHub ? deploymentIdentity!.outputs.federatedSubject : ''

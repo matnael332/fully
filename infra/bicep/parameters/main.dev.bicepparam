@@ -42,6 +42,12 @@ param logDailyQuotaGb = 1
 param webImage = 'mcr.microsoft.com/k8se/quickstart:latest'
 param workerImage = 'mcr.microsoft.com/k8se/quickstart:latest'
 
+// GitHub Actions continuous delivery (Gate 1F). The numeric ids make the OIDC subject immutable.
+param githubRepository = 'matnael332/fully'
+param githubOwnerId = '223243154'
+param githubRepositoryId = '1390662248'
+param githubBranch = 'main'
+
 param additionalTags = {
   dataBoundary: 'dev'
   purpose: 'foundation-development'

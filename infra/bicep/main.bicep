@@ -82,6 +82,18 @@ param maxReplicas int = 2
 @description('Additional resource tags.')
 param additionalTags object = {}
 
+@description('GitHub repository (owner/name) allowed to deploy images through CD. Empty disables the deployment identity.')
+param githubRepository string = ''
+
+@description('GitHub numeric owner id, part of the immutable OIDC subject.')
+param githubOwnerId string = ''
+
+@description('GitHub numeric repository id, part of the immutable OIDC subject.')
+param githubRepositoryId string = ''
+
+@description('The only branch whose workflow runs may deploy.')
+param githubBranch string = 'main'
+
 var resourceGroupName = 'rg-wce-${environmentName}-${regionToken}'
 
 resource environmentResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' = {
@@ -121,6 +133,10 @@ module environment 'environment.bicep' = {
     logDailyQuotaGb: logDailyQuotaGb
     maxReplicas: maxReplicas
     additionalTags: additionalTags
+    githubRepository: githubRepository
+    githubOwnerId: githubOwnerId
+    githubRepositoryId: githubRepositoryId
+    githubBranch: githubBranch
   }
 }
 
@@ -149,3 +165,7 @@ output applicationInsightsName string = environment.outputs.applicationInsightsN
 output webIdentityClientId string = environment.outputs.webIdentityClientId
 output workerIdentityClientId string = environment.outputs.workerIdentityClientId
 output jobsIdentityClientId string = environment.outputs.jobsIdentityClientId
+output deploymentIdentityClientId string = environment.outputs.deploymentIdentityClientId
+output deploymentIdentityFederatedSubject string = environment.outputs.deploymentIdentityFederatedSubject
+output tenantId string = subscription().tenantId
+output subscriptionId string = subscription().subscriptionId
