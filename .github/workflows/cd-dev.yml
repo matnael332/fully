@@ -11,7 +11,8 @@ name: CD Dev
 #
 # Authentication is GitHub OIDC -> the dedicated user-assigned identity id-wce-dev-neu-github (federated
 # credential bound to this repository and the main branch). No client secret exists anywhere.
-# Infrastructure deployments and the migration job stay outside this workflow.
+# Infrastructure deployments and the migration job stay outside this workflow; the deploy job proves that
+# boundary by asserting the identity cannot even read the migration job.
 
 on:
   workflow_dispatch:
@@ -33,6 +34,13 @@ permissions:
 concurrency:
   group: cd-dev
   cancel-in-progress: false
+
+# Strict shell for every run step: GitHub executes `shell: bash` as `bash --noprofile --norc -eo pipefail`,
+# so a failing command or a failing pipeline stage fails the step instead of being hidden by the exit
+# status of a later command in the pipeline.
+defaults:
+  run:
+    shell: bash
 
 env:
   COMMIT: ${{ inputs.commit }}
@@ -234,10 +242,22 @@ jobs:
           echo "| App | Image | Digest | Revision | State |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Snapshot the migration job (must remain untouched)
+      - name: Assert the privilege boundary - the deployment identity cannot read the migration job
+        # The identity holds no role on caj-wce-dev-neu-migrate by design, so it can neither change nor run
+        # it. A denied read (AuthorizationFailed / HTTP 403) is the expected result and passes. A successful
+        # read means privilege creep and fails the run; any other error is unexpected and also fails it.
         run: |
-          az rest --method get --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/jobs/caj-wce-dev-neu-migrate?api-version=${API}" -o json \
-            | jq -c '{image: .properties.template.containers[0].image, config: .properties.configuration, identity: .identity}' > "$RUNNER_TEMP/job.before.json"
+          set -eo pipefail
+          url="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/jobs/caj-wce-dev-neu-migrate?api-version=${API}"
+          if out=$(az rest --method get --url "$url" -o none 2>&1); then
+            echo "::error::privilege creep: the deployment identity can read the migration job; it must hold no permission on it" >&2
+            exit 1
+          elif echo "$out" | grep -qE 'AuthorizationFailed|Forbidden'; then
+            echo "privilege boundary holds: the deployment identity is denied reading the migration job (AuthorizationFailed)"
+          else
+            echo "::error::unexpected result while probing the migration job (expected AuthorizationFailed): ${out}" >&2
+            exit 1
+          fi
 
       - name: Roll out Web (image only)
         run: |
@@ -248,13 +268,6 @@ jobs:
         run: |
           source "$RUNNER_TEMP/deploy.sh"
           rollout "$WORKER_APP" "$WORKER_REF" "$WORKER_DIGEST" worker
-
-      - name: Verify the migration job is unchanged
-        run: |
-          az rest --method get --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/jobs/caj-wce-dev-neu-migrate?api-version=${API}" -o json \
-            | jq -c '{image: .properties.template.containers[0].image, config: .properties.configuration, identity: .identity}' > "$RUNNER_TEMP/job.after.json"
-          cmp -s "$RUNNER_TEMP/job.before.json" "$RUNNER_TEMP/job.after.json" || { echo "::error::migration job changed during this run" >&2; exit 1; }
-          echo "migration job unchanged"
 
       - name: Azure logout
         if: always()
