@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: the token can read the repository and nothing else. No Azure login anywhere.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CI: "true"                       # enables ContinuousIntegrationBuild in Directory.Build.props
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+  # PostgreSQL settings for the integration tests. The passwords are run-scoped throwaway values for a
+  # container that lives only on this runner; they are not secrets and are never reused anywhere.
+  POSTGRES_TEST_HOST: localhost
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: workcontinuity
+  POSTGRES_USER: workcontinuity
+  POSTGRES_PASSWORD: ci-owner-${{ github.run_id }}
+  POSTGRES_APP_USER: workcontinuity_app
+  POSTGRES_APP_PASSWORD: ci-app-${{ github.run_id }}
+
+jobs:
+  build-test:
+    name: Build, verify and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: workcontinuity
+          POSTGRES_USER: workcontinuity
+          POSTGRES_PASSWORD: ci-owner-${{ github.run_id }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U workcontinuity -d workcontinuity"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET from global.json
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML for eng/verify-local-env.py
+        run: python -m pip install --disable-pip-version-check "pyyaml==6.0.3"
+
+      - name: Create the non-owner runtime role with the existing init script
+        # Runs infra/local/postgres/init/10-runtime-role.sh unchanged, inside the PostgreSQL service
+        # container, exactly as the local stack does on first initialisation.
+        run: |
+          docker cp infra/local/postgres/init/10-runtime-role.sh "${{ job.services.postgres.id }}:/tmp/10-runtime-role.sh"
+          docker exec \
+            -e "POSTGRES_USER=${POSTGRES_USER}" \
+            -e "POSTGRES_DB=${POSTGRES_DB}" \
+            -e "POSTGRES_APP_USER=${POSTGRES_APP_USER}" \
+            -e "POSTGRES_APP_PASSWORD=${POSTGRES_APP_PASSWORD}" \
+            "${{ job.services.postgres.id }}" bash /tmp/10-runtime-role.sh
+
+      - name: Restore
+        run: dotnet restore WorkContinuityEngine.sln
+
+      - name: Build (warnings are errors)
+        run: dotnet build WorkContinuityEngine.sln -c Debug --no-restore
+
+      - name: Architecture dependency rules
+        run: python eng/verify-architecture.py
+
+      - name: Local environment structure
+        run: python eng/verify-local-env.py
+
+      - name: Test (full suite against PostgreSQL 17 + pgvector)
+        run: dotnet test WorkContinuityEngine.sln -c Debug --no-build
+
+      - name: Bicep build and lint (local compile only, no Azure login)
+        shell: pwsh
+        run: |
+          az bicep install
+          ./eng/infra.ps1 build
+          ./eng/infra.ps1 lint
+
+  container-images:
+    name: Container images (Release build, no push)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build Web image (Release)
+        run: docker build --file src/App.Web/Dockerfile --build-arg CONFIGURATION=Release --tag wce-web:${{ github.sha }} .
+
+      - name: Build Worker image (Release)
+        run: docker build --file src/App.Worker/Dockerfile --build-arg CONFIGURATION=Release --tag wce-worker:${{ github.sha }} .
+
+      - name: Smoke - Web image starts and /health/live returns 200 without a database
+        # The app requires a well-formed connection string to start but must not need a database for
+        # liveness, so the string points at nothing: no PostgreSQL exists in this job by design.
+        # /health/ready is deliberately not asserted (Azure-aware readiness is Gate 1G scope).
+        env:
+          SMOKE_PASSWORD: smoke-${{ github.run_id }}
+        run: |
+          docker run -d --name wce-web-smoke -p 8080:8080 \
+            -e ASPNETCORE_ENVIRONMENT=Development \
+            -e "ConnectionStrings__Postgres=Host=localhost;Port=5432;Database=smoke;Username=smoke;Password=${SMOKE_PASSWORD}" \
+            wce-web:${{ github.sha }}
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/health/live; then ok=1; echo; break; fi
+            sleep 1
+          done
+          if [ "$ok" != "1" ]; then echo "::error::/health/live did not return 200 within 30 s"; docker logs wce-web-smoke; exit 1; fi
+          docker inspect -f 'web container: status={{.State.Status}} restarts={{.RestartCount}}' wce-web-smoke
+          docker rm -f wce-web-smoke
+
+      - name: Smoke - Worker image runs for 20 s with no configuration and no restart
+        # Proven locally: the Worker's runtime path reads no mandatory configuration and its dependency
+        # probe catches every failure, so unreachable dependencies log "degraded" and never crash it.
+        # This proves start-up and no crash loop outside Azure; the Azure-side proof is Gate 1F-E.
+        run: |
+          docker run -d --name wce-worker-smoke wce-worker:${{ github.sha }}
+          sleep 20
+          status=$(docker inspect -f '{{.State.Status}}' wce-worker-smoke)
+          restarts=$(docker inspect -f '{{.RestartCount}}' wce-worker-smoke)
+          echo "worker container: status=${status} restarts=${restarts}"
+          docker logs wce-worker-smoke | head -n 5
+          if [ "$status" != "running" ] || [ "$restarts" != "0" ]; then echo "::error::worker is not running cleanly"; docker logs wce-worker-smoke; exit 1; fi
+          docker rm -f wce-worker-smoke
