@@ -61,8 +61,11 @@ param postgresStorageSizeGb int = 32
 @description('Container image for the Web/API app, including tag.')
 param webImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
 
-@description('Container image for the Worker app and the migration job, including tag.')
+@description('Container image for the Worker app, including tag.')
 param workerImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
+
+@description('Container image for the migration job, including tag. Deliberately separate from workerImage so a Web/Worker rollout never changes the job.')
+param migrationJobImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
 
 @description('Log Analytics retention in days.')
 param logRetentionInDays int = 30
@@ -484,7 +487,7 @@ module migrationJob 'modules/containerAppsJob.bicep' = {
     environmentId: containerAppsEnvironment.outputs.id
     identityId: jobsIdentity.outputs.id
     registryLoginServer: containerRegistry.outputs.loginServer
-    image: workerImage
+    image: migrationJobImage
     triggerType: 'Manual'
     commandArguments: [
       '--migrate-database'
