@@ -18,14 +18,16 @@ targetScope = 'subscription'
 param environmentName string
 
 @description('''
-Azure region. Israel Central is the default per the frozen architecture, but every required service
-and SKU must be confirmed available in the target region before a real deployment.
+Azure region. The canonical architecture does not fix a region. North Europe is the Gate 1E default:
+Israel Central does not offer Azure Container Apps, and West Europe is not accepting new customers on
+the deployment subscription (both verified 2026-09-27). Every required service and SKU must be
+confirmed available in the target region before a real deployment.
 ''')
-param location string = 'israelcentral'
+param location string = 'northeurope'
 
 @description('Short region token used in resource names.')
 @maxLength(6)
-param regionToken string = 'ilc'
+param regionToken string = 'neu'
 
 @description('Virtual network address space. Dev and Synthetic must not overlap.')
 param vnetAddressPrefix string

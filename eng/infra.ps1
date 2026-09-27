@@ -30,7 +30,8 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $BicepRoot = Join-Path $Root "infra/bicep"
 $MainTemplate = Join-Path $BicepRoot "main.bicep"
-$Location = "israelcentral"
+# Location of the subscription-level deployment metadata. Resource locations come from the parameter files.
+$Location = "northeurope"
 
 function Require-Command([string]$Name) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {

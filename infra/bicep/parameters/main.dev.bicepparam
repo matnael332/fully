@@ -9,8 +9,10 @@
 using '../main.bicep'
 
 param environmentName = 'dev'
-param location = 'israelcentral'
-param regionToken = 'ilc'
+// North Europe, product-owner decision of 2026-09-27: Israel Central does not offer Azure Container
+// Apps, and West Europe is not accepting new customers on this subscription. Validation passed here.
+param location = 'northeurope'
+param regionToken = 'neu'
 
 // 10.10.0.0/16 for Dev. Synthetic uses 10.20.0.0/16, so the two can never be peered into one network.
 param vnetAddressPrefix = '10.10.0.0/16'

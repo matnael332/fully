@@ -5,8 +5,10 @@
 **IaC phase: PASS.** Every locally verifiable acceptance criterion holds.
 
 **Final Gate 1E: PENDING REAL DEPLOYMENT.** No Azure resource has been created, updated or deleted.
-This machine holds no Azure credentials, so server-side validation, what-if and region/SKU
-availability could not be checked and are reported as pending rather than assumed.
+On 2026-09-27 Azure authentication, subscription nomination, resource-provider registration (a
+subscription setting, approved by the product owner), region eligibility and full server-side
+validation of the Dev template were completed; see *Region selection*. What-if has been run and reviewed
+(30 to create, 0 to modify, 0 to delete). The real deployment remains pending product-owner approval.
 
 ## Scope
 
@@ -124,14 +126,17 @@ invokes `az deployment`.
 | `eng/verify-architecture.py` | PASS |
 | `eng/verify-local-env.py` | PASS |
 | Gate 1B regression (`eng/dev.ps1 up`, clean slate) | PASS, 140 s |
-| `az account show` | **Not authenticated** |
-| Azure validation | **Pending authentication** |
-| Azure what-if | **Pending authentication** |
-| Israel Central region/SKU availability | **Pending authentication — unverified** |
+| `az account show` | Authenticated 2026-09-27 via tenant-scoped login (MFA enforced); subscription `Azure subscription 1`, Free Trial, product-owner nominated |
+| Resource providers | 11 namespaces registered 2026-09-27 with product-owner approval |
+| Azure validation (`az deployment sub validate`, Dev) | **PASS in North Europe — 38 resources, provisioningState Succeeded** (2026-09-27) |
+| Azure what-if (`az deployment sub what-if`, Dev, North Europe) | **30 resources to create, 0 to modify, 0 to delete**; 11 entries reported as "unsupported", all of them the role assignments, because their resource IDs depend on managed-identity principal IDs that exist only once the deployment creates the identities (2026-09-27, reviewed by the product owner) |
+| Region/SKU availability | Verified 2026-09-27; Israel Central and West Europe rejected, North Europe selected — see *Region selection* |
 | Azure resources deployed | **NONE** |
 
-The only `az` commands run were `--version`, `bicep install/version/build/lint/build-params` and
-`account show`. No `az deployment` command was invoked.
+Azure-facing commands run on 2026-09-27, each shown to the product owner first: `az login` (tenant-scoped),
+`az account` queries, read-only `az rest` GETs and `az provider show/list`, `az provider register`
+(approved), `az postgres flexible-server list-skus`, `az deployment sub validate` and
+`az deployment sub what-if`. No `az deployment sub create` has been invoked.
 
 ## Problems found and fixed
 
@@ -150,15 +155,27 @@ The only `az` commands run were `--version`, `bicep install/version/build/lint/b
    documented in the module. The key is read inside the deployment and is never committed or output.
 5. **The credential-scan test did not cover `.bicep`/`.bicepparam`.** Extended, since infrastructure is
    exactly where a literal connection string is most likely to be pasted. Still passes.
+6. **The Web app could not have provisioned with the placeholder image.** The quickstart placeholder
+   listens on port 80 and serves no health endpoints, but the Web app's ingress target port and both
+   probes were fixed at 8080; Container Apps refuses a revision whose target port does not match the
+   listening port, so the first deployment would have failed at that step. Found while reviewing the
+   what-if output (2026-09-27). Fixed in `environment.bicep`: the Web app's port and probes now follow
+   the image, so the placeholder provisions and the real image keeps 8080 with `/health/live` and
+   `/health/ready`. The Worker has no ingress and no probes and needed no change.
 
 ## Remaining blockers before a real deployment
 
-1. **`az login`** to a subscription the product owner nominates. Until then subscription, tenant,
-   validation, what-if and region availability are unknown.
-2. **Israel Central availability must be confirmed** for: Container Apps (Consumption, VNet-integrated),
-   PostgreSQL Flexible Server Burstable `B1ms`/`B2s` with PostgreSQL 17 and the `vector` extension,
-   Service Bus Standard, and Key Vault. The region is the architecture's default, not a verified fact.
-3. **`validate` and `whatif`** must run and be reviewed before `deploy -Approve`.
+1. **Azure access — resolved 2026-09-27.** Tenant-scoped `az login` (MFA enforced), subscription
+   `Azure subscription 1` (Free Trial, spending limit on) nominated by the product owner, eleven resource
+   providers registered with approval.
+2. **Region — resolved 2026-09-27.** The region is a Gate 1E parameter, not an architecture requirement.
+   Israel Central and West Europe were rejected on evidence and North Europe selected after full
+   validation; see *Region selection*.
+3. **Deployment approval.** `validate` and `whatif` have both passed for Dev in North Europe and the
+   what-if result has been reviewed (30 create, 0 modify, 0 delete, 11 role assignments unpredictable by
+   design). `deploy -Approve` awaits explicit product-owner approval and must be run interactively by the
+   product owner, because the script confirms against a live what-if and needs the two durable Dev
+   passwords in that shell.
 4. **Runtime-role bootstrap in Azure is not implemented.** Locally, `workcontinuity_app` is created by a
    container init script. In Azure the equivalent must read `postgres-runtime-role-password` from Key
    Vault at run time and `CREATE ROLE` — a job entry point, not a migration, because a migration must
@@ -170,6 +187,22 @@ The only `az` commands run were `--version`, `bicep install/version/build/lint/b
    Container Apps (scale-to-zero for Worker is not used since `minReplicas` is 1 for both apps),
    Log Analytics ingestion (capped), Storage, Key Vault operations, ACR Basic. Key Vault purge
    protection is off so foundation environments can be torn down; Human Pilot must enable it.
+
+## Region selection (2026-09-27)
+
+The canonical documents do not fix an Azure region; the region is a Gate 1E parameter. Three regions were
+evaluated for Dev against the real subscription, and the decision was taken by the product owner.
+
+| Region | Outcome | Evidence |
+|---|---|---|
+| Israel Central | **Rejected** | Azure Container Apps is not offered in the region: absent from the `Microsoft.App` location list at subscription and tenant scope and from the Container Apps usages API; a public feature request has been open since August 2024 with no timeline. Every other required service and SKU (PostgreSQL 17 Burstable `B1ms`/`B2s`, Service Bus, Key Vault, Storage, Registry, Log Analytics, Application Insights, managed identities, VNet) is available there. |
+| West Europe | **Rejected** | `az deployment sub validate` failed with `RequestDisallowedByAzure`: "The selected region is currently not accepting new customers" for this subscription. Provider location lists and SKU capability queries do not expose this restriction; only validation does. Confirmed on two independent runs. |
+| North Europe | **Selected** | Full server-side validation of the Dev template **PASSED: 38 resources, `provisioningState` Succeeded**. Nine further candidates also passed and remain fallbacks: Sweden Central, Germany West Central, France Central, Poland Central, Italy North, Spain Central, Switzerland North, Austria East, UAE North. |
+
+Subscription facts that constrain the deployment: Free Trial offer with the spending limit on; a Container
+Apps quota of one managed environment per region, so Dev and Synthetic cannot share a region until the
+subscription is upgraded; the Synthetic parameter file still names Israel Central and needs its own
+decision before any Synthetic deployment.
 
 ## Architecture consistency
 

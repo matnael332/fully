@@ -356,6 +356,16 @@ var commonEnvironmentVariables = [
   }
 ]
 
+// The placeholder image listens on port 80 and serves no health endpoints; the real Web/API image
+// listens on 8080 and exposes /health/live and /health/ready. Container Apps refuses to provision a
+// revision whose target port does not match the listening port, so port and probes follow the image:
+// the placeholder can provision now, and the production configuration applies automatically as soon
+// as a real image is supplied. The Worker has no ingress and no probes, so it needs no switch.
+var webUsesPlaceholderImage = startsWith(webImage, 'mcr.microsoft.com/k8se/quickstart')
+var webTargetPort = webUsesPlaceholderImage ? 80 : 8080
+var webLivenessPath = webUsesPlaceholderImage ? '' : '/health/live'
+var webReadinessPath = webUsesPlaceholderImage ? '' : '/health/ready'
+
 module webApp 'modules/containerApp.bicep' = {
   name: 'container-app-web'
   params: {
@@ -369,9 +379,9 @@ module webApp 'modules/containerApp.bicep' = {
     enableIngress: true
     // External: the monday connector delivers webhooks from the internet. The data plane stays private.
     externalIngress: true
-    targetPort: 8080
-    livenessPath: '/health/live'
-    readinessPath: '/health/ready'
+    targetPort: webTargetPort
+    livenessPath: webLivenessPath
+    readinessPath: webReadinessPath
     minReplicas: 1
     maxReplicas: maxReplicas
     environmentVariables: union(
