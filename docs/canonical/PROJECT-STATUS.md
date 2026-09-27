@@ -38,7 +38,8 @@ Modular Bicep for the Dev and Synthetic environments: resource group per environ
 delegated subnets, Log Analytics, Application Insights, private ACR (admin disabled), Key Vault
 (RBAC, per-secret access), Blob Storage (no shared keys), Service Bus Standard with the three canonical
 queues (local auth disabled), private PostgreSQL Flexible Server with the `vector` extension
-allow-listed, three per-workload managed identities with 13 least-privilege role assignments,
+allow-listed, three per-workload managed identities with 13 least-privilege role assignments (16 in
+the resource group since Gate 1F-D added the GitHub deployment identity's three),
 VNet-integrated Container Apps environment, Web and Worker apps, and a manual migration job. All 22
 resource types use GA API versions. Dev/Synthetic isolation is proven by diffing the compiled parameters.
 
@@ -55,9 +56,39 @@ isolated but is not deployed; its Israel Central parameter cannot host Container
 region/subscription decision (the Free Trial allows one Container Apps environment per region).
 
 ### Gate 1F — CI/CD & Identity
+Status: **PASS — implemented, verified in Azure and product-owner approved (2026-09-27)**
+
+GitHub Actions CI on every push and pull request to `main`: restore, build with warnings as errors,
+architecture and local-environment verifiers, the full test suite against PostgreSQL 17 + pgvector with
+the runtime role, Bicep build and lint, and Release container images with start-up smoke tests. Manual,
+`main`-only continuous delivery (`CD Dev`) publishes Web and Worker images tagged with the exact commit
+SHA to the Dev registry and updates only the two Container Apps' images by a template-only PATCH.
+Authentication is GitHub OIDC to a dedicated user-assigned identity with a federated credential bound to
+this repository and `main`; no long-lived Azure credential or client secret exists in GitHub. The
+identity holds AcrPush on the registry and Container Apps Contributor on the Web and Worker apps only;
+Managed Identity Operator was proven unnecessary.
+
+Guards: immutable SHA tags (an existing tag is reused, never overwritten); an image-drift guard in
+`eng/infra.ps1` (infrastructure redeploys adopt the live Web, Worker and migration-job images unless
+explicitly overridden); a dedicated migration-job image parameter; a privilege-boundary assertion (the
+CD identity must be denied reading the migration job); refusal to deploy while the Web app still carries
+the placeholder configuration; runners pinned to `ubuntu-24.04`. Sub-gates 1F-A (design), 1F-B
+(repository), 1F-C (CI), 1F-D (deployment identity) and 1F-E (continuous delivery) are each PASS.
+
+Real images run in Dev: Web `/health/live` returns 200 behind a liveness probe on port 8080; the Worker
+is Healthy with no restarts; the migration job keeps the placeholder image and has never been executed.
+The first publish-only CD run and the first `deploy: true` CD run both succeeded and were verified
+read-only in Azure.
+
+Carried forward to Gate 1G: Azure-aware readiness (`/health/ready`; probe parameter off), the
+runtime-role bootstrap job, the first migration run, database connectivity, telemetry and OpenTelemetry,
+and the Synthetic region/subscription decision. A real image change through CD (the new-revision path)
+has not yet been exercised by a CD run; the privilege-boundary assertion passed in run 36330256517.
+
+### Gate 1G — Foundation Hardening
 Status: **NEXT / NOT STARTED — requires explicit product-owner authorization**
 
-### Gate 1G onward
+### Gate 2 onward
 Status: **NOT STARTED unless explicitly approved by the product owner**
 
 ## Verified evidence for Gate 1A / 1B
@@ -168,7 +199,33 @@ See `docs/gates/gate-1E-report.md` for the full report: region selection, both d
 post-deployment verification, and the follow-ups carried into later Gates (runtime-role bootstrap job,
 real images, Synthetic deployment decision).
 
+## Verified evidence for Gate 1F
+
+Verified on 2026-09-27. Every GitHub run and Azure state below was executed or read, not inspected.
+
+| Check | Result |
+|---|---|
+| CI on `main` (build, verifiers, full test suite with PostgreSQL 17 + pgvector, Bicep build/lint, Release image smoke) | PASS — runs 36317953496, 36323519792, 36326066378, 36327135490, 36329536123; 230 tests, 0 failed, 0 skipped on the latest |
+| Security tests (`App.Security.Tests`) | PASS — 35/35 after every change |
+| Azure credentials in GitHub | none — seven non-secret repository variables; OIDC federation only |
+| Deployment identity | `id-wce-dev-neu-github`, federated credential `github-main` (immutable subject format), AcrPush on the registry, Container Apps Contributor on the Web app and on the Worker app; no Managed Identity Operator; 16 role assignments in `rg-wce-dev-neu` |
+| Publish-only CD run (`deploy: false`) | PASS — run 36326240690; both images built and pushed once; deploy job skipped |
+| First real-image rollout (owner, `eng/infra.ps1 deploy -Approve`) | PASS — `wce-dev-20260927-175625`, 22 nested deployments, 0 failed operations; what-if reviewed: Web image + port 8080 + liveness probe, Worker image, migration job no change |
+| First `deploy: true` CD run | PASS — run 36328631074; tags reused; exactly two Container App writes in the activity log; verified |
+| Final no-op `deploy: true` CD run (workflow at `8a7d404`) | PASS — run 36330256517; migration-job read denied (`AuthorizationFailed`), assertion passed; tags reused; two app writes; no new revision |
+| Web in Dev | revision `ca-wce-dev-neu-web--0000001` Healthy/Running, real image, `GET /health/live` → 200 |
+| Worker in Dev | revision `ca-wce-dev-neu-worker--0000001` Healthy/Running, real image, 0 restarts |
+| Migration job | placeholder image, own image parameter, **0 executions**, unchanged by every CD run |
+| Guards | immutable SHA tags; image-drift guard; privilege-boundary assertion; placeholder refusal; `ubuntu-24.04` and SHA-pinned actions |
+| Synthetic | untouched (compiled parameters byte-identical) |
+| Architecture/PRD contradictions | none |
+
+See `docs/gates/gate-1F-report.md` for the full report: identity and RBAC, both workflows, the guards,
+every run and deployment, the problems found and fixed, and the items carried into Gate 1G.
+
 ## Immediate recommended next action in Claude Code
 
-Gate 1A through Gate 1E are closed. Gate 1F (CI/CD & Identity) is next and has not started; do not begin
-it, and do not deploy or change Azure resources, without explicit product-owner authorization.
+Gate 1A through Gate 1F are closed. Gate 1G (Foundation Hardening) is next and has not started; do not
+begin it, and do not deploy, dispatch `CD Dev` with `deploy: true`, or change Azure resources, without
+explicit product-owner authorization. Before 2026-10-27 the product owner must decide on the Free Trial
+upgrade.

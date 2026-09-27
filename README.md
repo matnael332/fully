@@ -19,9 +19,10 @@ Claude Code and human developers must read:
 - Gate 1B — Local Development Environment: **PASS**. Docker local smoke test PASS; PostgreSQL healthy; Service Bus emulator healthy; Web readiness healthy; Worker dependencies ready.
 - Gate 1C — Core Platform Skeleton: **PASS**. Tenant context, identity abstractions, correlation context, clock, result/error model, feature flags, audit contracts and operation context. `dotnet test` PASS with 188 tests.
 - Gate 1D — Database Foundation: **PASS**. PostgreSQL migrations, tenant-aware persistence, row-level security, pgvector, raw-receipt inbox and transactional outbox. `dotnet test` PASS with 230 tests.
-- Gate 1E — Azure Infrastructure as Code: **PASS**. Modular Bicep for Dev and Synthetic; Dev deployed and verified in North Europe on 2026-09-27 with placeholder images; Synthetic defined, not deployed.
+- Gate 1E — Azure Infrastructure as Code: **PASS**. Modular Bicep for Dev and Synthetic; Dev deployed and verified in North Europe on 2026-09-27 with placeholder images; Synthetic defined, not deployed. Real images followed in Gate 1F.
 - Architecture/PRD contradictions: none.
-- Gate 1F — CI/CD & Identity: **NEXT / NOT STARTED**. Do not start without explicit product-owner approval.
+- Gate 1F — CI/CD & Identity: **PASS**. GitHub Actions CI on every push; manual `main`-only CD to Dev through GitHub OIDC (no Azure secret in GitHub); immutable SHA-tagged images; Web and Worker run real images in Dev; the migration job is untouched.
+- Gate 1G — Foundation Hardening: **NEXT / NOT STARTED**. Do not start without explicit product-owner approval.
 
 See `docs/canonical/PROJECT-STATUS.md` for the full verified evidence table.
 
@@ -73,4 +74,15 @@ Azure infrastructure (Bicep) commands — see `infra/bicep/README.md`:
 ./eng/infra.ps1 build                                              # local
 ./eng/infra.ps1 lint                                               # local
 ./eng/infra.ps1 whatif -Environment dev -SubscriptionId <id>       # read-only, needs az login
+```
+
+Continuous integration and delivery — see `docs/gates/gate-1F-report.md`. `CI`
+(`.github/workflows/ci.yml`) runs on every push and pull request to `main` with no Azure access.
+`CD Dev` (`.github/workflows/cd-dev.yml`) is manual, `main`-only and run by the product owner; it
+publishes immutable SHA-tagged images and may update only the Web and Worker apps. Infrastructure
+changes and the migration job never go through CD; they stay on `eng/infra.ps1`.
+
+```powershell
+gh workflow run cd-dev.yml --ref main -f commit=<40-char sha on main> -f deploy=false   # publish images only
+gh workflow run cd-dev.yml --ref main -f commit=<40-char sha on main> -f deploy=true    # publish and update Web/Worker
 ```

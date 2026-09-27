@@ -46,7 +46,7 @@ parameters — no infrastructure is copied.
 | Service Bus Standard + 3 queues | `serviceBus.bicep` | `event-processing`, `ai-jobs`, `action-jobs`; **local auth disabled** |
 | PostgreSQL Flexible Server + database | `postgres.bicep` | Private access only; `vector` allow-listed |
 | 3 user-assigned managed identities | `managedIdentity.bicep` | One per workload: web, worker, jobs |
-| 13 role assignments | `roleAssignments.bicep` | Least privilege; Key Vault scoped **per secret** (11 originally; two added after deployment attempt 1, see problem 7) |
+| 13 role assignments | `roleAssignments.bicep` | Least privilege; Key Vault scoped **per secret** (11 originally; two added after deployment attempt 1, see problem 7). Gate 1F-D later added three in `deploymentIdentity.bicep` for the GitHub deployment identity: 16 in the resource group since 2026-09-27 |
 | Container Apps environment | `containerAppsEnvironment.bicep` | VNet-integrated; external ingress for webhooks, private egress |
 | Web/API Container App | `containerApp.bicep` | External ingress; liveness `/health/live` and readiness `/health/ready` with a real image, port 80 and no probes with the placeholder (problem 6) |
 | Worker Container App | `containerApp.bicep` | No ingress |
@@ -227,7 +227,7 @@ Azure-facing commands run on 2026-09-27, each shown to the product owner first: 
 | `ca-wce-dev-neu-web` | provisioning Succeeded, Running; revision Provisioned / **Healthy** / Running, 1 replica; ingress target port 80 (placeholder) |
 | `ca-wce-dev-neu-worker` | provisioning Succeeded, Running; revision Provisioned / **Healthy** / Running, 1 replica; no ingress |
 | Key Vault-backed secrets | both apps carry `postgres-app-connection-string` and `appinsights-connection-string`; both revisions provisioned without error — the attempt-1 failure is resolved |
-| Role assignments | **exactly 13** inside `rg-wce-dev-neu`, all attributable to the three identities; Web and Worker each hold Key Vault Secrets User on `postgres-app-connection-string` and `application-insights-connection-string`; no vault-wide assignment |
+| Role assignments | **exactly 13** inside `rg-wce-dev-neu` at Gate 1E closure (16 since Gate 1F-D added the GitHub deployment identity's three), all attributable to the three identities; Web and Worker each hold Key Vault Secrets User on `postgres-app-connection-string` and `application-insights-connection-string`; no vault-wide assignment |
 | PostgreSQL | `psql-wce-dev-neu-33f52b` **Ready**, version 17, `Standard_B1ms`, 32 GB, public network access Disabled |
 | PostgreSQL subnet | delegation intact; `Microsoft.Storage` service endpoint present (drift resolved, problem 8) |
 | Web ingress | `GET /` → **HTTP 200** (quickstart page); `/health/live` and `/health/ready` → 404, expected with the placeholder image |
@@ -261,5 +261,4 @@ access path, Bicep as IaC, Dev/Synthetic as separate boundaries with no shared d
 all as written in System Architecture v1 §9 and the invariants (52, 53, 56, 63, 68, 69). No
 contradiction found. No canonical document was changed.
 
-**Gate 1E: PASS. Gate 1F (CI/CD & Identity) is NEXT and NOT STARTED; it requires explicit product-owner
-authorization.**
+**Gate 1E: PASS. Gate 1F (CI/CD & Identity) closed PASS on 2026-09-27; see `docs/gates/gate-1F-report.md`.**

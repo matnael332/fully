@@ -1,6 +1,6 @@
 # INIT — Project Handoff State
 
-Last updated: 2026-09-27 (end of day, after Gate 1E closure). Read this first when resuming.
+Last updated: 2026-09-27 (after Gate 1F closure). Read this first when resuming.
 
 ## Where the project is
 
@@ -10,51 +10,78 @@ Last updated: 2026-09-27 (end of day, after Gate 1E closure). Read this first wh
 | 1B Local Development Environment | PASS |
 | 1C Core Platform Skeleton | PASS |
 | 1D Database Foundation | PASS |
-| **1E Azure Infrastructure as Code** | **PASS** — Dev deployed and verified 2026-09-27; declared by the product owner |
-| 1F CI/CD & Identity | **NEXT / NOT STARTED** — requires explicit product-owner authorization |
+| 1E Azure Infrastructure as Code | PASS — Dev deployed and verified 2026-09-27 |
+| **1F CI/CD & Identity** | **PASS** — real images delivered to Dev through GitHub OIDC and verified 2026-09-27; declared by the product owner |
+| 1G Foundation Hardening | **NEXT / NOT STARTED** — requires explicit product-owner authorization |
 
-**Latest commit:** the Gate 1E closure commit on `main` (run `git log -1`). It follows `5309f91`
-(Application Insights secret access fix + PostgreSQL subnet endpoint) and `525aec6` (North Europe
-selection + placeholder Web app port fix). Working tree was clean after it.
+**Latest commit:** the Gate 1F closure commit on `main` (run `git log -1`). It follows `8a7d404`
+(privilege-boundary assertion + strict shell in CD), `1661700` (dedicated migration-job image parameter),
+`f487430` (CD workflow, runner pin, readiness parameter, image variables, drift guard), `260686f`
+(deployment identity), `3c68848` (CI), `a412267` (Gate 1E closure). Working tree was clean after it.
 
 ## Rules that must not be broken (from CLAUDE.md and the canonical docs)
 
-- Work only on the currently authorized Gate. Gate 1F is not authorized yet.
+- Work only on the currently authorized Gate. Gate 1G is not authorized yet.
 - Never modify `docs/canonical/PRD-v1.md`, `SYSTEM-ARCHITECTURE-v1.md`,
   `ARCHITECTURE-INVARIANTS-v1.md` or `DEVELOPMENT-GATES-v1.md`. If a contradiction appears, STOP and
   report it instead of editing them. (`PROJECT-STATUS.md` in the same folder is a status document.)
 - Never run `az deployment ... create` without explicit product-owner approval. Use `eng/infra.ps1`,
   which requires `-Environment`, `-SubscriptionId` and `-Approve`; the product owner runs `deploy`
   interactively in their own terminal (it confirms against a live what-if).
+- Never dispatch `CD Dev` with `deploy: true` without explicit product-owner approval; it is the only
+  automated write path to Azure and it may change nothing but the Web and Worker images.
+- Never trigger the migration job. It still holds the placeholder image, has its own image parameter
+  (`WCE_DEV_MIGRATION_JOB_IMAGE`) and has never been executed. Its first run is Gate 1G work.
+- Never grant the GitHub deployment identity anything on the migration job; the CD workflow asserts that
+  reading it is denied and fails on success.
 - One approval boundary at a time: show the exact command or edit script, wait for "go", run, report,
-  stop. Scripted edits use two-phase verify-then-write with exact occurrence counts and preserve each
-  file's line endings.
+  stop. Read-only checks need no approval. Scripted edits use two-phase verify-then-write with exact
+  occurrence counts and preserve each file's line endings.
 - Do not fabricate a PASS. If a check cannot run, report it as pending.
-- Do not weaken a test to make a Gate pass.
+- Do not weaken a test or a security rule to make a Gate pass.
 
-## What Gate 1E delivered and verified
+## What Gate 1F delivered and verified
 
-**Bicep under `infra/bicep/`:** `main.bicep` (subscription scope, one resource group per environment),
-`environment.bicep`, 14 modules, `parameters/main.dev.bicepparam` (North Europe, token `neu`),
-`parameters/main.synthetic.bicepparam` (still Israel Central, see below), `README.md`.
+**GitHub:** private repository `matnael332/fully`; Actions enabled; default workflow token read-only; no
+environments or branch protection (GitHub Free private repository, 403 evidence) — the approval gate is a
+manual `workflow_dispatch` from `main` run by the product owner. Seven repository **variables**
+(`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `ACR_LOGIN_SERVER`,
+`WEB_APP_NAME`, `WORKER_APP_NAME`); **no secrets**.
 
-**Dev environment, deployed in `rg-wce-dev-neu` (North Europe), unique name token `33f52b`:** VNet
-`10.10.0.0/16` with delegated subnets and private DNS zone; Log Analytics (1 GB/day cap); Application
-Insights; ACR Basic `crwcedev33f52b` (admin disabled); Key Vault `kv-wce-dev-33f52b` (RBAC, four
-secrets); Storage `stwcedev33f52b` (shared key disabled); Service Bus Standard `sb-wce-dev-neu-33f52b`
-with `event-processing`, `ai-jobs`, `action-jobs`; PostgreSQL Flexible Server 17 `psql-wce-dev-neu-33f52b`
-(B1ms, 32 GB, private access only, `azure.extensions=VECTOR`); identities `id-wce-dev-neu-web|worker|jobs`
-with 13 least-privilege role assignments; Container Apps environment `cae-wce-dev-neu`; apps
-`ca-wce-dev-neu-web` (external ingress) and `ca-wce-dev-neu-worker`; manual job `caj-wce-dev-neu-migrate`.
+**`CI`** (`.github/workflows/ci.yml`): every push and pull request to `main`; restore, build (warnings as
+errors), architecture and local-environment verifiers, the full test suite against PostgreSQL 17 + pgvector
+with the runtime role, Bicep build and lint, Release images with start-up smoke tests. `ubuntu-24.04`,
+SHA-pinned actions, no Azure access.
 
-**Verified after deployment attempt 2 (read-only, 2026-09-27):** 22/22 module deployments succeeded;
-Web and Worker revisions Healthy/Running; PostgreSQL Ready; exactly 13 role assignments; PostgreSQL
-subnet keeps its `Microsoft.Storage` endpoint; Web root returns HTTP 200 (placeholder page);
-`/health/live` and `/health/ready` return 404 because the placeholder image serves only `/`.
+**`CD Dev`** (`.github/workflows/cd-dev.yml`): manual, `main`-only, inputs `commit` (40-char SHA on
+`main`) and `deploy` (boolean). Publish job: immutable SHA tags `crwcedev33f52b.azurecr.io/wce/{web,worker}:<sha>`
+— an existing tag is reused, never overwritten. Deploy job: asserts the identity is denied reading the
+migration job; refuses while the Web ingress still targets port 80; re-resolves the digest; PATCHes only
+`properties.template` with the new image; polls to Healthy/Running; Web `/health/live` must be 200; Worker
+must stay Healthy after 60 s; identity/registry/secret/ingress/env/probe/resource configuration must be
+unchanged. Every step runs under `bash -eo pipefail`.
 
-**Images are placeholders** (`mcr.microsoft.com/k8se/quickstart:latest`). The Web app's port and probes
-follow the image: placeholder = port 80, no probes; real image = 8080 + health probes. Do NOT trigger
-the migration job while it holds the placeholder image.
+**Deployment identity:** `id-wce-dev-neu-github`, federated credential `github-main` with subject
+`repo:matnael332@223243154/fully@1390662248:ref:refs/heads/main` (GitHub's immutable subject format);
+`AcrPush` on the registry, `Container Apps Contributor` on the Web app and on the Worker app only. No
+Managed Identity Operator (proven unnecessary: the merge patch omits `identity`). 16 role assignments in
+`rg-wce-dev-neu` (13 from Gate 1E + 3).
+
+**Runs and deployments (all 2026-09-27):** CI runs 36317953496, 36323519792, 36326066378, 36327135490,
+36329536123 all green; deployment `wce-dev-20260927-163546` (identity); publish-only CD run 36326240690;
+owner rollout `wce-dev-20260927-175625` (first real images: Web port 8080 + liveness probe, Worker image);
+first `deploy: true` CD run 36328631074 (tags reused, two app writes, no new revision, verified); final
+no-op `deploy: true` run 36330256517 on the fixed workflow (privilege assertion passed).
+
+**Live state, verified read-only:** Web revision `ca-wce-dev-neu-web--0000001` and Worker revision
+`ca-wce-dev-neu-worker--0000001` on the `f4874302…` tags, Healthy/Running, 0 restarts; `GET /health/live`
+→ 200; migration job on the placeholder, 0 executions; PostgreSQL Ready; 20 resources.
+
+**Bicep additions:** `modules/deploymentIdentity.bicep`; parameters `webReadinessProbeEnabled` (default
+false until `/health/ready` is Azure-aware) and `migrationJobImage`; Dev images from `WCE_DEV_WEB_IMAGE`,
+`WCE_DEV_WORKER_IMAGE`, `WCE_DEV_MIGRATION_JOB_IMAGE` (default placeholder). `eng/infra.ps1` image-drift
+guard: when a variable is unset and the live app or job runs a real image, the live image is adopted, so a
+redeploy cannot revert it; an explicit variable always wins. Synthetic is untouched.
 
 ## Azure facts
 
@@ -63,57 +90,62 @@ the migration job while it holds the placeholder image.
 - Subscription: "Azure subscription 1" (id via `az account list`), **Free Trial**, spending limit on,
   created 2026-09-27; the 30-day trial window ends **2026-10-27** unless upgraded to Pay-As-You-Go, after
   which Azure disables resources until upgrade. 12 months of free services run until 2027-10-27.
-- Eleven resource providers were registered with approval (App, DBforPostgreSQL, ServiceBus, KeyVault,
-  Storage, ContainerRegistry, OperationalInsights, Insights, AlertsManagement, ManagedIdentity, Network).
 - Free Trial quota: **one Container Apps environment per region**. Dev uses North Europe's.
-- Region evidence: Israel Central has every required service except Azure Container Apps; West Europe
-  rejects this subscription ("not accepting new customers", visible only through `validate`); ten other
-  regions validated; the product owner chose North Europe. Details in `docs/gates/gate-1E-report.md`.
+- Dev: `rg-wce-dev-neu`, North Europe, name token `33f52b` (registry `crwcedev33f52b`, vault
+  `kv-wce-dev-33f52b`, server `psql-wce-dev-neu-33f52b`, namespace `sb-wce-dev-neu-33f52b`, storage
+  `stwcedev33f52b`, environment `cae-wce-dev-neu`, apps `ca-wce-dev-neu-web|worker`, job
+  `caj-wce-dev-neu-migrate`, identities `id-wce-dev-neu-web|worker|jobs|github`).
 - The two Dev passwords (`WCE_DEV_POSTGRES_ADMIN_PASSWORD`, `WCE_DEV_POSTGRES_RUNTIME_ROLE_PASSWORD`) are
   held by the product owner only. **Every redeployment must reuse the same values**, because the
   PostgreSQL administrator password is set from that parameter on each deployment.
-- Estimated recurring cost at list prices: about $42–67/month (PostgreSQL free tier may cover B1ms + 32 GB
-  for 12 months); the Log Analytics cap bounds the worst case.
+- Key Vault purge protection is off (foundation environments must be tear-down-able); Human Pilot must
+  enable it. Log Analytics `disableLocalAuth` must stay off (Container Apps ingests with the shared key).
 
-## Open items carried into later Gates
+## Open items carried into Gate 1G
 
-1. **Runtime-role bootstrap in Azure** (`workcontinuity_app`): a job entry point that reads
+1. **Azure-aware readiness**: make `/health/ready` probe the real dependencies, then set
+   `webReadinessProbeEnabled = true` (Bicep) — the parameter exists and is off.
+2. **Runtime-role bootstrap in Azure** (`workcontinuity_app`): a job entry point that reads
    `postgres-runtime-role-password` from Key Vault and runs `CREATE ROLE`; never a migration. Until it
    runs, Web and Worker cannot connect to the database by design.
-2. **Real images** via the CI/CD Gate (1F); then real health endpoints, database connectivity, telemetry
-   and Log Analytics ingestion can be verified.
-3. **Synthetic**: IaC exists and is isolated (own resource group, `10.20.0.0/16`, `WCE_SYNTHETIC_*`
-   secrets) but is not deployed; its parameter file still says `israelcentral`, which cannot host
-   Container Apps, and on Free Trial it cannot share North Europe with Dev. Needs a product-owner
-   region/subscription decision.
-4. **Key Vault purge protection is off** (foundation environments must be tear-down-able); Human Pilot
-   must enable it. Re-creating Dev after a deletion requires purging the soft-deleted vault first.
-5. **Log Analytics `disableLocalAuth` must stay off** (Container Apps ingests with the shared key).
-6. Cost settings deliberately kept: `minReplicas=1` for both apps (the Worker has no scale rule and would
-   never restart from 0), Log Analytics cap 1 GB/day (integer parameter; expected ingestion far below
-   the free 5 GB/month).
+3. **First migration run**: give the job a real image through `WCE_DEV_MIGRATION_JOB_IMAGE` on an owner
+   Bicep deploy, then trigger it once with approval; then database connectivity, telemetry, OpenTelemetry
+   baseline, secret scan, environment-isolation tests and a fresh-environment smoke test (Gate 1G list).
+4. **Not yet exercised by a CD run**: a real image *change* (the new-revision path); it happens naturally
+   on the first `deploy: true` run for a later commit. The privilege-boundary assertion passed in the
+   no-op run 36330256517.
+5. **Synthetic**: IaC exists and is isolated but is not deployed; its parameter file still says
+   `israelcentral`, which cannot host Container Apps, and on Free Trial it cannot share North Europe with
+   Dev. Needs a product-owner region/subscription decision.
+6. **Free Trial upgrade decision before 2026-10-27.**
 
 ## Technical notes needed to continue safely
 
-- `environment.bicep`, `containerRegistry.bicep`, `roleAssignments.bicep`, `serviceBus.bicep` are CRLF in
-  the working tree while git stores LF (`text=auto eol=lf`); git normalises on add and prints a warning.
-  Edit scripts must detect and preserve each file's line endings.
+- CRLF working copies while git stores LF (`text=auto eol=lf`): `environment.bicep`,
+  `containerRegistry.bicep`, `roleAssignments.bicep`, `serviceBus.bicep`, `CLAUDE.md`, `README.md`,
+  `docs/canonical/PROJECT-STATUS.md`. Edit scripts must detect and preserve each file's line endings.
 - `dotnet test` under Microsoft.Testing.Platform: use `dotnet test --project <csproj> -c Debug`; do not
   pass `--nologo` (it reaches the test host and yields "Zero tests ran"). Security (35) and
   Architecture (13) test projects run without Docker; the full suite needs `./eng/dev.ps1 up`.
-- What-if against a deployed environment reports about 13 "modify" entries that are noise (server-side
-  defaults, read-only properties, `reference()` expressions) and 13 "unsupported" role assignments
-  (their IDs depend on principal IDs). Read the property lines before treating any as real.
-- EF Core Design stays pinned at 10.0.4; local PostgreSQL image is `pgvector/pgvector:pg17`.
-- Working preferences: show the exact `git commit` command and wait for "go"; messages ≤10 lines via
-  `-m` flags, `Co-Authored-By` only, no `Claude-Session` trailer.
+- What-if against the deployed environment reports about 16 "modify" entries that are noise (server-side
+  defaults, read-only properties, `reference()` expressions, secret references echoed as changes) and 13
+  "unsupported" role assignments. Read the property lines before treating any as real; the two rollout
+  previews in `docs/gates/gate-1F-report.md` show what a real change looks like.
+- `az role assignment list --all` returns scopes in lower case (`/resourcegroups/`); filter
+  case-insensitively. Windows PowerShell 5.1 `ConvertFrom-Json` emits a JSON array as one object unless
+  assigned to a variable first, and converts ISO timestamps to `DateTime`; count and parse accordingly.
+- On this machine `bash` on PATH is the WSL relay; Git Bash is `C:\Program Files\Git\usr\bin\bash.exe`.
+- Working preferences: show the exact `git commit` command and wait for "go" unless a consolidated
+  approval covers it; messages ≤10 lines via `-m` flags, `Co-Authored-By` only, no `Claude-Session`
+  trailer; never `docker ... prune` or `git clean`, remove only resources this session created by name.
 
 ## Exact next recommended step
 
-1. Read `CLAUDE.md`, `docs/canonical/PROJECT-STATUS.md` and `docs/gates/gate-1E-report.md`.
+1. Read `CLAUDE.md`, `docs/canonical/PROJECT-STATUS.md`, `docs/gates/gate-1F-report.md`.
 2. Confirm the tree is clean: `git log --oneline -1 && git status --short`.
-3. Do **not** start Gate 1F and do **not** deploy or change Azure resources until the product owner
-   explicitly authorizes it. Before 2026-10-27 the product owner must decide on the Free Trial upgrade.
+3. Do **not** start Gate 1G and do **not** deploy, dispatch `CD Dev` with `deploy: true`, or change Azure
+   resources until the product owner explicitly authorizes it. Before 2026-10-27 the product owner must
+   decide on the Free Trial upgrade.
 
 ## Useful commands
 
@@ -122,8 +154,10 @@ the migration job while it holds the placeholder image.
 ./eng/db.ps1 status | migrate | reset            # local database
 ./eng/infra.ps1 build | lint                     # Bicep, no Azure
 ./eng/infra.ps1 validate -Environment dev -SubscriptionId <id>   # read-only, needs az login
-./eng/infra.ps1 whatif   -Environment dev -SubscriptionId <id>   # read-only, needs az login
+./eng/infra.ps1 whatif   -Environment dev -SubscriptionId <id>   # read-only, needs az login; prints the image guard
 dotnet test WorkContinuityEngine.sln -c Debug    # needs local stack running
 python eng/verify-architecture.py
 python eng/verify-local-env.py
+gh run list --workflow ci.yml --limit 5          # CI history
+gh workflow run cd-dev.yml --ref main -f commit=<sha> -f deploy=false   # publish images only (approval required)
 ```

@@ -63,6 +63,15 @@ The names are environment-specific on purpose: a Dev value can never be handed t
 refuses to validate, what-if or deploy while either variable is unset. Inside Azure the values live in
 that environment's Key Vault, read by each workload's managed identity and scoped per secret.
 
+## Images
+
+The Dev parameter file reads the three container images from the operator's environment and defaults
+to the placeholder: `WCE_DEV_WEB_IMAGE`, `WCE_DEV_WORKER_IMAGE`, `WCE_DEV_MIGRATION_JOB_IMAGE`. The
+script's image-drift guard adopts the live image of each app and of the migration job when its variable
+is unset, so an infrastructure redeploy can never silently revert a real image to the placeholder; an
+explicitly set variable always wins. GitHub CD (`.github/workflows/cd-dev.yml`) updates only the Web
+and Worker images; the migration job image changes only through this path.
+
 ## What is deliberately not here
 
 - **Azure Front Door / WAF** — required before the Human Pilot, not to prove the foundation.
