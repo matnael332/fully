@@ -88,6 +88,9 @@ param githubRepositoryId string = ''
 @description('The only branch whose workflow runs may deploy.')
 param githubBranch string = 'main'
 
+@description('Enable the Web readiness probe on /health/ready. Off until the endpoint is Azure-aware (Gate 1G).')
+param webReadinessProbeEnabled bool = false
+
 // ---------------------------------------------------------------------------------------------
 // Naming. Deterministic: the same inputs always produce the same names, and the unique token is
 // derived from the subscription and environment so Dev and Synthetic never collide, while globally
@@ -379,7 +382,8 @@ var commonEnvironmentVariables = [
 var webUsesPlaceholderImage = startsWith(webImage, 'mcr.microsoft.com/k8se/quickstart')
 var webTargetPort = webUsesPlaceholderImage ? 80 : 8080
 var webLivenessPath = webUsesPlaceholderImage ? '' : '/health/live'
-var webReadinessPath = webUsesPlaceholderImage ? '' : '/health/ready'
+// Readiness stays off until /health/ready is Azure-aware (Gate 1G); today it probes local-only targets.
+var webReadinessPath = (webUsesPlaceholderImage || !webReadinessProbeEnabled) ? '' : '/health/ready'
 
 module webApp 'modules/containerApp.bicep' = {
   name: 'container-app-web'

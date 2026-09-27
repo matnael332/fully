@@ -38,9 +38,11 @@ param maxReplicas = 2
 param logRetentionInDays = 30
 param logDailyQuotaGb = 1
 
-// Placeholder images until the CI/CD Gate publishes real ones to the environment's registry.
-param webImage = 'mcr.microsoft.com/k8se/quickstart:latest'
-param workerImage = 'mcr.microsoft.com/k8se/quickstart:latest'
+// Images come from the operator's environment, like the passwords, and default to the placeholder.
+// eng/infra.ps1 adopts the live image when a variable is unset and the app already runs a real image,
+// so an infrastructure redeploy can never silently revert Web or Worker (Gate 1F image-drift guard).
+param webImage = readEnvironmentVariable('WCE_DEV_WEB_IMAGE', 'mcr.microsoft.com/k8se/quickstart:latest')
+param workerImage = readEnvironmentVariable('WCE_DEV_WORKER_IMAGE', 'mcr.microsoft.com/k8se/quickstart:latest')
 
 // GitHub Actions continuous delivery (Gate 1F). The numeric ids make the OIDC subject immutable.
 param githubRepository = 'matnael332/fully'

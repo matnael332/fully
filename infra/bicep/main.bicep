@@ -94,6 +94,9 @@ param githubRepositoryId string = ''
 @description('The only branch whose workflow runs may deploy.')
 param githubBranch string = 'main'
 
+@description('Enable the Web readiness probe on /health/ready. Off until the endpoint is Azure-aware (Gate 1G).')
+param webReadinessProbeEnabled bool = false
+
 var resourceGroupName = 'rg-wce-${environmentName}-${regionToken}'
 
 resource environmentResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' = {
@@ -137,6 +140,7 @@ module environment 'environment.bicep' = {
     githubOwnerId: githubOwnerId
     githubRepositoryId: githubRepositoryId
     githubBranch: githubBranch
+    webReadinessProbeEnabled: webReadinessProbeEnabled
   }
 }
 

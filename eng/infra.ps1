@@ -81,6 +81,42 @@ function Require-Subscription {
     Write-Host ""
 }
 
+function Protect-Images([string]$EnvironmentName) {
+    # Image-drift guard (Gate 1F). The parameter file reads the Web and Worker images from
+    # WCE_<ENV>_WEB_IMAGE and WCE_<ENV>_WORKER_IMAGE, defaulting to the placeholder. When a variable is
+    # unset and the live app already runs a real (non-placeholder) image, the live image is adopted for
+    # this process, so a routine redeploy can never silently revert the apps to the placeholder. An
+    # explicitly set variable always wins. Runs after Require-Subscription because it reads live state.
+    $prefix = "WCE_$($EnvironmentName.ToUpperInvariant())"
+    $placeholder = 'mcr.microsoft.com/k8se/quickstart'
+
+    $compiled = az bicep build-params --file (Get-ParameterFile $EnvironmentName) --stdout | ConvertFrom-Json
+    $parameters = ($compiled.parametersJson | ConvertFrom-Json).parameters
+    $token = $parameters.regionToken.value
+    $resourceGroup = "rg-wce-$EnvironmentName-$token"
+
+    foreach ($workload in @('web', 'worker')) {
+        $variable = "${prefix}_$($workload.ToUpperInvariant())_IMAGE"
+        $app = "ca-wce-$EnvironmentName-$token-$workload"
+        $live = az rest --method get --url "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.App/containerApps/${app}?api-version=2024-03-01" --query 'properties.template.containers[0].image' --output tsv 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $live) {
+            Write-Host "Image guard : $app not deployed yet; $variable left as is" -ForegroundColor Cyan
+            continue
+        }
+        $explicit = [Environment]::GetEnvironmentVariable($variable)
+        if ($explicit) {
+            Write-Host "Image guard : $variable is set explicitly ($explicit); live image is $live" -ForegroundColor Cyan
+        }
+        elseif ($live -like "$placeholder*") {
+            Write-Host "Image guard : $app runs the placeholder; $variable unset, placeholder stays" -ForegroundColor Cyan
+        }
+        else {
+            [Environment]::SetEnvironmentVariable($variable, $live)
+            Write-Host "Image guard : $variable unset; adopting live image $live so this deployment cannot revert $app" -ForegroundColor Yellow
+        }
+    }
+}
+
 function Invoke-Build {
     Write-Host "Building $MainTemplate"
     az bicep build --file $MainTemplate --stdout | Out-Null
@@ -115,6 +151,7 @@ switch ($Command) {
         $parameterFile = Get-ParameterFile $Environment
         Require-Secrets $Environment
         Require-Subscription
+        Protect-Images $Environment
 
         # Server-side validation only. Creates nothing.
         az deployment sub validate `
@@ -129,6 +166,7 @@ switch ($Command) {
         $parameterFile = Get-ParameterFile $Environment
         Require-Secrets $Environment
         Require-Subscription
+        Protect-Images $Environment
 
         # Read-only preview of the changes a deployment would make. Creates nothing.
         az deployment sub what-if `
@@ -142,6 +180,7 @@ switch ($Command) {
         $parameterFile = Get-ParameterFile $Environment
         Require-Secrets $Environment
         Require-Subscription
+        Protect-Images $Environment
 
         if (-not $Approve) {
             throw "Deployment requires -Approve. Run 'whatif' first, review it, then re-run with -Approve. Nothing was deployed."

@@ -1,0 +1,261 @@
+name: CD Dev
+
+# Manual, main-only continuous delivery for the Dev environment (Gate 1F).
+#
+#   publish  builds Web and Worker in Release, tags them with the exact commit SHA, and pushes them to the
+#            Dev registry - but never overwrites an existing SHA tag (immutable-tag guard).
+#   deploy   updates ONLY the image of the Web and Worker Container Apps through a template-only JSON
+#            merge patch, then verifies health. It refuses to run while the apps still carry the
+#            placeholder configuration (ingress on port 80): the first real-image rollout goes through
+#            the product owner's eng/infra.ps1 deploy, which also flips port and probes.
+#
+# Authentication is GitHub OIDC -> the dedicated user-assigned identity id-wce-dev-neu-github (federated
+# credential bound to this repository and the main branch). No client secret exists anywhere.
+# Infrastructure deployments and the migration job stay outside this workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full 40-character commit SHA on main to publish (and deploy)
+        required: true
+        type: string
+      deploy:
+        description: Update the Web and Worker apps to the published images (false = publish images only)
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write   # request the OIDC token for azure/login
+  contents: read    # checkout
+
+concurrency:
+  group: cd-dev
+  cancel-in-progress: false
+
+env:
+  COMMIT: ${{ inputs.commit }}
+  REGISTRY: ${{ vars.ACR_LOGIN_SERVER }}
+  WEB_REPOSITORY: wce/web
+  WORKER_REPOSITORY: wce/worker
+
+jobs:
+  publish:
+    name: Publish immutable images
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    outputs:
+      web_ref: ${{ steps.refs.outputs.web_ref }}
+      worker_ref: ${{ steps.refs.outputs.worker_ref }}
+      web_digest: ${{ steps.web.outputs.digest }}
+      worker_digest: ${{ steps.worker.outputs.digest }}
+    steps:
+      - name: Validate the commit input
+        run: |
+          if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit must be a full 40-character lowercase hex SHA"; exit 1
+          fi
+
+      - name: Checkout main (full history, to prove the commit is on main)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require the commit to be an ancestor of main, then check it out
+        run: |
+          git cat-file -e "${COMMIT}^{commit}" || { echo "::error::commit ${COMMIT} not found"; exit 1; }
+          git merge-base --is-ancestor "$COMMIT" HEAD || { echo "::error::commit ${COMMIT} is not on main"; exit 1; }
+          git checkout --detach "$COMMIT"
+          echo "checked out $(git rev-parse HEAD)"
+
+      - name: Image references
+        id: refs
+        run: |
+          echo "web_ref=${REGISTRY}/${WEB_REPOSITORY}:${COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "worker_ref=${REGISTRY}/${WORKER_REPOSITORY}:${COMMIT}" >> "$GITHUB_OUTPUT"
+
+      - name: Azure login (OIDC, no secret)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Registry login (token from the OIDC session; requires only the pull right for reads)
+        run: az acr login --name "${REGISTRY%%.*}"
+
+      - name: Guard helper
+        run: |
+          cat > "$RUNNER_TEMP/guard.sh" <<'EOF'
+          # resolve <ref>: prints the digest the tag resolves to, or ABSENT. Fails closed on any other error,
+          # so a doubtful registry state can never turn into a build and push.
+          resolve() {
+            local ref="$1" out
+            if out=$(docker manifest inspect --verbose "$ref" 2>&1); then
+              echo "$out" | jq -r 'if type=="array" then .[0].Descriptor.digest else .Descriptor.digest end'
+            elif echo "$out" | grep -qiE "no such manifest|manifest unknown|not found|MANIFEST_UNKNOWN"; then
+              echo ABSENT
+            else
+              echo "::error::registry lookup failed for ${ref}: ${out}" >&2
+              return 1
+            fi
+          }
+          # publish <ref> <dockerfile>: build+push only when the immutable tag is absent; never overwrite.
+          publish() {
+            local ref="$1" dockerfile="$2" before after existed
+            before=$(resolve "$ref") || return 1
+            if [ "$before" = "ABSENT" ]; then
+              existed=false
+              docker build --file "$dockerfile" --build-arg CONFIGURATION=Release --provenance=false --sbom=false --tag "$ref" .
+              docker push "$ref"
+            else
+              existed=true
+              echo "immutable tag already existed, reusing digest ${before}: ${ref}"
+            fi
+            after=$(resolve "$ref") || return 1
+            [ "$after" != "ABSENT" ] || { echo "::error::tag ${ref} still absent after publish" >&2; return 1; }
+            if [ "$existed" = "true" ] && [ "$after" != "$before" ]; then
+              echo "::error::tag ${ref} changed digest during this run (${before} -> ${after})" >&2; return 1
+            fi
+            # post-push verification: a second independent read must agree
+            local verify; verify=$(resolve "$ref") || return 1
+            [ "$verify" = "$after" ] || { echo "::error::tag ${ref} resolves inconsistently (${after} vs ${verify})" >&2; return 1; }
+            echo "digest=${after}" >> "$GITHUB_OUTPUT"
+            echo "existed=${existed}" >> "$GITHUB_OUTPUT"
+            echo "| \`${ref}\` | \`${after}\` | $([ "$existed" = true ] && echo 'already existed, reused' || echo 'built and pushed') |" >> "$GITHUB_STEP_SUMMARY"
+          }
+          EOF
+          echo "| Image | Digest | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish Web image (immutable-tag guard)
+        id: web
+        run: |
+          source "$RUNNER_TEMP/guard.sh"
+          publish "${{ steps.refs.outputs.web_ref }}" src/App.Web/Dockerfile
+
+      - name: Publish Worker image (immutable-tag guard)
+        id: worker
+        run: |
+          source "$RUNNER_TEMP/guard.sh"
+          publish "${{ steps.refs.outputs.worker_ref }}" src/App.Worker/Dockerfile
+
+      - name: Azure logout
+        if: always()
+        run: az logout || true
+
+  deploy:
+    name: Deploy to Dev apps (image-only)
+    needs: publish
+    if: github.ref == 'refs/heads/main' && inputs.deploy == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      WEB_APP: ${{ vars.WEB_APP_NAME }}
+      WORKER_APP: ${{ vars.WORKER_APP_NAME }}
+      WEB_REF: ${{ needs.publish.outputs.web_ref }}
+      WORKER_REF: ${{ needs.publish.outputs.worker_ref }}
+      WEB_DIGEST: ${{ needs.publish.outputs.web_digest }}
+      WORKER_DIGEST: ${{ needs.publish.outputs.worker_digest }}
+      API: "2024-03-01"
+    steps:
+      - name: Azure login (OIDC, no secret)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Registry login (for the pre-deploy digest check)
+        run: az acr login --name "${REGISTRY%%.*}"
+
+      - name: Deploy helper
+        run: |
+          cat > "$RUNNER_TEMP/deploy.sh" <<'EOF'
+          base="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App"
+          app_url() { echo "${base}/containerApps/$1?api-version=${API}"; }
+          get_app() { az rest --method get --url "$(app_url "$1")" -o json; }
+          # identity, registry config, secret references and ingress must survive the image change untouched
+          snapshot() { jq -c '{identity: .identity, registries: .properties.configuration.registries, secrets: [.properties.configuration.secrets[]?.name], ingress: .properties.configuration.ingress, env: .properties.template.containers[0].env, probes: .properties.template.containers[0].probes, resources: .properties.template.containers[0].resources}'; }
+          resolve_digest() {
+            local out; out=$(docker manifest inspect --verbose "$1" 2>&1) || { echo "::error::cannot resolve $1: $out" >&2; return 1; }
+            echo "$out" | jq -r 'if type=="array" then .[0].Descriptor.digest else .Descriptor.digest end'
+          }
+          # rollout <app> <ref> <expected-digest> <kind: web|worker>
+          rollout() {
+            local app="$1" ref="$2" expected="$3" kind="$4" before after body current
+            before=$(get_app "$app")
+            echo "$before" > "$RUNNER_TEMP/${app}.before.json"
+            if [ "$kind" = "web" ] && [ "$(echo "$before" | jq -r '.properties.configuration.ingress.targetPort')" = "80" ]; then
+              echo "::error::${app} still has the placeholder configuration (ingress port 80). The first real-image rollout must go through eng/infra.ps1 deploy with WCE_DEV_WEB_IMAGE and WCE_DEV_WORKER_IMAGE set; this workflow changes images only." >&2
+              return 1
+            fi
+            current=$(resolve_digest "$ref") || return 1
+            [ "$current" = "$expected" ] || { echo "::error::${ref} now resolves to ${current}, expected ${expected}; refusing to deploy a moved tag" >&2; return 1; }
+            body=$(echo "$before" | jq --arg img "$ref" '{properties: {template: (.properties.template | .containers[0].image = $img)}}')
+            echo "$body" > "$RUNNER_TEMP/${app}.patch.json"
+            az rest --method patch --url "$(app_url "$app")" --headers "Content-Type=application/json" --body @"$RUNNER_TEMP/${app}.patch.json" -o none
+            # poll: provisioning done, latest revision runs the new image and is healthy
+            local i state latest rev health running replicas image
+            for i in $(seq 1 60); do
+              after=$(get_app "$app")
+              state=$(echo "$after" | jq -r '.properties.provisioningState')
+              latest=$(echo "$after" | jq -r '.properties.latestRevisionName')
+              rev=$(az rest --method get --url "${base}/containerApps/${app}/revisions/${latest}?api-version=${API}" -o json)
+              health=$(echo "$rev" | jq -r '.properties.healthState'); running=$(echo "$rev" | jq -r '.properties.runningState')
+              replicas=$(echo "$rev" | jq -r '.properties.replicas // 0'); image=$(echo "$rev" | jq -r '.properties.template.containers[0].image')
+              echo "  ${app}: provisioning=${state} revision=${latest} image-match=$([ "$image" = "$ref" ] && echo yes || echo no) health=${health} running=${running} replicas=${replicas}"
+              if [ "$state" = "Succeeded" ] && [ "$image" = "$ref" ] && [ "$health" = "Healthy" ] && [ "$running" = "Running" ] && [ "$replicas" -ge 1 ]; then break; fi
+              if [ "$state" = "Failed" ] || [ "$health" = "Unhealthy" ] && [ "$image" = "$ref" ]; then echo "::error::${app} revision ${latest} failed (health=${health} running=${running})" >&2; return 1; fi
+              sleep 10
+            done
+            [ "$state" = "Succeeded" ] && [ "$image" = "$ref" ] && [ "$health" = "Healthy" ] || { echo "::error::${app} did not become healthy on ${ref} within 10 minutes" >&2; return 1; }
+            if [ "$kind" = "web" ]; then
+              local fqdn; fqdn=$(echo "$after" | jq -r '.properties.configuration.ingress.fqdn')
+              curl -fsS --retry 10 --retry-delay 3 --retry-all-errors "https://${fqdn}/health/live" || { echo "::error::/health/live on ${fqdn} did not return 200" >&2; return 1; }
+              echo; echo "  ${app}: /health/live 200 on ${fqdn}"
+            else
+              sleep 60   # no crash loop: still Healthy/Running a minute later on the same revision
+              rev=$(az rest --method get --url "${base}/containerApps/${app}/revisions/${latest}?api-version=${API}" -o json)
+              [ "$(echo "$rev" | jq -r '.properties.healthState')" = "Healthy" ] && [ "$(echo "$rev" | jq -r '.properties.runningState')" = "Running" ] || { echo "::error::${app} revision ${latest} not stable after 60 s" >&2; return 1; }
+              echo "  ${app}: revision ${latest} still Healthy/Running after 60 s"
+            fi
+            # nothing but the image may have changed
+            [ "$(echo "$before" | snapshot)" = "$(echo "$after" | snapshot)" ] || { echo "::error::${app}: identity, registry, secret, ingress, env, probe or resource configuration changed" >&2; diff <(echo "$before" | snapshot | jq .) <(echo "$after" | snapshot | jq .) >&2 || true; return 1; }
+            echo "| \`${app}\` | \`${ref}\` | \`${expected}\` | ${latest} | Healthy |" >> "$GITHUB_STEP_SUMMARY"
+          }
+          EOF
+          echo "| App | Image | Digest | Revision | State |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Snapshot the migration job (must remain untouched)
+        run: |
+          az rest --method get --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/jobs/caj-wce-dev-neu-migrate?api-version=${API}" -o json \
+            | jq -c '{image: .properties.template.containers[0].image, config: .properties.configuration, identity: .identity}' > "$RUNNER_TEMP/job.before.json"
+
+      - name: Roll out Web (image only)
+        run: |
+          source "$RUNNER_TEMP/deploy.sh"
+          rollout "$WEB_APP" "$WEB_REF" "$WEB_DIGEST" web
+
+      - name: Roll out Worker (image only)
+        run: |
+          source "$RUNNER_TEMP/deploy.sh"
+          rollout "$WORKER_APP" "$WORKER_REF" "$WORKER_DIGEST" worker
+
+      - name: Verify the migration job is unchanged
+        run: |
+          az rest --method get --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/jobs/caj-wce-dev-neu-migrate?api-version=${API}" -o json \
+            | jq -c '{image: .properties.template.containers[0].image, config: .properties.configuration, identity: .identity}' > "$RUNNER_TEMP/job.after.json"
+          cmp -s "$RUNNER_TEMP/job.before.json" "$RUNNER_TEMP/job.after.json" || { echo "::error::migration job changed during this run" >&2; exit 1; }
+          echo "migration job unchanged"
+
+      - name: Azure logout
+        if: always()
+        run: az logout || true
