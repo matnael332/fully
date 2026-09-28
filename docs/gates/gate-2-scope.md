@@ -10,8 +10,9 @@ at its owner boundary for review before the next begins.
 |---|---|
 | 2A Event contract, validation and authority table | **PASS** — commit `7ba941a`, CI run 36403160623 green |
 | 2B Durable ingress | **PASS** — commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design) |
-| 2C Outbox relay, publisher, consumer and dead-letter handling | Authorized 2026-09-28; implemented and verified locally; at its owner boundary, uncommitted |
-| 2D–2G | Not started |
+| 2C Outbox relay, publisher, consumer and dead-letter handling | **PASS** — commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally) |
+| 2D Processing pipeline and event ledger | **NEXT / NOT STARTED**; begins only on explicit product-owner authorization; must revisit session granularity (see "2C closure") |
+| 2E–2G | Not started |
 | Gate 3 — monday Connector | **NOT STARTED**; requires explicit authorization |
 
 Azure Dev does **not** have the Gate 2B migration or schema: the `connections` table and the
@@ -237,3 +238,23 @@ Gate 2 measures but does not gate on (Gate 8).
 10. **Out of scope and unchanged.** No event ledger, normalization, business ordering, Snapshot, monday or
     webhook logic, AI, retention purge or metric instruments (2D–2F). No Web, Worker, Bicep, workflow, package
     or Azure change, and no 2D work. Build with 0 warnings; the full suite passes locally.
+
+## 2C closure (2026-09-28)
+
+2C is **PASS**. Implementation commit `189f173922cf4d2adf04ee4e426b5ed5069470c2`; CI run 36425641730 green on
+all three jobs: 444 tests, 437 passed, 0 failed, 7 skipped by design. The 7 skipped tests are the Service Bus
+emulator tests (3 from Gate 1G readiness, 4 from 2C), which CI does not run because no emulator licence is
+accepted there (decision 8); all 7 passed locally against the emulator. Azure Dev has neither the Gate 2B nor
+the Gate 2C migration or schema.
+
+Product-owner decisions at the 2C review:
+
+1. **SessionId = TenantId** is the conservative, correctness-first transport choice for 2C, because a
+   receipt's work item is not known until processing normalizes it. **Gate 2D must explicitly revisit whether
+   finer-grained per-work-item ordering or session semantics are required once normalized object identity
+   exists.** This closure does not change the 2C transport contract.
+2. `outbox_pending_tenants` stays discovery-only: it returns tenant ids, and claiming and locking stay
+   tenant-scoped under that tenant's row-level security. It is not to be broadened into a cross-tenant claim
+   function.
+3. No runtime activation yet. Registering the relay and consumer in the Worker, deploying, running the Azure
+   migration job and granting Service Bus send access remain separate owner approval boundaries.

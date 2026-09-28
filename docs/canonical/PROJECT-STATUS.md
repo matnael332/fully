@@ -111,7 +111,7 @@ region/subscription decision, and the Free Trial upgrade before 2026-10-27.
 Status: **PASS — Gates 1A through 1G closed (2026-09-28)**
 
 ### Gate 2 — Event Backbone
-Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`); sub-gate 2C at its owner boundary**
+Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`), 2C PASS (`189f173`); 2D NEXT / NOT STARTED**
 
 Scope, the nine product-owner design decisions and the 2A–2G decomposition are recorded in
 `docs/gates/gate-2-scope.md`. Each sub-gate stops at an owner boundary before the next begins. 2A adds
@@ -127,8 +127,13 @@ function, claims each tenant's rows under that tenant's own row-level security, 
 after Service Bus accepted them. A versioned, content-free broker envelope carries deterministic message ids
 and per-tenant sessions. A transport-level consumer validates every message before it restores the message's
 tenant, and settles only after the downstream handler reports, with bounded retries and dead-lettering.
-Re-drive is explicit and bounded. 2C is registered in no host and changes no Azure resource. It is implemented
-and verified locally, and awaits owner review, uncommitted.
+Re-drive is explicit and bounded. 2C is registered in no host and changes no Azure resource.
+2C is PASS: commit `189f173922cf4d2adf04ee4e426b5ed5069470c2`, CI run 36425641730 green (444 tests: 437
+passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally). Azure Dev has
+neither the Gate 2B nor the Gate 2C migration or schema; applying them is a separate product-owner approval.
+Owner decision: 2C uses the tenant as the Service Bus session, the conservative correctness-first choice, and
+2D must explicitly revisit whether finer-grained per-work-item ordering or session semantics are required once
+normalized object identity exists. 2D (processing pipeline and event ledger) is next and not started.
 
 ### Gate 3 onward
 Status: **NOT STARTED unless explicitly approved by the product owner**
@@ -293,8 +298,8 @@ post-Gate-1 hardening follow-ups.
 ## Immediate recommended next action in Claude Code
 
 Gate 1 (Foundation) is closed: Gates 1A through 1G are PASS. Gate 2 (Event Backbone) is authorized and in
-progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A and 2B are PASS, and 2C awaits owner
-review at its boundary, uncommitted. Do not begin a sub-gate without the product owner's explicit authorization, do not start
+progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A, 2B and 2C are PASS, and 2D is next
+and not started. Do not begin a sub-gate without the product owner's explicit authorization, do not start
 Gate 3, do not start the bootstrap or migration jobs (each has exactly one execution), and do not deploy,
 dispatch `CD Dev` with `deploy: true`, or change Azure resources, without explicit product-owner
 authorization. Azure Dev has neither the Gate 2B nor the Gate 2C migration. Before 2026-10-27 the product
