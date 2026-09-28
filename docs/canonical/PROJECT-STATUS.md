@@ -76,20 +76,42 @@ the placeholder configuration; runners pinned to `ubuntu-24.04`. Sub-gates 1F-A 
 (repository), 1F-C (CI), 1F-D (deployment identity) and 1F-E (continuous delivery) are each PASS.
 
 Real images run in Dev: Web `/health/live` returns 200 behind a liveness probe on port 8080; the Worker
-is Healthy with no restarts; the migration job keeps the placeholder image and has never been executed.
+is Healthy with no restarts; the migration job kept the placeholder image and was not executed until Gate 1G.
 The first publish-only CD run and the first `deploy: true` CD run both succeeded and were verified
 read-only in Azure.
 
-Carried forward to Gate 1G: Azure-aware readiness (`/health/ready`; probe parameter off), the
+Carried forward to Gate 1G (all delivered there except the Synthetic decision): Azure-aware readiness
+(`/health/ready`; probe parameter off at the time), the
 runtime-role bootstrap job, the first migration run, database connectivity, telemetry and OpenTelemetry,
 and the Synthetic region/subscription decision. A real image change through CD (the new-revision path)
-has not yet been exercised by a CD run; the privilege-boundary assertion passed in run 36330256517.
+was first exercised by CD run 36377312213 in Gate 1G; the privilege-boundary assertion passed in run 36330256517.
 
 ### Gate 1G — Foundation Hardening
-Status: **NEXT / NOT STARTED — requires explicit product-owner authorization**
+Status: **PASS — implemented, verified in Azure and product-owner approved (2026-09-28)**
+
+Azure-aware readiness: Web `/health/ready` and the Worker heartbeat prove PostgreSQL by connecting as the
+runtime role and Service Bus by a side-effect-free link on `ai-jobs`, each under the workload's own
+managed identity, with reason codes only in the response. A dedicated runtime-role bootstrap job
+(`caj-wce-dev-neu-bootstrap`, manual, jobs identity, password passed only as a bind parameter) created
+`workcontinuity_app` in Azure and verified its login; the migration job then applied the two Gate 1D
+migrations. Each job has executed exactly once. OpenTelemetry sends requests (Web) and dependencies, traces
+and logs (both roles) to Application Insights, gated on the connection string. CI runs a pinned gitleaks
+scan; Security tests grew to 58 (workflows, Bicep boundaries, environment isolation, readiness safety);
+the full suite is 266 tests. The Dev readiness probe is enabled (`webReadinessProbeEnabled = true`) and
+the Web runs revision `--0000003` Healthy behind it; the fresh-environment smoke test was satisfied by the
+local clean-slate smoke (product-owner decision).
+
+Non-blocking observation, carried as a post-Gate-1 hardening follow-up: the first readiness call after a
+container start can spend its 5 s Service Bus budget on managed-identity token acquisition (one 503 was
+observed before the probe existed; the probe's failure threshold of 6 tolerates it). Other follow-ups:
+the Web image's `libgssapi_krb5` stderr line, Application Insights local-auth hardening, the Synthetic
+region/subscription decision, and the Free Trial upgrade before 2026-10-27.
+
+### Gate 1 — Foundation
+Status: **PASS — Gates 1A through 1G closed (2026-09-28)**
 
 ### Gate 2 onward
-Status: **NOT STARTED unless explicitly approved by the product owner**
+Status: **NEXT / NOT STARTED unless explicitly approved by the product owner**
 
 ## Verified evidence for Gate 1A / 1B
 
@@ -223,9 +245,34 @@ Verified on 2026-09-27. Every GitHub run and Azure state below was executed or r
 See `docs/gates/gate-1F-report.md` for the full report: identity and RBAC, both workflows, the guards,
 every run and deployment, the problems found and fixed, and the items carried into Gate 1G.
 
+## Verified evidence for Gate 1G
+
+Verified on 2026-09-28. Every GitHub run, job execution and Azure state below was executed or read, not
+inspected.
+
+| Check | Result |
+|---|---|
+| CI on `main` | PASS — runs 36374164214 (`fc9bb3e`) and 36382627242 (`450c13d`): 266 tests, 263 passed, 3 skipped (emulator tests, by design), 0 failed; gitleaks 8.30.1 no leaks. Run 36373040147 (`9651ed3`) FAILED because the runner exports `ACCEPT_EULA=Y` globally; fixed in `fc9bb3e` |
+| Local full suite (with the emulator) | PASS — 266/266 |
+| Security tests (`App.Security.Tests`) | PASS — 58/58 after every change |
+| Publish-only CD run 36374505337 (`deploy: false`) | PASS — both `fc9bb3e` tags pushed once; digests in the report |
+| Owner deployment `wce-dev-20260928-065309` | PASS — 1 create (bootstrap job), 0 delete; 23 nested deployments, 0 failed operations; 21 resources; 16 role assignments unchanged |
+| Bootstrap job | PASS — 1 execution, Succeeded; `created`, `canLogin`, `rowLevelSecurityEnforced`, `loginVerified`, `succeeded` all true; no secret emitted |
+| Migration job | PASS — 1 execution, Succeeded; `20260926213721_InitialGate1DSchema` and `20260926213758_TenantIsolationAndVectorExtension` applied, none pending; no destructive path |
+| CD run 36377312213 (`deploy: true`) | PASS — tags reused; revisions `--0000002` Healthy/Running, 0 restarts; configuration unchanged apart from the image |
+| Readiness | `/health/live` 200; `/health/ready` 200 with `postgres` and `service-bus` healthy; Worker `readiness=ready` on every heartbeat |
+| Telemetry | AppRequests (Web); AppDependencies (PostgreSQL, `worker.readiness-check`, identity token) and AppTraces from both roles; AppExceptions 0; job and app logs in Log Analytics; sensitive-value sweep 0 hits |
+| Owner deployment `wce-dev-20260928-091451` (probe on) | PASS — 0 create, 0 delete; only the Web probes changed; Web revision `--0000003` Healthy/Running with both probes as designed, 0 restarts, previous revision stopped normally; Worker unchanged; jobs still 1 execution each; 21 resources; 16 role assignments |
+| Synthetic | untouched |
+| Architecture/PRD contradictions | none |
+
+See `docs/gates/gate-1G-report.md` for the full report: what was delivered, every commit, run,
+deployment and job execution, readiness and telemetry evidence, the problems found and fixed, and the
+post-Gate-1 hardening follow-ups.
+
 ## Immediate recommended next action in Claude Code
 
-Gate 1A through Gate 1F are closed. Gate 1G (Foundation Hardening) is next and has not started; do not
-begin it, and do not deploy, dispatch `CD Dev` with `deploy: true`, or change Azure resources, without
-explicit product-owner authorization. Before 2026-10-27 the product owner must decide on the Free Trial
-upgrade.
+Gate 1 (Foundation) is closed: Gates 1A through 1G are PASS. Gate 2 (Event Backbone) is next and has not
+started; do not begin it, do not start the bootstrap or migration jobs (each has exactly one execution),
+and do not deploy, dispatch `CD Dev` with `deploy: true`, or change Azure resources, without explicit
+product-owner authorization. Before 2026-10-27 the product owner must decide on the Free Trial upgrade.

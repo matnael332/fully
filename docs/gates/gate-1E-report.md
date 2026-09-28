@@ -204,6 +204,8 @@ Azure-facing commands run on 2026-09-27, each shown to the product owner first: 
    Vault at run time and `CREATE ROLE` — a job entry point, not a migration, because a migration must
    never contain a credential. The Key Vault secret and the jobs identity's access to it are in place;
    the code is a follow-up. Until it runs, the Web and Worker apps cannot connect, by design.
+   *Delivered in Gate 1G:* `caj-wce-dev-neu-bootstrap` ran exactly once on 2026-09-28 and verified the
+   role's login; see `docs/gates/gate-1G-report.md`.
 5. **Placeholder images.** Both apps and the job reference `mcr.microsoft.com/k8se/quickstart` until
    the CI/CD Gate publishes real images to the environment registry.
 6. **Recurring cost on deployment**: PostgreSQL Flexible Server (Burstable), Service Bus Standard,

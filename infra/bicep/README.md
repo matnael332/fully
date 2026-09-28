@@ -27,7 +27,7 @@ infra/bicep/
     roleAssignments.bicep          Least-privilege RBAC, Key Vault scoped per secret.
     containerAppsEnvironment.bicep VNet-integrated environment.
     containerApp.bicep             Reusable app definition (Web, Worker).
-    containerAppsJob.bicep         Reusable job definition (migration; later scheduled/synthetic jobs).
+    containerAppsJob.bicep         Reusable job definition (migration and runtime-role bootstrap jobs; later scheduled/synthetic jobs).
 ```
 
 ## Commands
@@ -65,17 +65,25 @@ that environment's Key Vault, read by each workload's managed identity and scope
 
 ## Images
 
-The Dev parameter file reads the three container images from the operator's environment and defaults
-to the placeholder: `WCE_DEV_WEB_IMAGE`, `WCE_DEV_WORKER_IMAGE`, `WCE_DEV_MIGRATION_JOB_IMAGE`. The
-script's image-drift guard adopts the live image of each app and of the migration job when its variable
-is unset, so an infrastructure redeploy can never silently revert a real image to the placeholder; an
-explicitly set variable always wins. GitHub CD (`.github/workflows/cd-dev.yml`) updates only the Web
-and Worker images; the migration job image changes only through this path.
+The Dev parameter file reads the four container images from the operator's environment and defaults
+to the placeholder: `WCE_DEV_WEB_IMAGE`, `WCE_DEV_WORKER_IMAGE`, `WCE_DEV_MIGRATION_JOB_IMAGE`,
+`WCE_DEV_BOOTSTRAP_JOB_IMAGE`. The script's image-drift guard adopts the live image of each app and of
+each job when its variable is unset (a resource that is not deployed yet is left alone), so an
+infrastructure redeploy can never silently revert a real image to the placeholder; an explicitly set
+variable always wins. GitHub CD (`.github/workflows/cd-dev.yml`) updates only the Web and Worker
+images; the migration and bootstrap job images change only through this path.
+
+## Readiness probe
+
+`webReadinessProbeEnabled` (default `false`) adds the Web readiness probe on `/health/ready` (initial
+delay 5 s, period 20 s, timeout 15 s, failure threshold 6) once a real image is deployed. Dev sets it to
+`true` since Gate 1G (`main.dev.bicepparam`); Synthetic keeps the default. The Worker has no probe: its
+heartbeat performs the same dependency check and logs `readiness=ready|degraded`.
 
 ## What is deliberately not here
 
 - **Azure Front Door / WAF** — required before the Human Pilot, not to prove the foundation.
 - **Kubernetes, API Management, Redis, AI Search** — excluded by the frozen architecture.
-- **A database bootstrap that creates the runtime role** — the local environment does this in a
-  container init script; the Azure equivalent reads the role password from Key Vault at run time and is
-  a follow-up, tracked in the Gate 1E report.
+- **Automatic job execution** — the migration job and the runtime-role bootstrap job (Gate 1G) are
+  manual; nothing in Bicep or CD starts them. Each is started by an explicit, product-owner-approved
+  `az rest POST …/start`, and each has run exactly once in Dev.
