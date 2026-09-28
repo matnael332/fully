@@ -111,7 +111,7 @@ region/subscription decision, and the Free Trial upgrade before 2026-10-27.
 Status: **PASS — Gates 1A through 1G closed (2026-09-28)**
 
 ### Gate 2 — Event Backbone
-Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`), 2C PASS (`189f173`), 2D PASS (`f97d22d`); sub-gate 2E at its owner boundary**
+Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`), 2C PASS (`189f173`), 2D PASS (`f97d22d`), 2E PASS (`e165852`); 2F NEXT / NOT STARTED**
 
 Scope, the nine product-owner design decisions and the 2A–2G decomposition are recorded in
 `docs/gates/gate-2-scope.md`. Each sub-gate stops at an owner boundary before the next begins. 2A adds
@@ -153,8 +153,16 @@ its source and object, the canonical event, the provider event id and revision, 
 processed times, from which freshness is derived without an invented threshold. Each object keeps one version
 per accepted event. A field value must now be bounded, single-line text; any other value quarantines the event
 as bad schema. The Snapshot keeps no before value, actor, reference or payload, and no Snapshot row is ever
-deleted. 2E is registered in no host, changes no Azure resource, and is implemented and verified locally,
-awaiting owner review, uncommitted.
+deleted. 2E is registered in no host and changes no Azure resource. 2E is PASS: commit
+`e165852e4a659e49107571a9bcf84c9a1329a056`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service
+Bus emulator tests skipped by design; every 2E test ran and passed in CI). Azure Dev has none of the Gate 2B,
+2C, 2D or 2E migrations or schema; applying them is a separate product-owner approval. Owner decisions at the
+2E review: Snapshot projection stays in the same database transaction as the 2D ledger write, which atomicity
+and crash safety require. The canonical field-value rule is approved: NULL means the source cleared the field,
+invalid values are rejected and quarantined, and source facts are never silently truncated or rewritten. The
+1,024-character value limit is approved for 2E and stays centralized in `EventText.MaxValueLength`; Gate 3 must
+validate it against real connector data and widen it explicitly if needed, never truncating. 2F (retention and
+metrics) is next and not started.
 
 ### Gate 3 onward
 Status: **NOT STARTED unless explicitly approved by the product owner**
@@ -319,8 +327,8 @@ post-Gate-1 hardening follow-ups.
 ## Immediate recommended next action in Claude Code
 
 Gate 1 (Foundation) is closed: Gates 1A through 1G are PASS. Gate 2 (Event Backbone) is authorized and in
-progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A, 2B, 2C and 2D are PASS, and 2E awaits
-owner review at its boundary, uncommitted. Do not begin a sub-gate without the product owner's explicit authorization, do not start
+progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A, 2B, 2C, 2D and 2E are PASS, and 2F is
+next and not started. Do not begin a sub-gate without the product owner's explicit authorization, do not start
 Gate 3, do not start the bootstrap or migration jobs (each has exactly one execution), and do not deploy,
 dispatch `CD Dev` with `deploy: true`, or change Azure resources, without explicit product-owner
 authorization. Azure Dev has none of the Gate 2B, 2C, 2D or 2E migrations. Before 2026-10-27 the product

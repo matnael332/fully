@@ -12,8 +12,9 @@ at its owner boundary for review before the next begins.
 | 2B Durable ingress | **PASS** — commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design) |
 | 2C Outbox relay, publisher, consumer and dead-letter handling | **PASS** — commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally) |
 | 2D Processing pipeline and event ledger | **PASS** — commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI) |
-| 2E Snapshot projection | Authorized 2026-09-28; implemented and verified locally; at its owner boundary, uncommitted |
-| 2F–2G | Not started |
+| 2E Snapshot projection | **PASS** — commit `e165852`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI) |
+| 2F Retention and metrics | **NEXT / NOT STARTED**; begins only on explicit product-owner authorization |
+| 2G | Not started |
 | Gate 3 — monday Connector | **NOT STARTED**; requires explicit authorization |
 
 Azure Dev does **not** have the Gate 2B migration or schema: the `connections` table and the
@@ -443,3 +444,22 @@ Product-owner decisions at the 2D review:
     logic, no Work Memory or AI, no read API, endpoint or UI, and no Web or Worker activation. No Bicep,
     workflow, package or Azure change, and no change to the frozen documents. Build with 0 warnings; the full
     suite passes locally.
+
+## 2E closure (2026-09-28)
+
+2E is **PASS**. Implementation commit `e165852e4a659e49107571a9bcf84c9a1329a056`; CI run 36449846577 green on
+all three jobs: 524 tests, 517 passed, 0 failed, 7 skipped by design. The 7 skipped tests are the Service Bus
+emulator tests (3 from Gate 1G readiness, 4 from 2C), which CI does not run because no emulator licence is
+accepted there (decision 8); every 2E test ran and passed in CI. Azure Dev has none of the Gate 2B, 2C, 2D or
+2E migrations or schema.
+
+Product-owner decisions at the 2E review:
+
+1. **Snapshot projection stays in the same database transaction as the Gate 2D ledger write.** Atomicity and
+   crash safety require it; ledger and Snapshot are never split into separate commits or transactions.
+2. **The canonical field-value rule is approved.** NULL means the source cleared the field. Invalid values are
+   rejected and quarantined. Source facts are never silently truncated or rewritten, and validation stays
+   deterministic.
+3. **The 1,024-character field-value limit is approved for Gate 2E.** `EventText.MaxValueLength` stays the one
+   centralized limit, never repeated as a magic number. Gate 3 must validate it against real connector data;
+   if real data needs more, the limit is widened explicitly, and values are never truncated.
