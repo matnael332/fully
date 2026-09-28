@@ -18,6 +18,8 @@ public sealed class IngressSecurityTests
     private const string IngressFile = "src/App.Infrastructure/Ingress/EventIngressService.cs";
     private const string MigrationFile =
         "src/App.Infrastructure/Persistence/Migrations/20260928101033_DurableIngressConnections.cs";
+    private const string RelayMigrationFile =
+        "src/App.Infrastructure/Persistence/Migrations/20260928114056_OutboxRelayTenantDiscovery.cs";
 
     [Fact]
     public void A_delivery_has_no_way_to_name_its_tenant()
@@ -113,10 +115,11 @@ public sealed class IngressSecurityTests
     }
 
     [Fact]
-    public void Security_definer_and_database_functions_exist_only_in_the_approved_migration()
+    public void Security_definer_and_database_functions_exist_only_in_the_approved_migrations()
     {
-        // Gate 2 owner decision 1 allows narrowly scoped functions for three operations. Gate 2B adds the
-        // first; each later one must be added to this list deliberately, with its own pinned tests.
+        // Gate 2 owner decision 1 allows narrowly scoped functions for three operations. Gate 2B added the
+        // connection resolver and Gate 2C the outbox discovery function, one per migration; each later one
+        // must be added to this list deliberately, with its own pinned tests.
         var securityDefiner = new Regex(@"\bSECURITY\s+DEFINER\b", RegexOptions.IgnoreCase);
         var createsRoutine = new Regex(
             @"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b",
@@ -125,14 +128,16 @@ public sealed class IngressSecurityTests
         var definerFiles = RepositoryLayout.ProductionSourceFiles
             .Where(file => securityDefiner.IsMatch(File.ReadAllText(file.FullName)))
             .Select(RepositoryLayout.RelativePath)
+            .Order(StringComparer.Ordinal)
             .ToArray();
-        Assert.Equal([MigrationFile], definerFiles);
+        Assert.Equal([MigrationFile, RelayMigrationFile], definerFiles);
 
         var routines = RepositoryLayout.ProductionSourceFiles
             .SelectMany(file => createsRoutine.Matches(File.ReadAllText(file.FullName))
                 .Select(_ => RepositoryLayout.RelativePath(file)))
+            .Order(StringComparer.Ordinal)
             .ToArray();
-        Assert.Equal([MigrationFile], routines);
+        Assert.Equal([MigrationFile, RelayMigrationFile], routines);
     }
 
     [Fact]

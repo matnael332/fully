@@ -10,13 +10,14 @@ at its owner boundary for review before the next begins.
 |---|---|
 | 2A Event contract, validation and authority table | **PASS** — commit `7ba941a`, CI run 36403160623 green |
 | 2B Durable ingress | **PASS** — commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design) |
-| 2C Outbox relay, publisher, consumer and dead-letter handling | **NEXT / NOT STARTED**; begins only on explicit product-owner authorization |
+| 2C Outbox relay, publisher, consumer and dead-letter handling | Authorized 2026-09-28; implemented and verified locally; at its owner boundary, uncommitted |
 | 2D–2G | Not started |
 | Gate 3 — monday Connector | **NOT STARTED**; requires explicit authorization |
 
 Azure Dev does **not** have the Gate 2B migration or schema: the `connections` table and the
-`resolve_ingress_connection` function exist only in local databases. Applying them needs new images, an
-updated migration-job image and one migration-job run, each a separate product-owner approval.
+`resolve_ingress_connection` function exist only in local databases. Neither does it have the Gate 2C
+migration (the `outbox_pending_tenants` function and its owner read policy). Applying them needs new images,
+an updated migration-job image and one migration-job run, each a separate product-owner approval.
 
 Standing constraints for all of Gate 2: no Azure write, no RBAC, identity, networking or Key Vault change,
 no job start and no `CD Dev` with `deploy: true` without separate product-owner approval, so Azure Dev
@@ -157,3 +158,82 @@ Gate 2 measures but does not gate on (Gate 8).
    rehearsal of the non-superuser owner, plus mutation checks showing the key tests are not vacuous.
 10. No Service Bus publication, outbox relay, consumer, dead-letter handling, Snapshot, Web, Worker, Bicep,
     workflow, package or Azure change, and no 2C work. Build with 0 warnings; the full suite passes locally.
+
+## 2C Definition of Done
+
+1. **Transport contract in `App.Core`.** A versioned broker envelope (contract `1`), obtainable only through
+   validation: from an outbox row on the relay side, from a received broker message on the consumer side. The
+   `MessageId` is deterministic: the outbox message id, or after the n-th controlled re-drive that id with a
+   fixed re-drive suffix. The `SessionId` is the tenant id: a receipt's object is unknown until 2D normalizes it,
+   and the tenant is the narrowest key certain to hold every event of every object of that tenant, so
+   per-object order is preserved and tenants never share a session. The native `CorrelationId` carries the
+   ingress correlation id; typed application properties carry the contract version, message type, tenant,
+   outbox message id (the event identity), causation (the receipt id) and re-drive count. The body is the
+   content-free receipt marker in canonical form. Any other message type or body shape is refused, so no raw
+   work content can reach the broker or its dead-letter queue.
+2. **Tenant-less discovery through the approved mechanism only.** The outbox relay must find work before any
+   tenant is known, and forced row-level security hides every outbox and tenant row from the runtime role
+   without one. One new `SECURITY DEFINER` function, `outbox_pending_tenants(integer)`, returns only the ids of
+   tenants that have unpublished outbox messages, oldest pending work first, at most 100 per call. It uses
+   `search_path = pg_catalog, pg_temp` and schema-qualified names, has no dynamic SQL, has `EXECUTE` revoked from
+   PUBLIC and granted to the runtime role only, and reads through an owner-only, read-only policy on pending
+   outbox rows so it also works under Azure's non-superuser owner. It returns no message, payload or row id
+   and locks or changes nothing. It is pinned by source-level and database-level tests, in one exact allowlist
+   with the 2B resolver. No table or column changes.
+3. **Outbox relay.** For each discovered tenant, in its own trusted-service tenant scope and transaction under
+   forced row-level security, the relay locks a batch of that tenant's pending rows with
+   `FOR UPDATE SKIP LOCKED`, so only committed rows are claimed and concurrent relays never hold the same row.
+   It publishes each row and marks it published only after the broker accepted it, committing the marks while
+   the locks are held. A failed send stops the tenant's batch and leaves the rest pending. A crash or rollback
+   before commit releases the locks and leaves every unmarked row publishable. A crash after a send but
+   before the commit republishes the same `MessageId`: broker duplicate detection absorbs that inside its
+   window, and outside it the duplicate is safe by contract. A row that cannot form a valid envelope is never
+   published or marked, is logged with its id and a reason code on every pass, and does not block the rows
+   behind it. The lock is the claim, so no attempt or lease columns are needed.
+4. **Service Bus publisher.** Sends to the existing `event-processing` queue with the envelope's `MessageId`,
+   `SessionId`, `CorrelationId`, content type and typed properties. A failure returns a stable reason code,
+   never an SDK message. The Service Bus SDK stays in `App.Infrastructure`.
+5. **Transport-level consumer.** It validates every received message against the envelope before trusting any
+   part of it. An invalid or unsupported message is dead-lettered with a stable reason code and never reaches
+   the downstream handler. For a valid message it restores the tenant only from the validated broker metadata,
+   as a trusted-service context in a fresh scope per message, invokes the downstream
+   `ITransportMessageHandler`, and settles only after the handler reports:
+   - success completes the message;
+   - a transient failure or a handler exception abandons after bounded exponential backoff with jitter, and
+     after 5 attempts dead-letters it as `transport.retries_exhausted`;
+   - a permanent failure dead-letters it with the handler's reason code, if that code is a safe token.
+
+   The Service Bus adapter is a peek-lock session processor that takes one message at a time per session and
+   never auto-completes. A duplicate delivery reaches the handler with the same identity; persistent
+   idempotency is 2D's.
+6. **Dead-letter handling.** Every dead-letter decision is logged with ids, the reason code and the delivery
+   count. A dead-letter reader returns safe metadata only: ids, tenant, type, reason code, counts and times, with
+   no body and no free-text description. Re-drive is an explicit operation on one message named by its outbox
+   id. It validates the envelope and refuses after 3 re-drives. It sends a copy that keeps the tenant, session,
+   correlation, causation and outbox identity, with the re-drive count incremented and a deterministic new
+   `MessageId`, so broker duplicate detection cannot swallow the copy. Only then does it remove the
+   dead-lettered original. Nothing re-drives automatically.
+7. **Composition, no activation.** `AddEventTransport` composes the relay and the consumer, and
+   `AddServiceBusEventTransport` composes the publisher, the consumer host and the dead-letter queue. Nothing
+   is registered in the Web or Worker hosts: no downstream handler exists until 2D, and a consumer without
+   one must not run. Activating the Worker is a later, separately approved boundary, which includes Service
+   Bus send access for the Worker identity in Azure.
+8. **Hygiene.** Logs and errors carry ids, codes, counts and exception type names only. They never carry a
+   message body, payload, SDK exception message or connection string. A capturing log provider proves this on
+   every relay, consumer and dead-letter path.
+9. **Tests.**
+   - Unit tests for the envelope, its validation, the ids, the retry policy and the re-drive rules.
+   - Integration tests against the real local PostgreSQL through the runtime role. For the relay: publication,
+     a failed send, a crash before and after the send, concurrent relays, uncommitted rows, tenant isolation,
+     unrelayable rows and logs. For the discovery function: its definition, grants and output, and a
+     rehearsal of the non-superuser owner.
+   - CI pipeline tests from ingress through the relay to the consumer on a deterministic in-memory transport
+     that models sessions, the duplicate-detection window, abandon, delivery counts, dead-lettering and
+     re-drive.
+   - Local Service Bus emulator tests for send, session receive, retry, dead-lettering, reading the dead-letter
+     queue, re-drive and duplicate detection. They are skipped in CI, where no emulator licence is accepted
+     (decision 8).
+   - Mutation checks showing the key tests are not vacuous.
+10. **Out of scope and unchanged.** No event ledger, normalization, business ordering, Snapshot, monday or
+    webhook logic, AI, retention purge or metric instruments (2D–2F). No Web, Worker, Bicep, workflow, package
+    or Azure change, and no 2D work. Build with 0 warnings; the full suite passes locally.

@@ -9,11 +9,13 @@ using WorkContinuity.Integration.Tests.Database;
 namespace WorkContinuity.Integration.Tests.Ingress;
 
 /// <summary>
-/// The one tenant-less database function Gate 2B adds (owner decision 1), pinned against the real
-/// database: it is the only <c>SECURITY DEFINER</c> function, its search path is fixed, only the runtime
-/// role may execute it, and it returns one active connection's tenant and source and nothing else. The
-/// owner's narrow read policy is the only policy beyond the tenant policies, and every other table's
-/// row-level security is unchanged.
+/// The tenant-less database functions Gate 2 owner decision 1 approves, pinned against the real database:
+/// they are exactly the Gate 2B connection resolver and the Gate 2C outbox discovery function, each with a
+/// fixed search path and its definition pinned. This class covers the resolver: only the runtime role may
+/// execute it, and it returns one active connection's tenant and source and nothing else. The owners' narrow
+/// read policies are the only policies beyond the tenant policies, and every other table's row-level security
+/// is unchanged. The discovery function's own behaviour is pinned in
+/// <c>Transport/OutboxDiscoveryDatabaseSecurityTests</c>.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
@@ -23,7 +25,7 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
     private CancellationToken Token => TestContext.Current.CancellationToken;
 
     [Fact]
-    public async Task The_resolver_is_the_only_security_definer_function_and_its_definition_is_pinned()
+    public async Task Security_definer_functions_are_exactly_the_approved_allowlist_and_each_definition_is_pinned()
     {
         await using var connection = await fixture.OpenAdministrativeConnectionAsync(Token);
         await using var command = new NpgsqlCommand(
@@ -37,7 +39,9 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
                    l.lanname,
                    p.proconfig,
                    pg_get_userbyid(p.proowner),
-                   (SELECT pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.oid = 'public.connections'::regclass)
+                   (SELECT pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.oid = 'public.connections'::regclass),
+                   (SELECT pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.oid = 'public.outbox_messages'::regclass),
+                   p.prosrc
             FROM pg_proc p
             JOIN pg_namespace n ON n.oid = p.pronamespace
             JOIN pg_language l ON l.oid = p.prolang
@@ -51,22 +55,45 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
         await using var reader = await command.ExecuteReaderAsync(Token);
         while (await reader.ReadAsync(Token))
         {
-            definers.Add(reader.GetString(0));
+            var name = reader.GetString(0);
+            definers.Add(name);
 
-            Assert.Equal("public.resolve_ingress_connection", reader.GetString(0));
-            Assert.Equal("p_connection_id uuid", reader.GetString(1));
-            Assert.Equal("TABLE(tenant_id uuid, source_system character varying)", reader.GetString(2));
+            // Every approved function: stable, strict, set-returning plain SQL with the fixed search path.
             Assert.Equal("s", reader.GetString(3));
-            Assert.True(reader.GetBoolean(4), "The resolver must be STRICT.");
-            Assert.True(reader.GetBoolean(5), "The resolver returns a set.");
+            Assert.True(reader.GetBoolean(4), $"{name} must be STRICT.");
+            Assert.True(reader.GetBoolean(5), $"{name} returns a set.");
             Assert.Equal("sql", reader.GetString(6));
             Assert.Equal(["search_path=pg_catalog, pg_temp"], reader.GetFieldValue<string[]>(7));
+            Assert.DoesNotContain("EXECUTE", reader.GetString(11), StringComparison.OrdinalIgnoreCase);
 
-            // Owned by the migrating role that owns the table, which the owner read policy names.
-            Assert.Equal(reader.GetString(9), reader.GetString(8));
+            switch (name)
+            {
+                case "public.resolve_ingress_connection":
+                    Assert.Equal("p_connection_id uuid", reader.GetString(1));
+                    Assert.Equal("TABLE(tenant_id uuid, source_system character varying)", reader.GetString(2));
+
+                    // Owned by the migrating role that owns the table, which the owner read policy names.
+                    Assert.Equal(reader.GetString(9), reader.GetString(8));
+                    break;
+
+                case "public.outbox_pending_tenants":
+                    Assert.Equal("p_limit integer", reader.GetString(1));
+                    Assert.Equal("TABLE(tenant_id uuid)", reader.GetString(2));
+                    Assert.Equal(reader.GetString(10), reader.GetString(8));
+
+                    var body = reader.GetString(11);
+                    Assert.Contains("FROM public.outbox_messages AS o", body, StringComparison.Ordinal);
+                    Assert.Contains("WHERE o.published_at_utc IS NULL", body, StringComparison.Ordinal);
+                    Assert.Contains("LIMIT least(greatest(p_limit, 0), 100)", body, StringComparison.Ordinal);
+                    break;
+
+                default:
+                    Assert.Fail($"{name} is not an approved SECURITY DEFINER function.");
+                    break;
+            }
         }
 
-        Assert.Equal(["public.resolve_ingress_connection"], definers);
+        Assert.Equal(["public.outbox_pending_tenants", "public.resolve_ingress_connection"], definers);
     }
 
     [Fact]
@@ -175,7 +202,7 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
     }
 
     [Fact]
-    public async Task The_only_policies_are_the_tenant_policies_and_the_resolver_owners_read_policy()
+    public async Task The_only_policies_are_the_tenant_policies_and_the_approved_owner_read_policies()
     {
         await using var connection = await fixture.OpenAdministrativeConnectionAsync(Token);
         var owner = (string)(await ScalarAsync(
@@ -210,6 +237,7 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
             [
                 "connections.ingress_resolution_connections",
                 "connections.tenant_isolation_connections",
+                "outbox_messages.relay_discovery_outbox_messages",
                 "outbox_messages.tenant_isolation_outbox_messages",
                 "raw_receipts.tenant_isolation_raw_receipts",
                 "tenants.tenant_isolation_tenants",
@@ -242,6 +270,14 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
         Assert.Contains("'Active'", ownerPolicy.Using, StringComparison.Ordinal);
         Assert.DoesNotContain("tenant", ownerPolicy.Using, StringComparison.Ordinal);
         Assert.NotEqual(PersistenceOptions.RuntimeRoleName, owner);
+
+        // The relay owner's policy (Gate 2C) only reads, only pending outbox rows, and only for that role.
+        var relayPolicy = Assert.Single(policies, policy => policy.Name == "relay_discovery_outbox_messages");
+        Assert.Equal("PERMISSIVE", relayPolicy.Permissive);
+        Assert.Equal([owner], relayPolicy.Roles);
+        Assert.Equal("SELECT", relayPolicy.Command);
+        Assert.Null(relayPolicy.Check);
+        Assert.Equal("(published_at_utc IS NULL)", relayPolicy.Using);
     }
 
     [Fact]

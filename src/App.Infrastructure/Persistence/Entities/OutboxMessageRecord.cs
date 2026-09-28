@@ -13,10 +13,11 @@ namespace WorkContinuity.Infrastructure.Persistence.Entities;
 /// committed or neither is. The database remains operational truth; the broker is durable transport.
 /// </para>
 /// <para>
-/// Gate 1D provides the storage guarantee only. Reading this table and publishing to Service Bus,
-/// with the idempotent consumers that requires, belongs to the event backbone Gate. Retry and
-/// attempt counters are therefore not modelled yet: nothing dispatches these rows, so a retry
-/// column would record nothing.
+/// Gate 1D provides the storage guarantee. Gate 2C's outbox relay publishes these rows: it claims a
+/// batch with a row lock held for the whole transaction, sends each message, and calls
+/// <see cref="MarkPublished"/> only after the broker accepted it, committing the marks with the lock.
+/// The lock is the claim, so no lease, attempt or retry column is modelled: a crash or rollback
+/// releases the lock and leaves every unmarked row pending.
 /// </para>
 /// </remarks>
 public sealed class OutboxMessageRecord : ITenantOwned
@@ -110,5 +111,17 @@ public sealed class OutboxMessageRecord : ITenantOwned
             payload,
             occurredAtUtc.ToUniversalTime(),
             correlationId);
+    }
+
+    /// <summary>Records that the broker accepted the message. Call only after a successful send.</summary>
+    /// <exception cref="InvalidOperationException">The message is already marked published.</exception>
+    public void MarkPublished(DateTimeOffset publishedAtUtc)
+    {
+        if (PublishedAtUtc is not null)
+        {
+            throw new InvalidOperationException("The outbox message is already marked published.");
+        }
+
+        PublishedAtUtc = publishedAtUtc.ToUniversalTime();
     }
 }
