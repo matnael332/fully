@@ -19,6 +19,7 @@ required = [
     ROOT / "src/App.Worker/Dockerfile",
     ROOT / "src/App.Web/appsettings.json",
     ROOT / "src/App.Infrastructure/Health/DependencyProbe.cs",
+    ROOT / "src/App.Infrastructure/Persistence/RuntimeRoleBootstrap.cs",
     ROOT / "eng/dev.ps1",
     ROOT / "eng/db.ps1",
     ROOT / "infra/local/postgres/init/10-runtime-role.sh",
@@ -32,7 +33,7 @@ for path in required:
 try:
     compose = yaml.safe_load((ROOT / "infra/local/docker-compose.yml").read_text(encoding="utf-8"))
     services = set((compose or {}).get("services", {}))
-    expected_services = {"postgres", "mssql", "servicebus-emulator", "db-migrator", "web", "worker"}
+    expected_services = {"postgres", "mssql", "servicebus-emulator", "db-bootstrap", "db-migrator", "web", "worker"}
     if services != expected_services:
         errors.append(f"compose services mismatch: expected {sorted(expected_services)}, got {sorted(services)}")
 except Exception as exc:
@@ -60,6 +61,10 @@ if "POSTGRES_APP_PASSWORD" not in example_env:
 compose_text = (ROOT / "infra/local/docker-compose.yml").read_text(encoding="utf-8")
 if "pgvector/pgvector:pg17" not in compose_text:
     errors.append("local postgres image must provide the pgvector extension")
+
+# Readiness talks to the emulator through the SDK, as it talks to Azure Service Bus in the cloud.
+if "UseDevelopmentEmulator=true" not in compose_text:
+    errors.append("web/worker must reach the Service Bus emulator through its SDK connection string")
 
 # The application must never connect as the schema owner: a superuser bypasses row-level security.
 if "Username=${POSTGRES_APP_USER" not in compose_text:

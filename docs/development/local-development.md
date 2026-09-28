@@ -28,11 +28,24 @@ The script builds the Web and Worker containers, starts infrastructure, and chec
 
 ## Health endpoints
 
-- Web liveness: `http://localhost:8080/health/live`
+- Web liveness: `http://localhost:8080/health/live` — never touches a dependency.
 - Web readiness: `http://localhost:8080/health/ready`
-- Service Bus emulator health: `http://localhost:5300/health`
+- Service Bus emulator health: `http://localhost:5300/health` (used by `eng/dev.ps1` while it waits for the emulator)
 
-`/health/ready` is healthy only when the Web process can reach PostgreSQL and the Service Bus emulator.
+`/health/ready` is healthy only when the Web process can open a PostgreSQL connection as the runtime
+role and open a Service Bus send link to the `ai-jobs` queue (Gate 1G). The same code runs in Azure
+against the real services with the workload's managed identity; locally it uses the emulator's
+published development connection string from `docker-compose.yml`. The body lists each dependency
+with an exception type or reason code only, never a message or a connection detail. The Worker runs
+the same checks, peeking instead of sending, every 30 seconds and on `--check-dependencies`.
+
+## Runtime role and migrations
+
+On first start the PostgreSQL init script creates the non-owner runtime role. Every start then runs
+the `db-bootstrap` service (`--bootstrap-runtime-role`, the entry point the Azure bootstrap job
+uses), which creates or updates the role, re-applies its grants and proves it can log in; only then
+does the `db-migrator` service apply pending migrations. Both receive the administrative connection;
+Web and Worker never do.
 
 ## Useful commands
 

@@ -89,6 +89,15 @@ switch ($Command) {
             throw "Database migration failed (exit $migratorExit). Inspect: ./eng/dev.ps1 logs"
         }
 
+        # The bootstrap service must also have completed cleanly: it is the same entry point the Azure
+        # bootstrap job runs, so a failure here would be a failure there.
+        $bootstrapId = docker compose --env-file $EnvFile -f $ComposeFile ps -aq db-bootstrap
+        if ($LASTEXITCODE -ne 0 -or -not $bootstrapId) { throw "Bootstrap container did not run" }
+        $bootstrapExit = docker inspect --format '{{.State.ExitCode}}' $bootstrapId
+        if ($LASTEXITCODE -ne 0 -or $bootstrapExit -ne "0") {
+            throw "Runtime-role bootstrap failed (exit $bootstrapExit). Inspect: ./eng/dev.ps1 logs"
+        }
+
         $sbPort = if ($envValues["EMULATOR_HTTP_PORT"]) { $envValues["EMULATOR_HTTP_PORT"] } else { "5300" }
         $webPort = if ($envValues["WEB_HTTP_PORT"]) { $envValues["WEB_HTTP_PORT"] } else { "8080" }
 
@@ -96,6 +105,7 @@ switch ($Command) {
         Wait-Http "http://localhost:$webPort/health/ready" "Web readiness"
 
         Write-Host "LOCAL DEV CHECK: PASS" -ForegroundColor Green
+        Write-Host "- Runtime role bootstrapped (same entry point as the Azure job)"
         Write-Host "- Database migrations applied"
         Write-Host "- PostgreSQL reachable through Web readiness"
         Write-Host "- Service Bus emulator healthy"

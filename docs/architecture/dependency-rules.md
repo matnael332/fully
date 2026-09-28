@@ -32,8 +32,14 @@ project files on disk, so it cannot perturb the graph it validates.
 ## Package rules
 
 `App.Core` references no external package at all, so it cannot acquire a web, Azure, database, AI or
-SaaS dependency — not even transitively. No production project may reference an Azure, Npgsql or AI
-provider package until the Gate that introduces it.
+SaaS dependency — not even transitively. Persistence packages belong to `App.Infrastructure` only.
+
+Gate 1G introduced the first Azure packages, each allowed in exactly one project and nowhere else:
+`Azure.Identity` and `Azure.Messaging.ServiceBus` in `App.Infrastructure` (the readiness probe's
+Service Bus link check, authenticated by the workload identity); `Azure.Monitor.OpenTelemetry.AspNetCore`
+in `App.Web` and `Azure.Monitor.OpenTelemetry.Exporter` in `App.Worker` (telemetry export). Every
+other `Azure.*` or `Microsoft.Azure.*` package, and every AI provider package, remains forbidden in
+every production project until the Gate that introduces it.
 
 ## Enforcement
 

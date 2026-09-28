@@ -9,4 +9,9 @@
     <ProjectReference Include="../App.Infrastructure/App.Infrastructure.csproj" />
     <ProjectReference Include="../App.Connectors.Monday/App.Connectors.Monday.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Gate 1G OpenTelemetry baseline: traces and logs exported to Application Insights. -->
+    <PackageReference Include="Azure.Monitor.OpenTelemetry.Exporter" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+  </ItemGroup>
 </Project>

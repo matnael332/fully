@@ -1,0 +1,14 @@
+# Secret scan configuration (Gate 1G). CI runs gitleaks, pinned by version and checksum, over the
+# full git history and the working tree with this file. The default rule set applies unchanged; the
+# only allow-list is for Azure built-in role-definition ids declared in Bicep, which are public
+# constants that trip the generic high-entropy rule.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Azure built-in role definition ids in Bicep: public GUID constants, not credentials"
+paths = ['''infra/bicep/.*\.bicep$''']
+regexTarget = "line"
+regexes = ['''^\s*[A-Za-z]+:\s*'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'\s*$''']
+condition = "AND"

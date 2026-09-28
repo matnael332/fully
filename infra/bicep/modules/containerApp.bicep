@@ -103,7 +103,10 @@ var probes = concat(
         scheme: 'HTTP'
       }
       initialDelaySeconds: 5
-      periodSeconds: 15
+      // Readiness proves PostgreSQL and Service Bus with real calls of up to 5 s each, so the probe
+      // timeout must cover both; the platform default of 1 s would make the probe flap.
+      periodSeconds: 20
+      timeoutSeconds: 15
       failureThreshold: 6
     }
   ]

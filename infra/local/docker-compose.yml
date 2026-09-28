@@ -57,6 +57,26 @@ services:
         aliases:
           - servicebus-emulator
 
+  # Runtime-role bootstrap: the same entry point the Azure bootstrap job runs. On a fresh volume the
+  # init script has already created the role, so locally this exercises the update path; in Azure it
+  # creates the role. It runs before the migrator, as in Azure, so the migration's guarded grants find
+  # the role. It proves the login before it exits, and it never prints the password.
+  db-bootstrap:
+    build:
+      context: ../..
+      dockerfile: src/App.Worker/Dockerfile
+    command: ["--bootstrap-runtime-role"]
+    environment:
+      ConnectionStrings__PostgresAdmin: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Postgres__RuntimeRoleName: ${POSTGRES_APP_USER:-workcontinuity_app}
+      Postgres__RuntimeRolePassword: ${POSTGRES_APP_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - local
+
   # Schema migration is a one-shot service that must finish before the applications start. Running it
   # here rather than inside Web and Worker keeps two instances from racing to migrate the same schema,
   # and mirrors how a deployment applies migrations as an explicit step.
@@ -66,11 +86,13 @@ services:
       dockerfile: src/App.Worker/Dockerfile
     command: ["--migrate-database"]
     environment:
-      # The only service given the administrative connection.
+      # The administrative connection: only the bootstrap and migration services receive it.
       ConnectionStrings__PostgresAdmin: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
     depends_on:
       postgres:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     restart: "no"
     networks:
       - local
@@ -82,9 +104,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
-      Dependencies__Postgres__Host: postgres
-      Dependencies__Postgres__Port: "5432"
-      Dependencies__ServiceBusEmulator__HealthUrl: http://servicebus-emulator:${EMULATOR_HTTP_PORT:-5300}/health
+      # The emulator's fixed, published development key; readiness opens a real send link with it.
+      ServiceBus__ConnectionString: "Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
       # The non-owner runtime role, so row-level security applies to every query.
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_APP_USER:-workcontinuity_app};Password=${POSTGRES_APP_PASSWORD}"
     ports:
@@ -104,9 +125,8 @@ services:
       context: ../..
       dockerfile: src/App.Worker/Dockerfile
     environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      SERVICEBUS_HEALTH_URL: http://servicebus-emulator:${EMULATOR_HTTP_PORT:-5300}/health
+      # The emulator's fixed, published development key; the Worker peeks a queue with it.
+      ServiceBus__ConnectionString: "Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_APP_USER:-workcontinuity_app};Password=${POSTGRES_APP_PASSWORD}"
     depends_on:
       postgres:

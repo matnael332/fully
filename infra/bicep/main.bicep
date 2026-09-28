@@ -73,6 +73,9 @@ param workerImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
 @description('Container image for the migration job, including tag. Deliberately separate from workerImage so a Web/Worker rollout never changes the job.')
 param migrationJobImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
 
+@description('Container image for the runtime-role bootstrap job, including tag. Separate for the same reason as the migration job.')
+param bootstrapJobImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
+
 @description('Log Analytics retention in days.')
 param logRetentionInDays int = 30
 
@@ -136,6 +139,7 @@ module environment 'environment.bicep' = {
     webImage: webImage
     workerImage: workerImage
     migrationJobImage: migrationJobImage
+    bootstrapJobImage: bootstrapJobImage
     logRetentionInDays: logRetentionInDays
     logDailyQuotaGb: logDailyQuotaGb
     maxReplicas: maxReplicas
@@ -158,6 +162,7 @@ output webAppName string = environment.outputs.webAppName
 output webAppFqdn string = environment.outputs.webAppFqdn
 output workerAppName string = environment.outputs.workerAppName
 output migrationJobName string = environment.outputs.migrationJobName
+output bootstrapJobName string = environment.outputs.bootstrapJobName
 output keyVaultName string = environment.outputs.keyVaultName
 output keyVaultUri string = environment.outputs.keyVaultUri
 output postgresServerName string = environment.outputs.postgresServerName

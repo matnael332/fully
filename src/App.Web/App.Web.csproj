@@ -8,4 +8,8 @@
     <ProjectReference Include="../App.Infrastructure/App.Infrastructure.csproj" />
     <ProjectReference Include="../App.Connectors.Monday/App.Connectors.Monday.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Gate 1G OpenTelemetry baseline: the Azure Monitor distro for ASP.NET Core. -->
+    <PackageReference Include="Azure.Monitor.OpenTelemetry.AspNetCore" />
+  </ItemGroup>
 </Project>

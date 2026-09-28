@@ -21,7 +21,24 @@ internal static class LocalEnvironment
         "POSTGRES_PASSWORD",
         "POSTGRES_APP_USER",
         "POSTGRES_APP_PASSWORD",
+        "ACCEPT_EULA",
+        "SERVICEBUS_TEST_CONNECTION_STRING",
     ];
+
+    /// <summary>
+    /// Whether a Service Bus emulator is expected: the local stack accepted its licence, or a test
+    /// connection string was supplied explicitly.
+    /// </summary>
+    internal static bool EmulatorExpected
+    {
+        get
+        {
+            var settings = Read();
+
+            return settings.ContainsKey("SERVICEBUS_TEST_CONNECTION_STRING")
+                || string.Equals(settings.GetValueOrDefault("ACCEPT_EULA"), "Y", StringComparison.OrdinalIgnoreCase);
+        }
+    }
 
     internal static IReadOnlyDictionary<string, string> Read()
     {

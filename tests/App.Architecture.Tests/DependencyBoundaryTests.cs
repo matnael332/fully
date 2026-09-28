@@ -226,31 +226,38 @@ public sealed class DependencyBoundaryTests
     }
 
     [Fact]
-    public void No_production_project_references_an_ai_or_cloud_provider_package_yet()
+    public void Cloud_packages_are_limited_to_the_gate_1g_allow_list_and_ai_packages_stay_forbidden()
     {
-        string[] forbiddenPackagePrefixes =
-        [
-            "Azure.",
-            "Microsoft.Azure.",
-            "OpenAI",
-            "Anthropic",
-            "Microsoft.SemanticKernel",
-            "Microsoft.Extensions.AI",
-        ];
+        // Gate 1G introduced exactly these Azure packages, each in the one project that needs it:
+        // Infrastructure owns the Service Bus readiness client and the identity that authenticates it;
+        // the two hosts own their telemetry exporters. Everything else Azure-prefixed, and every AI
+        // provider package, stays forbidden in every production project until its own Gate.
+        var allowedCloudPackages = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["App.Infrastructure"] = ["Azure.Identity", "Azure.Messaging.ServiceBus"],
+            ["App.Web"] = ["Azure.Monitor.OpenTelemetry.AspNetCore"],
+            ["App.Worker"] = ["Azure.Monitor.OpenTelemetry.Exporter"],
+        };
+        string[] cloudPrefixes = ["Azure.", "Microsoft.Azure."];
+        string[] aiPrefixes = ["OpenAI", "Anthropic", "Microsoft.SemanticKernel", "Microsoft.Extensions.AI"];
 
         var violations = new List<string>();
 
         foreach (var projectFile in RepositoryLayout.ProductionProjectFiles)
         {
+            var name = RepositoryLayout.ProjectName(projectFile);
+            var allowed = allowedCloudPackages.GetValueOrDefault(name, []);
+
             foreach (var package in RepositoryLayout.PackageReferences(projectFile))
             {
-                foreach (var prefix in forbiddenPackagePrefixes)
+                if (aiPrefixes.Any(prefix => package.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
                 {
-                    if (package.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    {
-                        violations.Add(
-                            $"{RepositoryLayout.ProjectName(projectFile)} references {package}");
-                    }
+                    violations.Add($"{name} references the AI package {package}");
+                }
+                else if (cloudPrefixes.Any(prefix => package.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    && !allowed.Contains(package, StringComparer.Ordinal))
+                {
+                    violations.Add($"{name} references {package}, which no Gate has allowed there");
                 }
             }
         }

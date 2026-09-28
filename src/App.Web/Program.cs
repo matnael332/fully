@@ -1,3 +1,7 @@
+using Azure.Monitor.OpenTelemetry.AspNetCore;
+using OpenTelemetry;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using WorkContinuity.Core.Correlation;
 using WorkContinuity.Core.Features;
 using WorkContinuity.Core.Tenancy;
@@ -14,11 +18,27 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<ICorrelationContextAccessor, CorrelationContextAccessor>();
 builder.Services.AddSingleton<ITenantContextAccessor, TenantContextAccessor>();
 builder.Services.AddSingleton<IFeatureFlagProvider>(_ => new InMemoryFeatureFlagProvider());
-builder.Services.AddSingleton<DependencyProbe>();
+
+// Readiness proves the real dependencies under this process's own credentials: the runtime-role
+// database connection and, for Service Bus, the Data Sender claim of the Web identity (a send link
+// is opened; no message is sent).
+builder.Services.AddDependencyProbe(builder.Configuration, ServiceBusReadinessMode.Send);
 
 // Tenant-scoped persistence only. The administrative connection used for migrations is deliberately
 // not registered here, so request handling cannot resolve an elevated database connection.
 builder.Services.AddPersistence(builder.Configuration);
+
+// OpenTelemetry baseline (Gate 1G): requests, dependencies (HTTP, PostgreSQL, Azure SDK), logs and
+// runtime metrics to Application Insights. Enabled only when Azure supplies the connection string
+// from Key Vault; locally and in CI smoke tests the endpoints run without any exporter. Nothing here
+// captures request or response bodies, so no work content or credential can reach telemetry.
+if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+{
+    builder.Services.AddOpenTelemetry()
+        .UseAzureMonitor()
+        .ConfigureResource(resource => resource.AddService("work-continuity-web"))
+        .WithTracing(tracing => tracing.AddSource("Npgsql"));
+}
 
 var app = builder.Build();
 
@@ -35,33 +55,20 @@ app.UseMiddleware<PlatformExceptionMiddleware>();
 app.MapGet("/", () => Results.Ok(new
 {
     service = "work-continuity-web",
-    gate = "1D",
+    gate = "1G",
     status = "foundation"
 }));
 
+// Liveness never touches a dependency: a database outage must not restart the process.
 app.MapGet("/health/live", () => Results.Ok(new
 {
     status = "live",
     service = "work-continuity-web"
 }));
 
-app.MapGet("/health/ready", async (
-    IConfiguration configuration,
-    DependencyProbe probe,
-    CancellationToken cancellationToken) =>
+app.MapGet("/health/ready", async (DependencyProbe probe, CancellationToken cancellationToken) =>
 {
-    var postgresHost = configuration["Dependencies:Postgres:Host"] ?? "localhost";
-    var postgresPort = int.TryParse(configuration["Dependencies:Postgres:Port"], out var configuredPort)
-        ? configuredPort
-        : 5432;
-    var serviceBusHealthUrl = configuration["Dependencies:ServiceBusEmulator:HealthUrl"]
-        ?? "http://localhost:5300/health";
-
-    var report = await probe.CheckAsync(
-        postgresHost,
-        postgresPort,
-        new Uri(serviceBusHealthUrl),
-        cancellationToken);
+    var report = await probe.CheckAsync(cancellationToken);
 
     return report.Ready
         ? Results.Ok(report)

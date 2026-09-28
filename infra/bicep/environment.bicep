@@ -67,6 +67,9 @@ param workerImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
 @description('Container image for the migration job, including tag. Deliberately separate from workerImage so a Web/Worker rollout never changes the job.')
 param migrationJobImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
 
+@description('Container image for the runtime-role bootstrap job, including tag. Separate for the same reason as the migration job.')
+param bootstrapJobImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
+
 @description('Log Analytics retention in days.')
 param logRetentionInDays int = 30
 
@@ -117,6 +120,7 @@ var names = {
   webApp: 'ca-${baseName}-web'
   workerApp: 'ca-${baseName}-worker'
   migrationJob: 'caj-${baseName}-migrate'
+  bootstrapJob: 'caj-${baseName}-bootstrap'
   webIdentity: 'id-${baseName}-web'
   workerIdentity: 'id-${baseName}-worker'
   jobsIdentity: 'id-${baseName}-jobs'
@@ -475,6 +479,56 @@ module workerApp 'modules/containerApp.bicep' = {
   ]
 }
 
+// Runtime-role bootstrap as an explicitly invoked job (Gate 1G). It creates or updates the non-owner
+// role the applications connect as, reading the role password from Key Vault through the jobs
+// identity. A job entry point, never a migration: a migration is replayed everywhere and must never
+// carry a credential. Only this job receives the runtime-role password; the migration job does not.
+module bootstrapJob 'modules/containerAppsJob.bicep' = {
+  name: 'container-apps-job-bootstrap'
+  params: {
+    name: names.bootstrapJob
+    location: location
+    tags: tags
+    environmentId: containerAppsEnvironment.outputs.id
+    identityId: jobsIdentity.outputs.id
+    registryLoginServer: containerRegistry.outputs.loginServer
+    image: bootstrapJobImage
+    triggerType: 'Manual'
+    commandArguments: [
+      '--bootstrap-runtime-role'
+    ]
+    environmentVariables: [
+      {
+        name: 'AZURE_CLIENT_ID'
+        value: jobsIdentity.outputs.clientId
+      }
+      {
+        name: 'WORKCONTINUITY_ENVIRONMENT'
+        value: environmentName
+      }
+      {
+        name: 'Postgres__RuntimeRoleName'
+        value: postgresRuntimeRoleName
+      }
+    ]
+    secretReferences: [
+      {
+        name: 'postgres-admin-connection-string'
+        keyVaultUri: '${keyVault.outputs.uri}secrets/${secretNames.administrativeConnectionString}'
+        environmentVariable: 'ConnectionStrings__PostgresAdmin'
+      }
+      {
+        name: 'postgres-runtime-role-password'
+        keyVaultUri: '${keyVault.outputs.uri}secrets/${secretNames.runtimeRolePassword}'
+        environmentVariable: 'Postgres__RuntimeRolePassword'
+      }
+    ]
+  }
+  dependsOn: [
+    roleAssignments
+  ]
+}
+
 // Schema migration as an explicitly invoked job, which is how Gate 1D requires it: an application
 // never alters a shared schema while starting up. This is also the pattern the scheduled and
 // synthetic jobs will reuse.
@@ -553,6 +607,7 @@ output webAppName string = webApp.outputs.name
 output webAppFqdn string = webApp.outputs.fqdn
 output workerAppName string = workerApp.outputs.name
 output migrationJobName string = migrationJob.outputs.name
+output bootstrapJobName string = bootstrapJob.outputs.name
 output keyVaultName string = keyVault.outputs.name
 output keyVaultUri string = keyVault.outputs.uri
 output postgresServerName string = postgres.outputs.name

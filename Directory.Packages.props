@@ -16,6 +16,19 @@
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.4" />
   </ItemGroup>
+  <ItemGroup Label="Azure and observability (Gate 1G)">
+    <!--
+      Introduced by Gate 1G, each in the one project that needs it (enforced by the architecture tests):
+      Infrastructure holds the Service Bus client and the identity that authenticates it, used only by
+      readiness; Web and Worker hold their telemetry exporters. The exporter is held at the version the
+      ASP.NET Core distro is built against, so both hosts share one OpenTelemetry baseline.
+    -->
+    <PackageVersion Include="Azure.Identity" Version="1.21.0" />
+    <PackageVersion Include="Azure.Messaging.ServiceBus" Version="7.21.0" />
+    <PackageVersion Include="Azure.Monitor.OpenTelemetry.AspNetCore" Version="1.6.0" />
+    <PackageVersion Include="Azure.Monitor.OpenTelemetry.Exporter" Version="1.8.3" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.12" />
+  </ItemGroup>
   <ItemGroup Label="Test">
     <!-- xunit.v3 is self-executing on Microsoft.Testing.Platform: no runner or adapter package. -->
     <PackageVersion Include="xunit.v3" Version="4.0.1" />

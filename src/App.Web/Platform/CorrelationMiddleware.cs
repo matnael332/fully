@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using WorkContinuity.Core.Correlation;
 
 namespace WorkContinuity.Web.Platform;
@@ -43,6 +44,10 @@ public sealed class CorrelationMiddleware
 
         _correlationContextAccessor.Start(correlationContext);
         context.Response.Headers[HeaderName] = correlationContext.CorrelationId.Value;
+
+        // The request span carries the same id, so a trace in Application Insights and a log line or
+        // response header can be joined on it.
+        Activity.Current?.SetTag("wce.correlation_id", correlationContext.CorrelationId.Value);
 
         await _next(context);
     }

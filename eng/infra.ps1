@@ -102,14 +102,22 @@ function Protect-Images([string]$EnvironmentName) {
         WEB_IMAGE           = "containerApps/ca-$base-web"
         WORKER_IMAGE        = "containerApps/ca-$base-worker"
         MIGRATION_JOB_IMAGE = "jobs/caj-$base-migrate"
+        BOOTSTRAP_JOB_IMAGE = "jobs/caj-$base-bootstrap"
     }
 
     foreach ($entry in $targets.GetEnumerator()) {
         $variable = "${prefix}_$($entry.Key)"
         $resource = $entry.Value
         $name = $resource.Split('/')[-1]
+        # A resource that is not deployed yet answers 404 on stderr; under the script's Stop preference
+        # that would become a terminating error before the exit code is examined, so the preference is
+        # relaxed for this one read-only call.
+        $previousPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
         $live = az rest --method get --url "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.App/${resource}?api-version=2024-03-01" --query 'properties.template.containers[0].image' --output tsv 2>$null
-        if ($LASTEXITCODE -ne 0 -or -not $live) {
+        $readExitCode = $LASTEXITCODE
+        $ErrorActionPreference = $previousPreference
+        if ($readExitCode -ne 0 -or -not $live) {
             Write-Host "Image guard : $name not deployed yet; $variable left as is" -ForegroundColor Cyan
             continue
         }
