@@ -35,7 +35,10 @@ follows the stop-and-report rule in CLAUDE.md.
    duplicate detection is defence in depth only.
 4. **Ordering.** Per object and field: provider revision, then source update time, then occurrence time.
    Receipt or processing time never decides. Ambiguous: keep the current value and record that
-   reconciliation is needed. Impossible: quarantine. Session id is tenant plus object key.
+   reconciliation is needed. Impossible: quarantine. Database ordering and idempotency are the source of
+   truth, never broker order. The Service Bus session id is the tenant id (Gate 2C/2D owner decision), and
+   per-object sessions are not required; consider finer-grained per-work-item sessions later only if real
+   throughput or metrics justify it.
 5. **Failure routing.** Transient: bounded exponential backoff with jitter. Invalid or unauthoritative:
    quarantine with its canonical reason, no retry. Exhausted: dead-letter, counted, visible and
    re-drivable. Never catch-and-log; never complete a message before the state it represents is committed.
