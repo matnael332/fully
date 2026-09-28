@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace WorkContinuity.Architecture.Tests;
 
 /// <summary>
@@ -266,31 +268,21 @@ public sealed class DependencyBoundaryTests
     }
 
     [Fact]
-    public void No_production_source_introduces_ai_or_source_of_truth_logic_yet()
+    public void No_production_source_introduces_ai_logic()
     {
-        // Gate 1C is platform plumbing. AI gateways, prompts and source-of-truth resolution belong
-        // to later Gates and must not appear early.
+        // AI gateways, providers and prompts belong to Gate 4 and must not appear early. Source-of-truth
+        // resolution arrived in Gate 2A and is governed by the declaration rule below instead.
         string[] forbiddenFragments =
         [
             "OpenAI",
             "Anthropic",
             "SemanticKernel",
             "ChatCompletion",
-            "SourceOfTruthResolver",
             "AiGateway",
         ];
 
         var violations = new List<string>();
-        var productionSources = new DirectoryInfo(Path.Combine(RepositoryLayout.Root.FullName, "src"))
-            .EnumerateFiles("*.cs", SearchOption.AllDirectories)
-            .Where(file =>
-            {
-                var path = file.FullName.Replace('\\', '/');
-                return !path.Contains("/bin/", StringComparison.Ordinal)
-                    && !path.Contains("/obj/", StringComparison.Ordinal);
-            });
-
-        foreach (var file in productionSources)
+        foreach (var file in ProductionSources())
         {
             var text = File.ReadAllText(file.FullName);
 
@@ -305,6 +297,53 @@ public sealed class DependencyBoundaryTests
 
         Assert.Empty(violations);
     }
+
+    [Fact]
+    public void Source_of_truth_rules_are_declared_only_in_the_core_source_of_truth_module()
+    {
+        // Authority is defined by code in exactly one place (invariant 5). Any production file may call
+        // the resolver, but a type whose name speaks for authority or source of truth may be declared
+        // only under src/App.Core/SourceOfTruth, so a second, divergent rule set cannot appear elsewhere.
+        const string allowedDirectory = "src/App.Core/SourceOfTruth/";
+        var declaration = new Regex(
+            @"\b(?:class|record|struct|interface|enum)\s+(\w*(?:SourceOfTruth|Authority)\w*)",
+            RegexOptions.CultureInvariant);
+
+        var violations = new List<string>();
+        var declaredInModule = new List<string>();
+        foreach (var file in ProductionSources())
+        {
+            var relativePath = RepositoryLayout.RelativePath(file);
+            foreach (Match match in declaration.Matches(File.ReadAllText(file.FullName)))
+            {
+                var name = match.Groups[1].Value;
+                if (relativePath.StartsWith(allowedDirectory, StringComparison.Ordinal))
+                {
+                    declaredInModule.Add(name);
+                }
+                else
+                {
+                    violations.Add($"{relativePath} declares '{name}'");
+                }
+            }
+        }
+
+        Assert.Empty(violations);
+
+        // The rule is not vacuous: the module really declares the rules and the resolver.
+        Assert.Contains("AuthorityTable", declaredInModule);
+        Assert.Contains("SourceOfTruthResolver", declaredInModule);
+    }
+
+    private static IEnumerable<FileInfo> ProductionSources() =>
+        new DirectoryInfo(Path.Combine(RepositoryLayout.Root.FullName, "src"))
+            .EnumerateFiles("*.cs", SearchOption.AllDirectories)
+            .Where(file =>
+            {
+                var path = file.FullName.Replace('\\', '/');
+                return !path.Contains("/bin/", StringComparison.Ordinal)
+                    && !path.Contains("/obj/", StringComparison.Ordinal);
+            });
 
     private static FileInfo Single(string projectName) =>
         RepositoryLayout.ProductionProjectFiles

@@ -1,6 +1,7 @@
 # INIT — Project Handoff State
 
-Last updated: 2026-09-28 (Gate 1 closure, Commit C). Read this first when resuming.
+Last updated: 2026-09-28 (Gate 2 authorized; sub-gate 2A at its owner boundary, uncommitted). Read this
+first when resuming.
 
 ## Where the project is
 
@@ -14,22 +15,25 @@ Last updated: 2026-09-28 (Gate 1 closure, Commit C). Read this first when resumi
 | 1F CI/CD & Identity | PASS — closure commit `f4535f7` |
 | 1G Foundation Hardening | **PASS** — commits `9651ed3` (implementation), `fc9bb3e` (CI fix), `450c13d` (Dev readiness probe on), plus this closure commit (Commit C) |
 | **Gate 1 — Foundation** | **PASS** |
-| Gate 2 — Event Backbone | **NEXT / NOT STARTED.** Requires explicit product-owner authorization. |
+| Gate 2 — Event Backbone | **AUTHORIZED 2026-09-28, IN PROGRESS.** 2A (event contract, validation, authority table) implemented and verified locally, **uncommitted**, awaiting owner review. Scope and owner decisions: `docs/gates/gate-2-scope.md` |
+| Gate 3 — monday Connector | **NOT STARTED.** Requires explicit product-owner authorization. |
 
-**Repository pointers:** after Commit C is committed and pushed, `main` == `origin/main` == the Commit C
-SHA and the tree is clean. If `git status` shows this file and the other Commit C documents as modified,
-Commit C has been prepared but not committed: the expected set is exactly `INIT.md`, `CLAUDE.md`,
-`README.md`, `docs/canonical/PROJECT-STATUS.md`, `docs/gates/gate-1E-report.md`,
-`infra/bicep/README.md` (modified) and `docs/gates/gate-1G-report.md` (new); nothing staged.
+**Repository pointers:** `main` == `origin/main` == `a4bfd18` (Gate 1 closure, CI 36397863168 green). The
+working tree holds the **uncommitted 2A change set**: new sources under `src/App.Core/Events/` and
+`src/App.Core/SourceOfTruth/`, new unit and security tests, the tightened architecture test, the new
+`docs/gates/gate-2-scope.md`, and the Gate 2 status lines in `CLAUDE.md`, `README.md`,
+`docs/canonical/PROJECT-STATUS.md` and this file. Nothing staged. Never discard it.
 
 **Product-owner decisions on record (2026-09-28):** Gate 1G runtime verification approved; Commit B
 (readiness probe on in Dev) approved and deployed; the single cold-start Service Bus timeout is a
 non-blocking observation carried as a post-Gate-1 hardening follow-up (no readiness timing change, no
-token warm-up in Gate 1); Gate 1 / Gate 1G closure documentation prepared as Commit C; no Gate 2 work.
+token warm-up in Gate 1); Gate 1 / Gate 1G closure committed as `a4bfd18`. Gate 2 was then authorized with
+nine design decisions and the 2A–2G decomposition, recorded in `docs/gates/gate-2-scope.md`.
 
 ## Rules that must not be broken (from CLAUDE.md and the canonical docs)
 
-- Work only on an explicitly authorized Gate. Gate 2 has not been authorized.
+- Work only on an explicitly authorized Gate. Gate 2 is authorized under `docs/gates/gate-2-scope.md`, one
+  sub-gate at a time, each stopping at its owner boundary. Gate 3 is not authorized.
 - Never modify `docs/canonical/PRD-v1.md`, `SYSTEM-ARCHITECTURE-v1.md`, `ARCHITECTURE-INVARIANTS-v1.md`
   or `DEVELOPMENT-GATES-v1.md`. If a contradiction appears, STOP and report it. (`PROJECT-STATUS.md`
   in the same folder is a status document.)
@@ -110,11 +114,10 @@ Full evidence: `docs/gates/gate-1G-report.md`.
 
 ## Exact next step
 
-1. Product owner reviews the Commit C diff and approves the commit + push (`docs: close Gate 1G and
-   Gate 1 (Foundation) as PASS`); CI must be green (three jobs).
-2. Then **nothing** until the product owner authorizes Gate 2 (Event Backbone) explicitly. Gate 2 must
-   start from `docs/canonical/DEVELOPMENT-GATES-v1.md` and the frozen PRD / architecture; no speculative
-   scaffolding before authorization.
+1. Product owner reviews the uncommitted 2A change set against its Definition of Done in
+   `docs/gates/gate-2-scope.md` and decides commit and push; CI must then be green (three jobs).
+2. Only after that may 2B (durable ingress) begin, again stopping at its owner boundary. No Azure write,
+   job start or `deploy: true` without separate approval; Gate 3 not before explicit authorization.
 
 Rollback of Gate 1G runtime state, if ever ordered: dispatch `CD Dev` with `f4874302456a50c935a5429deed07699312de37c`
 to restore the previous images; redeploy Bicep with `webReadinessProbeEnabled` removed (probe off); the
@@ -172,6 +175,9 @@ database holds no data. Tags are immutable and additive.
   command writing to stderr under `$ErrorActionPreference = 'Stop'` becomes a terminating error. Do not put
   `Remove-Item` or `cmd /c` in commands run through the tool sandbox.
 - On this machine `bash` on PATH is the WSL relay; Git Bash is `C:\Program Files\Git\usr\bin\bash.exe`.
+- The Bash tool halves backslashes inside commands, even in quoted heredocs. Write any script that
+  contains backslashes (C# character literals, regular expressions, escapes) with the Write tool and run
+  it from the file; verify the written bytes before trusting a check that also passed through the shell.
 - Working preferences: commit messages ≤10 lines via `-m` flags, `Co-Authored-By` only, no
   `Claude-Session` trailer; never `docker … prune` or `git clean`; remove only resources this session
   created, by exact name.
