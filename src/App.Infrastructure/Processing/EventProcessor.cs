@@ -32,7 +32,13 @@ namespace WorkContinuity.Infrastructure.Processing;
 /// the redelivered message reprocesses, or the full outcome, and the redelivered message is a no-op.
 /// </para>
 /// <para>
-/// Hygiene: logs carry ids, outcomes and reason codes only, never the payload or a value.
+/// An accepted result is then projected onto the Snapshot (Gate 2E) in the same transaction, from its handoff
+/// alone: the decision above is the projection's only input, so projection can neither re-decide it nor run for
+/// any other outcome, and the ledger, the ordering state and the Snapshot commit together or not at all.
+/// </para>
+/// <para>
+/// Hygiene: logs carry ids, outcomes, reason codes, counts and the Snapshot version only, never the payload or
+/// a value.
 /// </para>
 /// </remarks>
 internal sealed class EventProcessor : IEventProcessor
@@ -103,7 +109,7 @@ internal sealed class EventProcessor : IEventProcessor
             return Result<EventProcessingResult>.Failure(ProcessingErrors.Unavailable);
         }
 
-        if (processed.Value is not { } result)
+        if (processed.Value is not { } outcome)
         {
             _logger.LogError(
                 "Processing found no receipt {ReceiptId} in tenant {TenantId}: {ReasonCode}; the message cannot be processed (correlation {CorrelationId}).",
@@ -114,11 +120,29 @@ internal sealed class EventProcessor : IEventProcessor
             return Result<EventProcessingResult>.Failure(ProcessingErrors.ReceiptNotVisible);
         }
 
-        Log(result, tenant, envelope);
-        return Result<EventProcessingResult>.Success(result);
+        Log(outcome.Result, outcome.SnapshotVersion, tenant, envelope);
+        return Result<EventProcessingResult>.Success(outcome.Result);
     }
 
-    private async Task<EventProcessingResult?> ProcessReceiptAsync(
+    private async Task<Processed?> ProcessReceiptAsync(
+        WorkContinuityDbContext dbContext,
+        TransportEnvelope envelope,
+        TenantId tenant,
+        CancellationToken cancellationToken)
+    {
+        if (await DecideAsync(dbContext, envelope, tenant, cancellationToken) is not { } result)
+        {
+            return null;
+        }
+
+        // Only an accepted result has a handoff, and it is projected in this same transaction.
+        long? snapshotVersion = result.TryGetProjection(out var projection)
+            ? await SnapshotProjection.ProjectAsync(dbContext, projection!, cancellationToken)
+            : null;
+        return new Processed(result, snapshotVersion);
+    }
+
+    private async Task<EventProcessingResult?> DecideAsync(
         WorkContinuityDbContext dbContext,
         TransportEnvelope envelope,
         TenantId tenant,
@@ -409,7 +433,7 @@ internal sealed class EventProcessor : IEventProcessor
         }
     }
 
-    private void Log(EventProcessingResult result, TenantId tenant, TransportEnvelope envelope)
+    private void Log(EventProcessingResult result, long? snapshotVersion, TenantId tenant, TransportEnvelope envelope)
     {
         switch (result.Outcome)
         {
@@ -444,6 +468,19 @@ internal sealed class EventProcessor : IEventProcessor
                     envelope.CorrelationId);
                 break;
 
+            case EventProcessingOutcome.AcceptedForProjection:
+                _logger.LogInformation(
+                    "Receipt {ReceiptId} of tenant {TenantId} became event {EventId}: {Outcome}, {AdvancedFields} of {Fields} fields advanced and projected at Snapshot object version {SnapshotVersion} (correlation {CorrelationId}).",
+                    result.ReceiptId,
+                    tenant,
+                    result.EventId,
+                    result.Outcome,
+                    result.Fields.Count(field => field.Decision == FieldOrderingDecision.Advance),
+                    result.Fields.Count,
+                    snapshotVersion,
+                    envelope.CorrelationId);
+                break;
+
             default:
                 _logger.LogInformation(
                     "Receipt {ReceiptId} of tenant {TenantId} became event {EventId}: {Outcome}, {AdvancedFields} of {Fields} fields advanced (correlation {CorrelationId}).",
@@ -457,4 +494,7 @@ internal sealed class EventProcessor : IEventProcessor
                 break;
         }
     }
+
+    /// <summary>A settled outcome and, for an accepted one, the Snapshot object version it was projected at.</summary>
+    private sealed record Processed(EventProcessingResult Result, long? SnapshotVersion);
 }

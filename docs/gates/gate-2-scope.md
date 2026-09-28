@@ -12,15 +12,16 @@ at its owner boundary for review before the next begins.
 | 2B Durable ingress | **PASS** — commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design) |
 | 2C Outbox relay, publisher, consumer and dead-letter handling | **PASS** — commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally) |
 | 2D Processing pipeline and event ledger | **PASS** — commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI) |
-| 2E Snapshot projection | **NEXT / NOT STARTED**; begins only on explicit product-owner authorization |
+| 2E Snapshot projection | Authorized 2026-09-28; implemented and verified locally; at its owner boundary, uncommitted |
 | 2F–2G | Not started |
 | Gate 3 — monday Connector | **NOT STARTED**; requires explicit authorization |
 
 Azure Dev does **not** have the Gate 2B migration or schema: the `connections` table and the
 `resolve_ingress_connection` function exist only in local databases. Neither does it have the Gate 2C
-migration (the `outbox_pending_tenants` function and its owner read policy) or the Gate 2D migration (the
-three ledger tables and one index on `raw_receipts`). Applying them needs new images, an updated
-migration-job image and one migration-job run, each a separate product-owner approval.
+migration (the `outbox_pending_tenants` function and its owner read policy), the Gate 2D migration (the
+three ledger tables and one index on `raw_receipts`) or the Gate 2E migration (the two Snapshot tables).
+Applying them needs new images, an updated migration-job image and one migration-job run, each a separate
+product-owner approval.
 
 Standing constraints for all of Gate 2: no Azure write, no RBAC, identity, networking or Key Vault change,
 no job start and no `CD Dev` with `deploy: true` without separate product-owner approval, so Azure Dev
@@ -387,3 +388,58 @@ Product-owner decisions at the 2D review:
    (`EventProcessingOptions.ClockSkewTolerance`) and must be validated against real connector behavior in later
    Gates; it is not a fixed product assumption.
 3. **Any authority conflict quarantines the whole event.** No authoritative subset is projected.
+
+## 2E Definition of Done
+
+1. **Projection point.** Only a 2D result accepted for projection reaches the Snapshot, through its in-memory
+   `ProjectionHandoff`, and only for the fields 2D marked as advanced. Projection runs inside the same
+   tenant-scoped transaction as the 2D ledger entry, its fields, the ordering state and the receipt's state, so
+   all of them commit together or not at all, and no transaction spans tenants. Projection re-decides neither
+   authority nor ordering: it applies 2D's decision and evidence as given. Nothing registers it in a host.
+2. **Canonical value rule.** A field value is null (the source cleared the field) or single-line text of at most
+   1,024 characters under the shared identifier rules: well formed, no control, format or line-separator
+   character, and no surrounding whitespace. Canonical validation enforces it for before and after values, so a
+   malformed or oversized value quarantines the event as bad schema (`event.value.invalid`) before authority and
+   ordering are decided. A value is stored as the source's canonical text, compared ordinally and never
+   interpreted.
+3. **Snapshot model.** Two tenant-owned tables with forced row-level security, the tenant policy and guarded
+   grants, and no tenant-less function:
+   - `snapshot_objects`: one row per tenant and work object, with its version and the event that produced it.
+   - `snapshot_fields`: one row per tenant, object and field. It holds the data type, the current value, the
+     2A authority rule that made the source authoritative, and the event source (kind, system and connection).
+     It also holds the canonical event id, the provider event id and revision, the source-updated and occurrence
+     times, and the observed (receipt) and processed times. Two versions complete it: the field's own, and the
+     object version at which the field last changed.
+
+   No column holds a before value, an actor, a reference, a payload or a fingerprint. Rows are updated in place
+   and never deleted: restrictive policies refuse deletes whatever privileges a later bootstrap re-grants.
+4. **Provenance and tenant safety.** Every foreign key includes the tenant. A field row references its object
+   row and the ledger event that produced it; an object row references its latest ledger event. Provenance can
+   therefore never cross tenants, even for the schema owner. Every provenance value is exactly the accepted
+   event's metadata and 2D ordering evidence.
+5. **Versioning.** An object's version counts the accepted events projected onto it: 1 for the first, plus 1
+   for each later one, however many fields it advanced. A field's version counts the accepted changes projected
+   onto it, including one that repeats the current value with newer evidence. Duplicate, stale, ambiguous,
+   reconciliation-required and quarantined results never reach projection, so they change no version. The
+   object row is locked (`FOR UPDATE`) during projection, so concurrent events of one object get distinct,
+   gap-free versions. Wall-clock time orders nothing.
+6. **Multi-field atomicity.** One accepted event projects all of its advanced fields and exactly one object
+   version in one transaction. Its stale fields keep their value, provenance and version.
+7. **Freshness.** Freshness is derived from the stored factual times: source update, occurrence, observed and
+   processed. No canonical document defines a threshold, so none is stored or invented.
+8. **Consistency guard.** Before overwriting a field, projection checks that the Snapshot holds exactly the event
+   2D compared against, which is the ordering state's last event. If it does not, nothing commits and the
+   message is retried and then dead-lettered, instead of silently overwriting a divergent Snapshot.
+9. **Crash recovery.** A crash before the commit leaves nothing, even after the Snapshot rows were written
+   inside the transaction, and redelivery projects the event once. A crash after the commit and before broker
+   completion turns redelivery into a ledger no-op, so neither the Snapshot nor its versions change.
+10. **Facts only.** No AI, inference or intent source kind exists, and the event source is always the
+    receipt's connector. The actor is neither stored nor used, and authority comes only from the 2A table.
+11. **Hygiene.** Logs carry ids, the object version and counts only, never a value.
+12. **Tests.** Unit tests for the value rule; security tests for the Snapshot entities and their only write
+    path; integration tests against the real local PostgreSQL through the runtime role for every required case;
+    a migration round trip; and mutation and vacuity checks on the critical guards.
+13. **Out of scope and unchanged.** No purge or metrics (2F), no acceptance closure (2G), no monday or webhook
+    logic, no Work Memory or AI, no read API, endpoint or UI, and no Web or Worker activation. No Bicep,
+    workflow, package or Azure change, and no change to the frozen documents. Build with 0 warnings; the full
+    suite passes locally.

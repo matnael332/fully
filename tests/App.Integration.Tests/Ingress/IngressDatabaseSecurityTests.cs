@@ -248,13 +248,17 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
                 "outbox_messages.relay_discovery_outbox_messages",
                 "outbox_messages.tenant_isolation_outbox_messages",
                 "raw_receipts.tenant_isolation_raw_receipts",
+                "snapshot_fields.no_delete_snapshot_fields",
+                "snapshot_fields.tenant_isolation_snapshot_fields",
+                "snapshot_objects.no_delete_snapshot_objects",
+                "snapshot_objects.tenant_isolation_snapshot_objects",
                 "tenants.tenant_isolation_tenants",
                 "users.tenant_isolation_users",
             ],
             policies.Select(policy => $"{policy.Table}.{policy.Name}"));
 
         // The ledger's append-only policies (Gate 2D) only restrict: every update and delete, for everyone; and
-        // ordering state is never deleted.
+        // ordering state (Gate 2D) and the Snapshot (Gate 2E) are never deleted.
         var appendOnly = policies.Where(policy => policy.Name.StartsWith("append_only_", StringComparison.Ordinal)).ToList();
         Assert.Equal(4, appendOnly.Count);
         Assert.All(appendOnly, policy =>
@@ -267,10 +271,17 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
             Assert.Null(policy.Check);
         });
 
-        var noDelete = Assert.Single(policies, policy => policy.Name == "no_delete_field_ordering_states");
-        Assert.Equal(("RESTRICTIVE", "DELETE", "false"), (noDelete.Permissive, noDelete.Command, noDelete.Using));
-        Assert.Equal(["public"], noDelete.Roles);
-        Assert.Null(noDelete.Check);
+        var noDelete = policies.Where(policy => policy.Name.StartsWith("no_delete_", StringComparison.Ordinal)).ToList();
+        Assert.Equal(
+            ["no_delete_field_ordering_states", "no_delete_snapshot_fields", "no_delete_snapshot_objects"],
+            noDelete.Select(policy => policy.Name).Order(StringComparer.Ordinal));
+        Assert.All(noDelete, policy =>
+        {
+            Assert.Equal(("RESTRICTIVE", "DELETE", "false"), (policy.Permissive, policy.Command, policy.Using));
+            Assert.Equal(["public"], policy.Roles);
+            Assert.Null(policy.Check);
+            Assert.Equal("no_delete_" + policy.Table, policy.Name);
+        });
 
         // Every tenant policy, old and new, is the same permissive, all-command, all-role predicate.
         var tenantPolicies = policies.Where(policy => policy.Name.StartsWith("tenant_isolation_", StringComparison.Ordinal)).ToList();

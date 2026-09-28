@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using WorkContinuity.Core.Correlation;
+using WorkContinuity.Core.Events;
 using WorkContinuity.Core.Identity;
+using WorkContinuity.Core.SourceOfTruth;
 using WorkContinuity.Core.Tenancy;
 using WorkContinuity.Infrastructure.Persistence.Entities;
 
@@ -24,7 +26,10 @@ public static class WorkContinuityModel
 
     /// <summary>The tenant-owned tables, every one of which carries a <c>tenant_id</c> column.</summary>
     public static IReadOnlyList<string> TenantOwnedTables { get; } =
-        ["tenants", "users", "raw_receipts", "outbox_messages", "connections", "event_ledger", "event_ledger_fields", "field_ordering_states"];
+        [
+            "tenants", "users", "raw_receipts", "outbox_messages", "connections", "event_ledger", "event_ledger_fields",
+            "field_ordering_states", "snapshot_objects", "snapshot_fields",
+        ];
 
     /// <summary>Applies the schema to a model builder.</summary>
     public static void Configure(ModelBuilder modelBuilder)
@@ -236,6 +241,7 @@ public static class WorkContinuityModel
         });
 
         ConfigureEventLedger(modelBuilder, tenantIdConverter, correlationIdConverter);
+        ConfigureSnapshot(modelBuilder, tenantIdConverter);
     }
 
     // The Gate 2D ledger: identity, provenance, ordering and deduplication metadata only. No column can hold a
@@ -362,6 +368,108 @@ public static class WorkContinuityModel
                 .HasDatabaseName("ix_field_ordering_states_tenant_last_event");
         });
     }
+
+    // The Gate 2E Snapshot: the current facts of each object with their provenance. Only the value column holds
+    // work content, and only the fact itself: nothing can hold a before value, an actor, a reference, a payload
+    // or a fingerprint. Every foreign key includes the tenant, so provenance can never point across tenants.
+    private static void ConfigureSnapshot(ModelBuilder modelBuilder, ValueConverter<TenantId, Guid> tenantIdConverter)
+    {
+        modelBuilder.Entity<SnapshotObjectRecord>(entity =>
+        {
+            entity.ToTable("snapshot_objects", table => table.HasCheckConstraint("ck_snapshot_objects_version", "version >= 1"));
+            entity.HasKey(record => new
+            {
+                record.TenantId,
+                record.ObjectSystem,
+                record.ObjectConnection,
+                record.ObjectType,
+                record.ObjectId,
+            });
+            entity.Property(record => record.TenantId).HasColumnName("tenant_id").HasConversion(tenantIdConverter);
+            entity.Property(record => record.ObjectSystem).HasColumnName("object_system").HasMaxLength(64);
+            entity.Property(record => record.ObjectConnection).HasColumnName("object_connection").HasMaxLength(EventLedgerRecord.MaxTextLength);
+            entity.Property(record => record.ObjectType).HasColumnName("object_type").HasMaxLength(64);
+            entity.Property(record => record.ObjectId).HasColumnName("object_id").HasMaxLength(EventLedgerRecord.MaxTextLength);
+            entity.Property(record => record.Version).HasColumnName("version").IsRequired();
+            entity.Property(record => record.LastEventId).HasColumnName("last_event_id").IsRequired();
+            entity.Property(record => record.ProcessedAtUtc).HasColumnName("processed_at_utc").HasColumnType("timestamptz").IsRequired();
+            entity.HasOne<EventLedgerRecord>()
+                .WithMany()
+                .HasForeignKey(record => new { record.TenantId, record.LastEventId })
+                .HasPrincipalKey(ledger => new { ledger.TenantId, ledger.EventId })
+                .HasConstraintName("fk_snapshot_objects_last_event")
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(record => new { record.TenantId, record.LastEventId })
+                .HasDatabaseName("ix_snapshot_objects_tenant_last_event");
+        });
+
+        modelBuilder.Entity<SnapshotFieldRecord>(entity =>
+        {
+            entity.ToTable("snapshot_fields", table =>
+            {
+                table.HasCheckConstraint("ck_snapshot_fields_versions", "field_version >= 1 AND object_version >= 1");
+                table.HasCheckConstraint("ck_snapshot_fields_data_type", $"data_type IN ({DefinedNames<FactDataType>()})");
+                table.HasCheckConstraint("ck_snapshot_fields_authority", $"authority IN ({DefinedNames<AuthorityBasis>()})");
+                table.HasCheckConstraint("ck_snapshot_fields_source_kind", $"source_kind IN ({DefinedNames<EventSourceKind>()})");
+                table.HasCheckConstraint("ck_snapshot_fields_value", "value IS NULL OR value <> ''");
+            });
+            entity.HasKey(record => new
+            {
+                record.TenantId,
+                record.ObjectSystem,
+                record.ObjectConnection,
+                record.ObjectType,
+                record.ObjectId,
+                record.Field,
+            });
+            entity.Property(record => record.TenantId).HasColumnName("tenant_id").HasConversion(tenantIdConverter);
+            entity.Property(record => record.ObjectSystem).HasColumnName("object_system").HasMaxLength(64);
+            entity.Property(record => record.ObjectConnection).HasColumnName("object_connection").HasMaxLength(EventLedgerRecord.MaxTextLength);
+            entity.Property(record => record.ObjectType).HasColumnName("object_type").HasMaxLength(64);
+            entity.Property(record => record.ObjectId).HasColumnName("object_id").HasMaxLength(EventLedgerRecord.MaxTextLength);
+            entity.Property(record => record.Field).HasColumnName("field").HasMaxLength(64);
+            entity.Property(record => record.DataType).HasColumnName("data_type").HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(record => record.Value).HasColumnName("value").HasMaxLength(EventText.MaxValueLength);
+            entity.Property(record => record.Authority).HasColumnName("authority").HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(record => record.SourceKind).HasColumnName("source_kind").HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(record => record.SourceSystem).HasColumnName("source_system").HasMaxLength(64).IsRequired();
+            entity.Property(record => record.ConnectionReference).HasColumnName("connection_reference").HasMaxLength(EventLedgerRecord.MaxTextLength).IsRequired();
+            entity.Property(record => record.LastEventId).HasColumnName("last_event_id").IsRequired();
+            entity.Property(record => record.SourceEventId).HasColumnName("source_event_id").HasMaxLength(EventLedgerRecord.MaxTextLength);
+            entity.Property(record => record.SourceRevision).HasColumnName("source_revision");
+            entity.Property(record => record.SourceUpdatedAtUtc).HasColumnName("source_updated_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.OccurredAtUtc).HasColumnName("occurred_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.ObservedAtUtc).HasColumnName("observed_at_utc").HasColumnType("timestamptz").IsRequired();
+            entity.Property(record => record.ProcessedAtUtc).HasColumnName("processed_at_utc").HasColumnType("timestamptz").IsRequired();
+            entity.Property(record => record.FieldVersion).HasColumnName("field_version").IsRequired();
+            entity.Property(record => record.ObjectVersion).HasColumnName("object_version").IsRequired();
+            entity.HasOne<SnapshotObjectRecord>()
+                .WithMany()
+                .HasForeignKey(record => new
+                {
+                    record.TenantId,
+                    record.ObjectSystem,
+                    record.ObjectConnection,
+                    record.ObjectType,
+                    record.ObjectId,
+                })
+                .HasConstraintName("fk_snapshot_fields_object")
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<EventLedgerRecord>()
+                .WithMany()
+                .HasForeignKey(record => new { record.TenantId, record.LastEventId })
+                .HasPrincipalKey(ledger => new { ledger.TenantId, ledger.EventId })
+                .HasConstraintName("fk_snapshot_fields_last_event")
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(record => new { record.TenantId, record.LastEventId })
+                .HasDatabaseName("ix_snapshot_fields_tenant_last_event");
+        });
+    }
+
+    // The defined members of a closed enumeration, quoted for a check constraint; "None" is never valid.
+    private static string DefinedNames<TEnum>()
+        where TEnum : struct, Enum =>
+        string.Join(", ", Enum.GetNames<TEnum>().Where(name => name != "None").Select(name => $"'{name}'"));
 
     private static CorrelationId ParseCorrelationId(string value) =>
         CorrelationId.TryParse(value, out var correlationId)

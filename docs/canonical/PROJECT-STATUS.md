@@ -111,7 +111,7 @@ region/subscription decision, and the Free Trial upgrade before 2026-10-27.
 Status: **PASS — Gates 1A through 1G closed (2026-09-28)**
 
 ### Gate 2 — Event Backbone
-Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`), 2C PASS (`189f173`), 2D PASS (`f97d22d`); 2E NEXT / NOT STARTED**
+Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`), 2C PASS (`189f173`), 2D PASS (`f97d22d`); sub-gate 2E at its owner boundary**
 
 Scope, the nine product-owner design decisions and the 2A–2G decomposition are recorded in
 `docs/gates/gate-2-scope.md`. Each sub-gate stops at an owner boundary before the next begins. 2A adds
@@ -146,7 +146,15 @@ approval. Owner decisions at the 2D review: SessionId remains TenantId, with dat
 as the source of truth, and finer-grained sessions may be revisited later only if real throughput or metrics
 justify it. The 5-minute source clock-skew tolerance is approved for now; it remains configurable and must be
 validated against real connector behavior later. Any authority conflict quarantines the whole event, and no
-authoritative subset is projected. 2E (Snapshot projection) is next and not started.
+authoritative subset is projected. 2E adds the Snapshot projection. An accepted result's advanced fields
+become Snapshot facts in the same tenant transaction as the 2D ledger entry, so both commit together or not at
+all, and projection re-decides neither authority nor ordering. Each fact keeps its value, the authority rule,
+its source and object, the canonical event, the provider event id and revision, and the source, observed and
+processed times, from which freshness is derived without an invented threshold. Each object keeps one version
+per accepted event. A field value must now be bounded, single-line text; any other value quarantines the event
+as bad schema. The Snapshot keeps no before value, actor, reference or payload, and no Snapshot row is ever
+deleted. 2E is registered in no host, changes no Azure resource, and is implemented and verified locally,
+awaiting owner review, uncommitted.
 
 ### Gate 3 onward
 Status: **NOT STARTED unless explicitly approved by the product owner**
@@ -311,9 +319,9 @@ post-Gate-1 hardening follow-ups.
 ## Immediate recommended next action in Claude Code
 
 Gate 1 (Foundation) is closed: Gates 1A through 1G are PASS. Gate 2 (Event Backbone) is authorized and in
-progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A, 2B, 2C and 2D are PASS, and 2E is
-next and not started. Do not begin a sub-gate without the product owner's explicit authorization, do not start
+progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A, 2B, 2C and 2D are PASS, and 2E awaits
+owner review at its boundary, uncommitted. Do not begin a sub-gate without the product owner's explicit authorization, do not start
 Gate 3, do not start the bootstrap or migration jobs (each has exactly one execution), and do not deploy,
 dispatch `CD Dev` with `deploy: true`, or change Azure resources, without explicit product-owner
-authorization. Azure Dev has none of the Gate 2B, 2C or 2D migrations. Before 2026-10-27 the product
+authorization. Azure Dev has none of the Gate 2B, 2C, 2D or 2E migrations. Before 2026-10-27 the product
 owner must decide on the Free Trial upgrade.

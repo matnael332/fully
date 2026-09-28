@@ -63,6 +63,10 @@ public static class CanonicalEventErrors
     public static Error InvalidChange { get; } =
         Error.Validation("event.change.invalid", "A field change is malformed or has no known data type.");
 
+    /// <summary>A field value is malformed or longer than a Snapshot value may be.</summary>
+    public static Error InvalidValue { get; } =
+        Error.Validation("event.value.invalid", "A field value is malformed or too long.");
+
     /// <summary>One event changes the same field more than once.</summary>
     public static Error DuplicateField { get; } =
         Error.Validation("event.change.duplicate_field", "A field is changed more than once in one event.");
@@ -91,6 +95,7 @@ public static class CanonicalEventErrors
         InvalidCausation,
         MissingChanges,
         InvalidChange,
+        InvalidValue,
         DuplicateField,
         InvalidActor,
         InvalidSourceReference,

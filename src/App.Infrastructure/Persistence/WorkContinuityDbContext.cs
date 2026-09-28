@@ -41,6 +41,12 @@ public sealed class WorkContinuityDbContext(DbContextOptions<WorkContinuityDbCon
     /// <summary>Gets the ordering evidence of the last accepted change of each object field.</summary>
     public DbSet<FieldOrderingStateRecord> FieldOrderingStates => Set<FieldOrderingStateRecord>();
 
+    /// <summary>Gets the Snapshot's objects and their versions.</summary>
+    public DbSet<SnapshotObjectRecord> SnapshotObjects => Set<SnapshotObjectRecord>();
+
+    /// <summary>Gets the Snapshot's current field facts and their provenance.</summary>
+    public DbSet<SnapshotFieldRecord> SnapshotFields => Set<SnapshotFieldRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         WorkContinuityModel.Configure(modelBuilder);
 }

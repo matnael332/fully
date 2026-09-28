@@ -125,6 +125,10 @@ public sealed class CanonicalEventTests
             ("change with an undefined data type", b => b.Changes = [new FieldChange("status", (FactDataType)99, null, "done")], CanonicalEventErrors.InvalidChange, QuarantineReason.BadSchema),
             ("uppercase field name", b => b.Changes = [new FieldChange("Status", FactDataType.TaskStatus, null, "done")], CanonicalEventErrors.InvalidChange, QuarantineReason.BadSchema),
             ("same field twice", b => b.Changes = [new FieldChange("status", FactDataType.TaskStatus, null, "working"), new FieldChange("status", FactDataType.TaskStatus, "working", "done")], CanonicalEventErrors.DuplicateField, QuarantineReason.BadSchema),
+            ("after value too long", b => b.Changes = [new FieldChange("status", FactDataType.TaskStatus, null, new string('v', EventText.MaxValueLength + 1))], CanonicalEventErrors.InvalidValue, QuarantineReason.BadSchema),
+            ("after value with a line break", b => b.Changes = [new FieldChange("status", FactDataType.TaskStatus, null, "done\nand more")], CanonicalEventErrors.InvalidValue, QuarantineReason.BadSchema),
+            ("empty after value instead of a cleared one", b => b.Changes = [new FieldChange("status", FactDataType.TaskStatus, null, string.Empty)], CanonicalEventErrors.InvalidValue, QuarantineReason.BadSchema),
+            ("before value with a control character", b => b.Changes = [new FieldChange("status", FactDataType.TaskStatus, "work\u0007ing", "done")], CanonicalEventErrors.InvalidValue, QuarantineReason.BadSchema),
             ("actor id with a control character", b => b.Actor = EventActor.Unresolved("user\u0007"), CanonicalEventErrors.InvalidActor, QuarantineReason.BadSchema),
             ("empty actor id", b => b.Actor = EventActor.Unresolved(string.Empty), CanonicalEventErrors.InvalidActor, QuarantineReason.BadSchema),
             ("source reference too long", b => b.SourceReference = new string('r', 2049), CanonicalEventErrors.InvalidSourceReference, QuarantineReason.BadSchema),
@@ -239,6 +243,21 @@ public sealed class CanonicalEventTests
         var change = Assert.Single(created.Content.Changes);
         Assert.Null(change.Before);
         Assert.Null(change.After);
+    }
+
+    [Fact]
+    public void A_value_at_the_bound_is_kept_exactly_as_the_source_stated_it()
+    {
+        var longest = new string('v', EventText.MaxValueLength - 2) + char.ConvertFromUtf32(0x1F600);
+        var created = new EventBuilder
+        {
+            Changes = [new FieldChange("status", FactDataType.TaskStatus, "In progress", longest)],
+        }.Valid();
+
+        var change = Assert.Single(created.Content.Changes);
+        Assert.Equal(EventText.MaxValueLength, change.After!.Length);
+        Assert.Equal(longest, change.After);
+        Assert.Equal("In progress", change.Before);
     }
 
     [Fact]

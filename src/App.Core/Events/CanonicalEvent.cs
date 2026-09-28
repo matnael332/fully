@@ -130,6 +130,11 @@ public sealed class CanonicalEvent : ITenantOwned
                 return CanonicalEventErrors.InvalidChange;
             }
 
+            if (!change.HasValidValues)
+            {
+                return CanonicalEventErrors.InvalidValue;
+            }
+
             if (!fields.Add(change.Field))
             {
                 return CanonicalEventErrors.DuplicateField;

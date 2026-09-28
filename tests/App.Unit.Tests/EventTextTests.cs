@@ -40,6 +40,26 @@ public sealed class EventTextTests
         {
             Assert.False(EventText.IsIdentifier(value), $"identifier accepted: {name}");
             Assert.False(EventText.IsReference(value), $"reference accepted: {name}");
+            Assert.False(EventText.IsValue(value), $"value accepted: {name}");
         }
+    }
+
+    [Fact]
+    public void A_field_value_is_bounded_single_line_text_and_a_cleared_field_is_never_empty_text()
+    {
+        Assert.True(EventText.IsValue("done"));
+        Assert.True(EventText.IsValue("In progress"));
+        Assert.True(EventText.IsValue("2026-10-01T09:00:00Z"));
+        Assert.True(EventText.IsValue("ok-" + char.ConvertFromUtf32(0x1F600)));
+        Assert.True(EventText.IsValue(new string('v', EventText.MaxValueLength)));
+
+        Assert.False(EventText.IsValue(null));
+        Assert.False(EventText.IsValue(string.Empty));
+        Assert.False(EventText.IsValue(new string('v', EventText.MaxValueLength + 1)));
+        Assert.False(EventText.IsValue("two\nlines"));
+        Assert.False(EventText.IsValue("tab\tinside"));
+        Assert.False(EventText.IsValue(" leading"));
+        Assert.False(EventText.IsValue("trailing "));
+        Assert.Equal(1024, EventText.MaxValueLength);
     }
 }

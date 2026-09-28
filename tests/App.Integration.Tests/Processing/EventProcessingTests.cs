@@ -571,34 +571,16 @@ public sealed class EventProcessingTests(DatabaseFixture fixture)
         // with the older event's ids makes its ledger insert wait. This interleaving is forced, not hoped for.
         await using var blocker = await fixture.OpenAdministrativeConnectionAsync(Token);
         await using var parked = await blocker.BeginTransactionAsync(Token);
-        await using (var park = new NpgsqlCommand(
-            """
-            INSERT INTO event_ledger (event_id, tenant_id, receipt_id, source_kind, source_system, connection_reference, source_event_id,
-                event_type, schema_version, object_system, object_connection, object_type, object_id, source_revision, source_updated_at_utc,
-                occurred_at_utc, received_at_utc, processed_at_utc, correlation_id, outcome, quarantine_reason, reason_code, duplicate_candidate_of)
-            SELECT @event, tenant_id, @receipt, source_kind, source_system, connection_reference, @sourceEvent,
-                event_type, schema_version, object_system, object_connection, object_type, object_id, source_revision, source_updated_at_utc,
-                occurred_at_utc, received_at_utc, processed_at_utc, correlation_id, outcome, quarantine_reason, reason_code, duplicate_candidate_of
-            FROM event_ledger WHERE event_id = @copied;
-            """,
-            blocker,
-            parked))
-        {
-            park.Parameters.AddWithValue("event", EventIdentity.ForReceipt(older.ReceiptId).Value);
-            park.Parameters.AddWithValue("receipt", older.ReceiptId);
-            park.Parameters.AddWithValue("sourceEvent", "evt-hold-3");
-            park.Parameters.AddWithValue("copied", first.EventId.Value);
-            Assert.Equal(1, await park.ExecuteNonQueryAsync(Token));
-        }
+        await ProcessingHarness.ParkLedgerInsertAsync(blocker, parked, first.EventId.Value, older, "evt-hold-3");
 
         await using var monitor = await fixture.OpenAdministrativeConnectionAsync(Token);
         var olderTask = host.ProcessAsync(older.Envelope, Token);
-        var olderPid = Assert.NotNull(await WaitForBackendBlockedByAsync(monitor, blocker.ProcessID));
+        var olderPid = Assert.NotNull(await ProcessingHarness.WaitForBackendBlockedByAsync(monitor, blocker.ProcessID));
 
         // The newer event must wait for the field the older one read. Without that lock it would commit now, and
         // the older event, still holding what it read before, would then overwrite it.
         var newerTask = host.ProcessAsync(newer.Envelope, Token);
-        await WaitForBackendBlockedByAsync(monitor, olderPid, newerTask);
+        await ProcessingHarness.WaitForBackendBlockedByAsync(monitor, olderPid, newerTask);
         await parked.RollbackAsync(Token);
 
         var results = await Task.WhenAll(olderTask, newerTask);
@@ -609,6 +591,11 @@ public sealed class EventProcessingTests(DatabaseFixture fixture)
 
         var state = Assert.Single(await ProcessingHarness.FieldStatesAsync(fixture, tenant));
         Assert.Equal((EventIdentity.ForReceipt(newer.ReceiptId).Value, 5L), (state.LastEventId, state.SourceRevision));
+
+        // The Snapshot followed the same order: the newer event's fact is current, and each event took one version.
+        var fact = Assert.Single(await ProcessingHarness.SnapshotFieldsAsync(fixture, tenant));
+        Assert.Equal((EventIdentity.ForReceipt(newer.ReceiptId).Value, 5L, 3L), (fact.LastEventId, fact.SourceRevision, fact.FieldVersion));
+        Assert.Equal(3L, Assert.Single(await ProcessingHarness.SnapshotObjectsAsync(fixture, tenant)).Version);
     }
 
     [Fact]
@@ -729,35 +716,6 @@ public sealed class EventProcessingTests(DatabaseFixture fixture)
         Assert.NotEmpty(host.Logs.Entries);
         Assert.Contains(host.Logs.Entries, entry => entry.Text.Contains(accepted.ReceiptId.ToString("D"), StringComparison.Ordinal));
         Assert.DoesNotContain(host.Logs.Entries, entry => entry.Text.Contains(marker, StringComparison.Ordinal));
-    }
-
-    /// <summary>
-    /// Waits until some backend is blocked by <paramref name="blockingPid"/> and returns its pid, or returns null
-    /// as soon as <paramref name="finished"/> completes without ever having been blocked.
-    /// </summary>
-    private async Task<int?> WaitForBackendBlockedByAsync(NpgsqlConnection monitor, int blockingPid, Task? finished = null)
-    {
-        // Each probe is its own statement: pg_stat_activity is a snapshot per transaction.
-        for (var probe = 0; probe < 400; probe++)
-        {
-            await using var command = new NpgsqlCommand(
-                "SELECT pid FROM pg_stat_activity WHERE @blocking = ANY(pg_blocking_pids(pid)) LIMIT 1;", monitor);
-            command.Parameters.AddWithValue("blocking", blockingPid);
-            if (await command.ExecuteScalarAsync(Token) is int pid)
-            {
-                return pid;
-            }
-
-            if (finished?.IsCompleted == true)
-            {
-                return null;
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(25), Token);
-        }
-
-        Assert.Fail("No backend ever waited for the lock.");
-        return null;
     }
 
     /// <summary>A consumer that processes and commits, then dies before its settlement can be applied.</summary>

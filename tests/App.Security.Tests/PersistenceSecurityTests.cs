@@ -21,6 +21,8 @@ public sealed class PersistenceSecurityTests
         typeof(EventLedgerRecord),
         typeof(EventLedgerFieldRecord),
         typeof(FieldOrderingStateRecord),
+        typeof(SnapshotObjectRecord),
+        typeof(SnapshotFieldRecord),
     ];
 
     [Fact]

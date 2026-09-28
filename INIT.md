@@ -1,7 +1,7 @@
 # INIT — Project Handoff State
 
-Last updated: 2026-09-28 (Gate 2 in progress; 2A, 2B, 2C and 2D PASS; 2E next, not started). Read this
-first when resuming.
+Last updated: 2026-09-28 (Gate 2 in progress; 2A, 2B, 2C and 2D PASS; sub-gate 2E at its owner
+boundary, uncommitted). Read this first when resuming.
 
 ## Where the project is
 
@@ -15,16 +15,19 @@ first when resuming.
 | 1F CI/CD & Identity | PASS — closure commit `f4535f7` |
 | 1G Foundation Hardening | **PASS** — commits `9651ed3` (implementation), `fc9bb3e` (CI fix), `450c13d` (Dev readiness probe on), plus this closure commit (Commit C) |
 | **Gate 1 — Foundation** | **PASS** |
-| Gate 2 — Event Backbone | **AUTHORIZED 2026-09-28, IN PROGRESS.** 2A (event contract, validation, authority table) **PASS**, commit `7ba941a`. 2B (durable ingress) **PASS**, commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design). 2C (outbox relay, publisher, consumer, dead-letter handling) **PASS**, commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally). 2D (processing pipeline and event ledger) **PASS**, commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI). 2E (Snapshot projection) **NEXT / NOT STARTED**. Azure Dev has **none** of the 2B, 2C or 2D migrations or schema. Scope and owner decisions: `docs/gates/gate-2-scope.md` |
+| Gate 2 — Event Backbone | **AUTHORIZED 2026-09-28, IN PROGRESS.** 2A (event contract, validation, authority table) **PASS**, commit `7ba941a`. 2B (durable ingress) **PASS**, commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design). 2C (outbox relay, publisher, consumer, dead-letter handling) **PASS**, commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally). 2D (processing pipeline and event ledger) **PASS**, commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI). 2E (Snapshot projection) implemented and verified locally, **uncommitted**, awaiting owner review. Azure Dev has **none** of the 2B, 2C, 2D or 2E migrations or schema. Scope and owner decisions: `docs/gates/gate-2-scope.md` |
 | Gate 3 — monday Connector | **NOT STARTED.** Requires explicit product-owner authorization. |
 
-**Repository pointers:** `main` == `origin/main` == the Gate 2D status-closure commit, whose parent is
+**Repository pointers:** `main` == `origin/main` == `4b54bec0cebd6b7211e62242f83e12e2f3d2e439` (the
+`event-driven-systems` skill aligned with the Gate 2D session decision; CI run 36441578956 green). Its parent is
+`32e2909` (Gate 2D status closure; CI run 36440895299 green), whose parent is
 `f97d22dc133b8cf1813ebaad6f0771d8bd0cdf06` (Gate 2D; CI run 36439994562 green on all three jobs: 493 tests,
 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI;
 gitleaks found no leaks). Earlier: `1f59a96` (Gate 2C status closure), `189f173` (Gate 2C), `3209e57`
 (Gate 2B status closure), `120183b` (Gate 2B), `23607f9` (project skills), `7ba941a` (Gate 2A). The working
-tree is clean. The local database carries the 2B, 2C and 2D migrations, applied by the integration tests;
-Azure Dev carries none of them.
+tree holds the **uncommitted 2E change set**, reviewed against the 2E Definition of Done in
+`docs/gates/gate-2-scope.md`. The local database carries the 2B, 2C, 2D and 2E migrations, applied by the
+integration tests; Azure Dev carries none of them.
 
 **Product-owner decisions on record (2026-09-28):** Gate 1G runtime verification approved; Commit B
 (readiness probe on in Dev) approved and deployed; the single cold-start Service Bus timeout is a
@@ -121,9 +124,10 @@ Full evidence: `docs/gates/gate-1G-report.md`.
 
 ## Exact next step
 
-1. Gate 2E (Snapshot projection) is NEXT / NOT STARTED. It begins only when the product owner explicitly
-   authorizes it, and stops at its owner boundary like every sub-gate.
-2. Azure Dev has none of the Gate 2B, 2C or 2D migrations. Applying them needs new images, an updated
+1. The product owner reviews the uncommitted Gate 2E change set against its Definition of Done in
+   `docs/gates/gate-2-scope.md`; commit and push happen only on explicit approval. 2F (retention and metrics)
+   begins only after that, on explicit authorization, and stops at its own owner boundary.
+2. Azure Dev has none of the Gate 2B, 2C, 2D or 2E migrations. Applying them needs new images, an updated
    migration-job image and one migration-job run, each a separate approval; the migration job keeps exactly
    one execution until the owner orders a rerun. Running the relay, the consumer and the processing pipeline
    in the Worker, including Service Bus send access for the Worker identity, is a further separate approval.
@@ -174,8 +178,8 @@ database holds no data. Tags are immutable and additive.
   only those two containers: `docker compose --env-file .env -f infra/local/docker-compose.yml up -d
   --force-recreate --no-deps mssql servicebus-emulator`. Never `docker … prune`.
 - `dotnet test` under Microsoft.Testing.Platform: `dotnet test --project <csproj> -c Debug` or the
-  solution path; never pass `--nologo`. Unit (242), Security (87) and Architecture (14) run without Docker;
-  the full suite (493, with Integration 150) needs `./eng/dev.ps1 up`; the seven Service Bus emulator tests
+  solution path; never pass `--nologo`. Unit (244), Security (91) and Architecture (14) run without Docker;
+  the full suite (524, with Integration 175) needs `./eng/dev.ps1 up`; the seven Service Bus emulator tests
   skip when `.env` has no `ACCEPT_EULA=Y`, as in CI.
 - The GitHub Ubuntu runner exports `ACCEPT_EULA=Y` globally; never treat a process-level licence flag as
   evidence that a local service exists.

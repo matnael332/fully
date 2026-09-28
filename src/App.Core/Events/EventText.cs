@@ -20,6 +20,11 @@ namespace WorkContinuity.Core.Events;
 /// from. They end up in keys, in the database and in safe metadata logs, where malformed text cannot be
 /// stored and an invisible or line-breaking character could forge, split or hide an entry.
 /// </para>
+/// <para>
+/// Field <em>values</em> follow the same rules with their own bound. A value is a fact the Snapshot keeps
+/// and shows (Gate 2E), not a document: bounded, single-line text, stored exactly as the source's canonical
+/// text and never interpreted.
+/// </para>
 /// </remarks>
 public static class EventText
 {
@@ -34,6 +39,9 @@ public static class EventText
 
     /// <summary>The maximum length of an opaque provider reference such as a record link.</summary>
     public const int MaxReferenceLength = 2048;
+
+    /// <summary>The maximum length of a field value. Matches the Snapshot's value column.</summary>
+    public const int MaxValueLength = 1024;
 
     /// <summary>Whether the value is a token: 1-64 lowercase ASCII letters, digits, '-', '_' or '.'.</summary>
     public static bool IsToken(string? value)
@@ -62,6 +70,9 @@ public static class EventText
 
     /// <summary>Whether the value is an acceptable opaque provider reference.</summary>
     public static bool IsReference(string? value) => IsOpaqueText(value, MaxReferenceLength);
+
+    /// <summary>Whether the text is an acceptable field value. A cleared field is null, never empty text.</summary>
+    public static bool IsValue(string? value) => IsOpaqueText(value, MaxValueLength);
 
     private static bool IsOpaqueText(string? value, int maxLength)
     {

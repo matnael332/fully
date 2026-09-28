@@ -7,7 +7,9 @@ namespace WorkContinuity.Core.Events;
 /// <para>
 /// Values are the source's values, carried as data and never interpreted as instructions
 /// (invariant 25). <see cref="Before"/> is null when the source did not report the previous value;
-/// <see cref="After"/> is null when the change cleared the field.
+/// <see cref="After"/> is null when the change cleared the field. A value that is present is bounded,
+/// single-line text (<see cref="EventText.IsValue"/>), so any value a valid event carries can become a
+/// Snapshot fact exactly as the source stated it.
 /// </para>
 /// <para>
 /// Every change declares its <see cref="FactDataType"/>, which is what authority is resolved from.
@@ -46,4 +48,9 @@ public sealed record FieldChange
         EventText.IsToken(Field)
         && DataType != FactDataType.None
         && Enum.IsDefined(DataType);
+
+    /// <summary>Gets a value indicating whether each value is absent or an acceptable field value.</summary>
+    internal bool HasValidValues =>
+        (Before is null || EventText.IsValue(Before))
+        && (After is null || EventText.IsValue(After));
 }

@@ -412,6 +412,177 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                     b.ToTable("raw_receipts", (string)null);
                 });
 
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.SnapshotFieldRecord", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("ObjectSystem")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("object_system");
+
+                    b.Property<string>("ObjectConnection")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("object_connection");
+
+                    b.Property<string>("ObjectType")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("object_type");
+
+                    b.Property<string>("ObjectId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("object_id");
+
+                    b.Property<string>("Field")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("field");
+
+                    b.Property<string>("Authority")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("authority");
+
+                    b.Property<string>("ConnectionReference")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("connection_reference");
+
+                    b.Property<string>("DataType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("data_type");
+
+                    b.Property<long>("FieldVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("field_version");
+
+                    b.Property<Guid>("LastEventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("last_event_id");
+
+                    b.Property<long>("ObjectVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("object_version");
+
+                    b.Property<DateTimeOffset>("ObservedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("observed_at_utc");
+
+                    b.Property<DateTimeOffset?>("OccurredAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.Property<DateTimeOffset>("ProcessedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("processed_at_utc");
+
+                    b.Property<string>("SourceEventId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("source_event_id");
+
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("source_kind");
+
+                    b.Property<long?>("SourceRevision")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_revision");
+
+                    b.Property<string>("SourceSystem")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("source_system");
+
+                    b.Property<DateTimeOffset?>("SourceUpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("source_updated_at_utc");
+
+                    b.Property<string>("Value")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("value");
+
+                    b.HasKey("TenantId", "ObjectSystem", "ObjectConnection", "ObjectType", "ObjectId", "Field");
+
+                    b.HasIndex("TenantId", "LastEventId")
+                        .HasDatabaseName("ix_snapshot_fields_tenant_last_event");
+
+                    b.ToTable("snapshot_fields", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_snapshot_fields_authority", "authority IN ('SourceTaskSystem', 'LocalAgent', 'Employee', 'OrganizationIdentitySystem', 'DefiningSystem', 'AuthoritativeDestination')");
+
+                            t.HasCheckConstraint("ck_snapshot_fields_data_type", "data_type IN ('TaskStatus', 'PcActivity', 'ApprovalDecision', 'IdentityAndPermissions', 'Deadline', 'ActionResult')");
+
+                            t.HasCheckConstraint("ck_snapshot_fields_source_kind", "source_kind IN ('SaasConnector', 'LocalAgent', 'Employee', 'IdentityProvider', 'ActionExecutor')");
+
+                            t.HasCheckConstraint("ck_snapshot_fields_value", "value IS NULL OR value <> ''");
+
+                            t.HasCheckConstraint("ck_snapshot_fields_versions", "field_version >= 1 AND object_version >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.SnapshotObjectRecord", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("ObjectSystem")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("object_system");
+
+                    b.Property<string>("ObjectConnection")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("object_connection");
+
+                    b.Property<string>("ObjectType")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("object_type");
+
+                    b.Property<string>("ObjectId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("object_id");
+
+                    b.Property<Guid>("LastEventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("last_event_id");
+
+                    b.Property<DateTimeOffset>("ProcessedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("processed_at_utc");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("TenantId", "ObjectSystem", "ObjectConnection", "ObjectType", "ObjectId");
+
+                    b.HasIndex("TenantId", "LastEventId")
+                        .HasDatabaseName("ix_snapshot_objects_tenant_last_event");
+
+                    b.ToTable("snapshot_objects", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_snapshot_objects_version", "version >= 1");
+                        });
+                });
+
             modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.TenantRecord", b =>
                 {
                     b.Property<Guid>("TenantId")
@@ -492,6 +663,35 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_field_ordering_states_last_event");
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.SnapshotFieldRecord", b =>
+                {
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.EventLedgerRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "LastEventId")
+                        .HasPrincipalKey("TenantId", "EventId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_snapshot_fields_last_event");
+
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.SnapshotObjectRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ObjectSystem", "ObjectConnection", "ObjectType", "ObjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_snapshot_fields_object");
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.SnapshotObjectRecord", b =>
+                {
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.EventLedgerRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "LastEventId")
+                        .HasPrincipalKey("TenantId", "EventId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_snapshot_objects_last_event");
                 });
 #pragma warning restore 612, 618
         }
