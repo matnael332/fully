@@ -11,14 +11,15 @@ at its owner boundary for review before the next begins.
 | 2A Event contract, validation and authority table | **PASS** — commit `7ba941a`, CI run 36403160623 green |
 | 2B Durable ingress | **PASS** — commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design) |
 | 2C Outbox relay, publisher, consumer and dead-letter handling | **PASS** — commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally) |
-| 2D Processing pipeline and event ledger | **NEXT / NOT STARTED**; begins only on explicit product-owner authorization; must revisit session granularity (see "2C closure") |
+| 2D Processing pipeline and event ledger | Authorized 2026-09-28; implemented and verified locally; at its owner boundary, uncommitted; session review recorded under "2D session review" |
 | 2E–2G | Not started |
 | Gate 3 — monday Connector | **NOT STARTED**; requires explicit authorization |
 
 Azure Dev does **not** have the Gate 2B migration or schema: the `connections` table and the
 `resolve_ingress_connection` function exist only in local databases. Neither does it have the Gate 2C
-migration (the `outbox_pending_tenants` function and its owner read policy). Applying them needs new images,
-an updated migration-job image and one migration-job run, each a separate product-owner approval.
+migration (the `outbox_pending_tenants` function and its owner read policy) or the Gate 2D migration (the
+three ledger tables and one index on `raw_receipts`). Applying them needs new images, an updated
+migration-job image and one migration-job run, each a separate product-owner approval.
 
 Standing constraints for all of Gate 2: no Azure write, no RBAC, identity, networking or Key Vault change,
 no job start and no `CD Dev` with `deploy: true` without separate product-owner approval, so Azure Dev
@@ -258,3 +259,112 @@ Product-owner decisions at the 2C review:
    function.
 3. No runtime activation yet. Registering the relay and consumer in the Worker, deploying, running the Azure
    migration job and granting Service Bus send access remain separate owner approval boundaries.
+
+## 2D Definition of Done
+
+1. **Pipeline.** A transport-independent `IEventProcessor` in `App.Core`, implemented in `App.Infrastructure`
+   and handed to the 2C consumer as its `ITransportMessageHandler` by `AddEventProcessing`. It runs in the
+   tenant scope the consumer restored from the validated envelope and follows the architecture §3 lifecycle:
+   durable receipt, normalization, schema validation, deduplication, identity (the actor is preserved and never
+   guessed), authority, ordering and conflict check, then the ledger. Nothing registers it in a host.
+2. **Source-neutral normalization.** One `ISourceEventNormalizer` per source system; a second one for the same
+   system fails composition. A normalizer is pure and deterministic, reads the raw payload without any tenant,
+   and returns only source-derived parts: type, schema version, work object, provider revision, source times,
+   changes, actor and reference. The pipeline sets every trusted part itself. The tenant comes from the receipt
+   under row-level security. The source is the SaaS connector of the receipt's system and connection. The
+   provider event id and receipt time come from the receipt, the correlation from the envelope, and the
+   causation is the receipt id. The canonical event id is derived deterministically from the receipt id. No
+   normalizer is registered in production, since the monday one belongs to Gate 3; a deterministic synthetic
+   normalizer exists in tests only (decision 3). A missing normalizer quarantines the event as an unknown schema
+   version; a normalizer's refusal or failure quarantines it as bad schema.
+3. **Event ledger.** Three tenant-owned tables with forced row-level security, the tenant policy and guarded
+   grants, and no tenant-less function:
+   - `event_ledger`: one row per processed receipt. It holds the canonical event id; tenant; source system,
+     kind and connection; provider event id; type and schema version; normalized object identity; provider
+     revision; source-updated, occurrence, receipt and processing times; correlation; causation (the receipt);
+     outcome; canonical quarantine reason; stable reason code; and the duplicate-candidate reference.
+   - `event_ledger_fields`: each changed field's name, data type and ordering decision.
+   - `field_ordering_states`: per tenant, object and field, the ordering evidence of the last accepted change,
+     meaning its event, provider revision, source-updated time, occurrence time and provider event id. This is
+     ordering state, not Snapshot state.
+
+   The two ledger tables are append-only through restrictive row-level security policies. One additive index
+   on `raw_receipts` serves duplicate-candidate lookups.
+4. **Retention boundary.** Raw content stays only in `raw_receipts` (payload and fingerprint) and expires with
+   it (2F). Canonical content (before and after values, actor, reference) exists only in memory while an event
+   is processed and in the handoff. No ledger table can hold a value, an actor, a reference, a payload or a
+   fingerprint. Schema-level and data-level tests prove the separation.
+5. **Idempotency and deduplication.** One ledger row per receipt (unique on tenant and receipt), decided under a
+   row lock on the receipt, so a redelivered or concurrently delivered message returns a deterministic
+   already-processed no-op without relying on broker duplicate detection. The provider event id is unique per
+   tenant and connection in the ledger, as it is for receipts. An event without one is compared by fingerprint
+   with the earlier processed receipts of its connection and only flagged as a duplicate candidate, with the
+   reference kept. It is never discarded on that basis.
+6. **Ordering.** Per object and field, the incoming evidence is compared with the last accepted evidence.
+   Provider revisions decide when both sides have one, and equal revisions mean equal. Otherwise the
+   source-updated time decides, then the occurrence time; receipt time never orders.
+   - Newer evidence advances the field.
+   - Older evidence is stale and never overwrites.
+   - Equal or incomparable evidence is ambiguous: the event needs reconciliation and no field advances.
+   - An event with no ordering evidence also needs reconciliation.
+   - Impossible ordering is quarantined. It covers a source time later than the receipt by more than a bounded
+     clock-skew tolerance, an occurrence later than the object's update, and a different provider event
+     claiming an already accepted revision.
+
+   Field states are locked with `FOR UPDATE`, and concurrent first inserts converge through a retry.
+7. **Authority and quarantine.** Authority is resolved per change by the 2A resolver. Any change the source is
+   not authoritative for quarantines the whole event as an authority conflict; no authoritative subset is
+   projected. The actor never decides authority, may stay unresolved and is never guessed, and no AI or intent
+   source kind exists. Quarantine is durable and atomic: the ledger row with its canonical reason and the
+   receipt's state commit in one transaction.
+8. **Handoff to 2E.** An `EventProcessingResult` carries the outcome: accepted for projection, duplicate,
+   stale, reconciliation required or quarantined. It also carries the reason, the object identity and every
+   field's decision with the previous and incoming ordering evidence. Only an accepted result exposes the
+   canonical event, in memory, for projection, and only for its advanced fields; any other outcome cannot
+   produce a handoff. No Snapshot state is written.
+9. **Transport mapping and crash recovery.** Every settled outcome completes the message. A receipt that is not
+   visible in the message's tenant, whether forged or cross-tenant, is rejected to the dead-letter queue.
+   Persistence failures and races are transient and retried. A crash before the commit leaves nothing, and
+   redelivery reprocesses the receipt. A crash after the commit and before completion turns redelivery into a
+   no-op. No transaction spans tenants.
+10. **2C session review.** The decision between tenant-level sessions and finer per-object sessions is
+    evaluated on correctness, ordering guarantees, throughput and crash recovery, and recorded. The existing
+    transport contract is not changed.
+11. **Hygiene.** Logs and errors carry ids, outcomes, reason codes and counts only, never a payload or a value.
+12. **Tests.**
+    - Unit tests for the ordering precedence and the result invariants.
+    - Integration tests against the real local PostgreSQL through the runtime role, covering: first-time
+      acceptance; exact duplicate delivery; duplicate provider event id; fingerprint candidate; delayed older
+      revision and timestamp; ambiguous and impossible ordering; authority conflict; unresolved actor; that AI
+      cannot become a source of truth; tenant isolation and forged tenants; crash before and after the commit;
+      quarantine never reaching the handoff; separation of raw content and ledger metadata; and log hygiene.
+    - CI pipeline tests on the in-memory transport.
+    - Mutation checks on the critical guards.
+13. **Out of scope and unchanged.** No Snapshot or projection (2E), no purge or metrics (2F), no monday or
+    webhook logic, no AI or Work Memory, no Web or Worker activation, no Bicep, workflow, package or Azure
+    change, and no change to the frozen documents. Build with 0 warnings; the full suite passes locally.
+
+## 2D session review (for the owner's decision at the 2D review)
+
+Recommendation: **keep SessionId = TenantId**. The Gate 2C transport contract is unchanged.
+
+1. **Correctness does not depend on the session.** Processing orders every object field by the source's own
+   evidence, under row locks on the receipt and on the field's ordering state, and one ledger row per receipt
+   makes redelivery a no-op. Broker order is never relied on. Redelivered, concurrent and reordered messages
+   converge on the same ledger and ordering state; the tests prove it, including a forced interleaving in
+   which an older event holds a field while a newer one waits for it.
+2. **Per-object sessions would need a transport-contract change.** The relay publishes a receipt before
+   anything has normalized it, so no object identity exists at publish time. Keying sessions by object would
+   need payload parsing in the relay or at ingress (breaking the content-free envelope and source-neutral
+   ingress), a second object-keyed hop after normalization (a new message type), or a source-specific key at
+   ingress (Gate 3 knowledge). Each is an envelope v2 and a separate owner decision.
+3. **Ordering guarantees.** A tenant session delivers each tenant's messages one at a time in outbox order,
+   which already covers every object of the tenant, so the product itself introduces less reordering. Events
+   the source itself reorders are handled by the evidence ordering, whatever the session.
+4. **Throughput and crash recovery.** A tenant is processed serially. A message that keeps failing holds up
+   its tenant until its bounded retries end and it is dead-lettered; other tenants' sessions proceed. A crash
+   releases the session lock and redelivery is idempotent. Per-object sessions would raise a busy tenant's
+   throughput and confine a poison message to its object: a throughput gain, not a correctness one.
+5. **When to revisit.** When 2F's metrics show per-tenant lag or head-of-line blocking, or when Gate 3's initial
+   sync needs more throughput for one tenant. Processing already tolerates concurrent delivery, so such a change
+   would touch the transport only.

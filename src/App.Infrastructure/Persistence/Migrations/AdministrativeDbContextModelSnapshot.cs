@@ -56,6 +56,247 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                     b.ToTable("connections", (string)null);
                 });
 
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.EventLedgerFieldRecord", b =>
+                {
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_id");
+
+                    b.Property<string>("Field")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("field");
+
+                    b.Property<string>("DataType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("data_type");
+
+                    b.Property<string>("Decision")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("decision");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("EventId", "Field");
+
+                    b.HasIndex("TenantId", "EventId")
+                        .HasDatabaseName("ix_event_ledger_fields_tenant_event");
+
+                    b.ToTable("event_ledger_fields", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_event_ledger_fields_decision", "decision IN ('Advance', 'Stale', 'Ambiguous', 'Impossible', 'Withheld')");
+                        });
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.EventLedgerRecord", b =>
+                {
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_id");
+
+                    b.Property<string>("ConnectionReference")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("connection_reference");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<Guid?>("DuplicateCandidateOf")
+                        .HasColumnType("uuid")
+                        .HasColumnName("duplicate_candidate_of");
+
+                    b.Property<string>("EventType")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("event_type");
+
+                    b.Property<string>("ObjectConnection")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("object_connection");
+
+                    b.Property<string>("ObjectId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("object_id");
+
+                    b.Property<string>("ObjectSystem")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("object_system");
+
+                    b.Property<string>("ObjectType")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("object_type");
+
+                    b.Property<DateTimeOffset?>("OccurredAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("outcome");
+
+                    b.Property<DateTimeOffset>("ProcessedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("processed_at_utc");
+
+                    b.Property<string>("QuarantineReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("quarantine_reason");
+
+                    b.Property<string>("ReasonCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reason_code");
+
+                    b.Property<Guid>("ReceiptId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("receipt_id");
+
+                    b.Property<DateTimeOffset>("ReceivedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("received_at_utc");
+
+                    b.Property<string>("SchemaVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("schema_version");
+
+                    b.Property<string>("SourceEventId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("source_event_id");
+
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("source_kind");
+
+                    b.Property<long?>("SourceRevision")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_revision");
+
+                    b.Property<string>("SourceSystem")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("source_system");
+
+                    b.Property<DateTimeOffset?>("SourceUpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("source_updated_at_utc");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("EventId");
+
+                    b.HasAlternateKey("TenantId", "EventId")
+                        .HasName("ak_event_ledger_tenant_event");
+
+                    b.HasIndex("TenantId", "ReceiptId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_event_ledger_tenant_receipt");
+
+                    b.HasIndex("TenantId", "ConnectionReference", "SourceEventId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_event_ledger_tenant_connection_source_event")
+                        .HasFilter("source_event_id IS NOT NULL");
+
+                    b.ToTable("event_ledger", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_event_ledger_normalized", "outcome = 'Quarantined' OR (event_type IS NOT NULL AND schema_version IS NOT NULL AND object_system IS NOT NULL AND object_connection IS NOT NULL AND object_type IS NOT NULL AND object_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_event_ledger_outcome", "outcome IN ('AcceptedForProjection', 'Stale', 'ReconciliationRequired', 'Quarantined')");
+
+                            t.HasCheckConstraint("ck_event_ledger_quarantine_reason", "(outcome = 'Quarantined') = (quarantine_reason IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_event_ledger_reason_code", "(outcome IN ('Quarantined', 'ReconciliationRequired')) = (reason_code IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.FieldOrderingStateRecord", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("ObjectSystem")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("object_system");
+
+                    b.Property<string>("ObjectConnection")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("object_connection");
+
+                    b.Property<string>("ObjectType")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("object_type");
+
+                    b.Property<string>("ObjectId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("object_id");
+
+                    b.Property<string>("Field")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("field");
+
+                    b.Property<DateTimeOffset>("AcceptedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("accepted_at_utc");
+
+                    b.Property<Guid>("LastEventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("last_event_id");
+
+                    b.Property<DateTimeOffset?>("OccurredAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.Property<string>("SourceEventId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("source_event_id");
+
+                    b.Property<long?>("SourceRevision")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_revision");
+
+                    b.Property<DateTimeOffset?>("SourceUpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("source_updated_at_utc");
+
+                    b.HasKey("TenantId", "ObjectSystem", "ObjectConnection", "ObjectType", "ObjectId", "Field");
+
+                    b.HasIndex("TenantId", "LastEventId")
+                        .HasDatabaseName("ix_field_ordering_states_tenant_last_event");
+
+                    b.ToTable("field_ordering_states", (string)null);
+                });
+
             modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.OutboxMessageRecord", b =>
                 {
                     b.Property<Guid>("OutboxMessageId")
@@ -159,6 +400,10 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                     b.HasIndex("ReceivedAtUtc")
                         .HasDatabaseName("ix_raw_receipts_received_at_utc");
 
+                    b.HasIndex("TenantId", "ConnectionReference", "PayloadFingerprint")
+                        .HasDatabaseName("ix_raw_receipts_tenant_connection_fingerprint")
+                        .HasFilter("source_event_id IS NULL");
+
                     b.HasIndex("TenantId", "ConnectionReference", "SourceEventId")
                         .IsUnique()
                         .HasDatabaseName("ux_raw_receipts_tenant_connection_source_event")
@@ -225,6 +470,28 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ux_users_tenant_provider_subject");
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.EventLedgerFieldRecord", b =>
+                {
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.EventLedgerRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "EventId")
+                        .HasPrincipalKey("TenantId", "EventId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_event_ledger_fields_event");
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.FieldOrderingStateRecord", b =>
+                {
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.EventLedgerRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "LastEventId")
+                        .HasPrincipalKey("TenantId", "EventId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_field_ordering_states_last_event");
                 });
 #pragma warning restore 612, 618
         }

@@ -32,6 +32,15 @@ public sealed class WorkContinuityDbContext(DbContextOptions<WorkContinuityDbCon
     /// <summary>Gets the registered source connections of the current tenant.</summary>
     public DbSet<ConnectionRecord> Connections => Set<ConnectionRecord>();
 
+    /// <summary>Gets the durable event ledger: one entry per processed receipt.</summary>
+    public DbSet<EventLedgerRecord> EventLedger => Set<EventLedgerRecord>();
+
+    /// <summary>Gets each ledger event's changed fields and their decisions.</summary>
+    public DbSet<EventLedgerFieldRecord> EventLedgerFields => Set<EventLedgerFieldRecord>();
+
+    /// <summary>Gets the ordering evidence of the last accepted change of each object field.</summary>
+    public DbSet<FieldOrderingStateRecord> FieldOrderingStates => Set<FieldOrderingStateRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         WorkContinuityModel.Configure(modelBuilder);
 }

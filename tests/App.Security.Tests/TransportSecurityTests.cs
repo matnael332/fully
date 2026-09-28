@@ -153,7 +153,11 @@ public sealed class TransportSecurityTests
     {
         // Gate 2C composes the transport but activates it nowhere. The Gate that registers a downstream
         // handler and activates the Worker updates this list deliberately.
-        string[] activation = ["AddEventTransport", "AddServiceBusEventTransport", "IOutboxRelay", "ServiceBusEventConsumerHost", "ITransportMessageHandler"];
+        string[] activation =
+        [
+            "AddEventTransport", "AddServiceBusEventTransport", "IOutboxRelay", "ServiceBusEventConsumerHost", "ITransportMessageHandler",
+            "AddEventProcessing", "IEventProcessor", "ISourceEventNormalizer",
+        ];
 
         var hosts = RepositoryLayout.ProductionSourceFiles
             .Where(file =>

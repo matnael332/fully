@@ -18,6 +18,9 @@ public sealed class PersistenceSecurityTests
         typeof(RawReceiptRecord),
         typeof(OutboxMessageRecord),
         typeof(ConnectionRecord),
+        typeof(EventLedgerRecord),
+        typeof(EventLedgerFieldRecord),
+        typeof(FieldOrderingStateRecord),
     ];
 
     [Fact]

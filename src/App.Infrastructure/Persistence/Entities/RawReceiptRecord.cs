@@ -156,6 +156,24 @@ public sealed class RawReceiptRecord : ITenantOwned
             RawReceiptState.Received);
     }
 
+    /// <summary>Records that processing settled the receipt with an outcome other than quarantine.</summary>
+    /// <exception cref="InvalidOperationException">The receipt was already processed.</exception>
+    public void MarkProcessed() => Settle(RawReceiptState.Processed);
+
+    /// <summary>Records that processing quarantined the receipt.</summary>
+    /// <exception cref="InvalidOperationException">The receipt was already processed.</exception>
+    public void MarkQuarantined() => Settle(RawReceiptState.Quarantined);
+
+    private void Settle(RawReceiptState state)
+    {
+        if (ProcessingState != RawReceiptState.Received)
+        {
+            throw new InvalidOperationException("A receipt is settled by processing exactly once.");
+        }
+
+        ProcessingState = state;
+    }
+
     private static void Require(string value, string parameterName)
     {
         if (string.IsNullOrWhiteSpace(value))

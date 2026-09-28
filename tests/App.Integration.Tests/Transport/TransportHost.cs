@@ -72,6 +72,9 @@ internal sealed class TransportHost : IAsyncDisposable
     /// <summary>Gets every log record written so far.</summary>
     public CapturingLoggerProvider Logs { get; }
 
+    /// <summary>Gets the composed services, for tests that open their own scopes.</summary>
+    public IServiceProvider Services => _provider;
+
     /// <summary>Gets the recording downstream handler.</summary>
     public RecordingHandler Handler => _provider.GetRequiredService<RecordingHandler>();
 

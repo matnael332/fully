@@ -111,7 +111,7 @@ region/subscription decision, and the Free Trial upgrade before 2026-10-27.
 Status: **PASS — Gates 1A through 1G closed (2026-09-28)**
 
 ### Gate 2 — Event Backbone
-Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`), 2C PASS (`189f173`); 2D NEXT / NOT STARTED**
+Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`), 2C PASS (`189f173`); sub-gate 2D at its owner boundary**
 
 Scope, the nine product-owner design decisions and the 2A–2G decomposition are recorded in
 `docs/gates/gate-2-scope.md`. Each sub-gate stops at an owner boundary before the next begins. 2A adds
@@ -133,7 +133,15 @@ passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which p
 neither the Gate 2B nor the Gate 2C migration or schema; applying them is a separate product-owner approval.
 Owner decision: 2C uses the tenant as the Service Bus session, the conservative correctness-first choice, and
 2D must explicitly revisit whether finer-grained per-work-item ordering or session semantics are required once
-normalized object identity exists. 2D (processing pipeline and event ledger) is next and not started.
+normalized object identity exists. 2D adds the processing pipeline and the event ledger. Each receipt is
+normalized through a source-neutral normalizer. The pipeline validates the canonical event, resolves its
+authority, and orders every object field by the source's own evidence under row locks. It records one
+append-only, metadata-only ledger entry per receipt, which makes redelivery a no-op, and quarantines whatever
+must never reach the Snapshot. Only an accepted event is handed on, in memory, for 2E. No Snapshot is
+written, no normalizer is registered in production, 2D is registered in no host, and no Azure resource
+changes. Azure Dev has none of the 2B, 2C or 2D migrations. The 2D session review recommends keeping tenant
+sessions: correctness never depends on the session, and per-object sessions would need a transport-contract
+change. 2D is implemented and verified locally, and awaits owner review, uncommitted.
 
 ### Gate 3 onward
 Status: **NOT STARTED unless explicitly approved by the product owner**
@@ -298,9 +306,9 @@ post-Gate-1 hardening follow-ups.
 ## Immediate recommended next action in Claude Code
 
 Gate 1 (Foundation) is closed: Gates 1A through 1G are PASS. Gate 2 (Event Backbone) is authorized and in
-progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A, 2B and 2C are PASS, and 2D is next
-and not started. Do not begin a sub-gate without the product owner's explicit authorization, do not start
+progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A, 2B and 2C are PASS, and 2D awaits
+owner review at its boundary, uncommitted. Do not begin a sub-gate without the product owner's explicit authorization, do not start
 Gate 3, do not start the bootstrap or migration jobs (each has exactly one execution), and do not deploy,
 dispatch `CD Dev` with `deploy: true`, or change Azure resources, without explicit product-owner
-authorization. Azure Dev has neither the Gate 2B nor the Gate 2C migration. Before 2026-10-27 the product
+authorization. Azure Dev has none of the Gate 2B, 2C or 2D migrations. Before 2026-10-27 the product
 owner must decide on the Free Trial upgrade.
