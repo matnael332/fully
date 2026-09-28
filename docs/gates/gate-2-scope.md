@@ -9,9 +9,14 @@ at its owner boundary for review before the next begins.
 | Sub-gate | State |
 |---|---|
 | 2A Event contract, validation and authority table | **PASS** — commit `7ba941a`, CI run 36403160623 green |
-| 2B Durable ingress | Implemented and verified locally; at its owner boundary, uncommitted |
-| 2C–2G | Not started |
+| 2B Durable ingress | **PASS** — commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design) |
+| 2C Outbox relay, publisher, consumer and dead-letter handling | **NEXT / NOT STARTED**; begins only on explicit product-owner authorization |
+| 2D–2G | Not started |
 | Gate 3 — monday Connector | **NOT STARTED**; requires explicit authorization |
+
+Azure Dev does **not** have the Gate 2B migration or schema: the `connections` table and the
+`resolve_ingress_connection` function exist only in local databases. Applying them needs new images, an
+updated migration-job image and one migration-job run, each a separate product-owner approval.
 
 Standing constraints for all of Gate 2: no Azure write, no RBAC, identity, networking or Key Vault change,
 no job start and no `CD Dev` with `deploy: true` without separate product-owner approval, so Azure Dev

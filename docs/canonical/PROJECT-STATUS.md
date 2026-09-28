@@ -111,7 +111,7 @@ region/subscription decision, and the Free Trial upgrade before 2026-10-27.
 Status: **PASS — Gates 1A through 1G closed (2026-09-28)**
 
 ### Gate 2 — Event Backbone
-Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`); sub-gate 2B at its owner boundary**
+Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`); 2C NEXT / NOT STARTED**
 
 Scope, the nine product-owner design decisions and the 2A–2G decomposition are recorded in
 `docs/gates/gate-2-scope.md`. Each sub-gate stops at an owner boundary before the next begins. 2A adds
@@ -120,6 +120,9 @@ and the PRD §5 authority table to `App.Core`, with no database, infrastructure,
 2B adds the durable in-process ingress: tenant resolution from a registered connection through one narrowly
 scoped database function, source verification that fails closed, and the raw receipt with its outbox
 marker committed before acknowledgement. It publishes nothing to Service Bus and changes no Azure resource.
+2B is PASS: commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design). Azure Dev does not
+yet have the Gate 2B migration or schema; applying it is a separate product-owner approval. 2C (outbox
+relay, publisher, consumer and dead-letter handling) is next and not started.
 
 ### Gate 3 onward
 Status: **NOT STARTED unless explicitly approved by the product owner**
@@ -284,8 +287,9 @@ post-Gate-1 hardening follow-ups.
 ## Immediate recommended next action in Claude Code
 
 Gate 1 (Foundation) is closed: Gates 1A through 1G are PASS. Gate 2 (Event Backbone) is authorized and in
-progress one sub-gate at a time under `docs/gates/gate-2-scope.md`; do not begin a sub-gate before the
-previous one is approved at its owner boundary, do not start Gate 3, do not start the bootstrap or
-migration jobs (each has exactly one execution), and do not deploy, dispatch `CD Dev` with
-`deploy: true`, or change Azure resources, without explicit product-owner authorization. Before
-2026-10-27 the product owner must decide on the Free Trial upgrade.
+progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A and 2B are PASS, and 2C is next and
+not started. Do not begin a sub-gate without the product owner's explicit authorization, do not start
+Gate 3, do not start the bootstrap or migration jobs (each has exactly one execution), and do not deploy,
+dispatch `CD Dev` with `deploy: true`, or change Azure resources, without explicit product-owner
+authorization. Azure Dev does not yet have the Gate 2B migration or schema. Before 2026-10-27 the product
+owner must decide on the Free Trial upgrade.
