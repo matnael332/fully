@@ -26,21 +26,46 @@ internal static class LocalEnvironment
     ];
 
     /// <summary>
-    /// Whether a Service Bus emulator is expected: the local stack accepted its licence, or a test
-    /// connection string was supplied explicitly.
+    /// Whether a Service Bus emulator is expected: the local stack accepted its licence in <c>.env</c>,
+    /// or a test connection string was supplied explicitly.
     /// </summary>
-    internal static bool EmulatorExpected
-    {
-        get
-        {
-            var settings = Read();
+    internal static bool EmulatorExpected => IsEmulatorExpected(ReadDotEnv(), Environment.GetEnvironmentVariable);
 
-            return settings.ContainsKey("SERVICEBUS_TEST_CONNECTION_STRING")
-                || string.Equals(settings.GetValueOrDefault("ACCEPT_EULA"), "Y", StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// The emulator rule, separated from the process so it can be tested. Only the <c>.env</c> licence
+    /// line counts: a process-level <c>ACCEPT_EULA</c> is a generic Microsoft licence flag that the
+    /// GitHub Ubuntu runner image exports globally, and it says nothing about an emulator being hosted.
+    /// </summary>
+    internal static bool IsEmulatorExpected(IReadOnlyDictionary<string, string> dotEnv, Func<string, string?> environment)
+    {
+        if (!string.IsNullOrWhiteSpace(environment("SERVICEBUS_TEST_CONNECTION_STRING"))
+            || dotEnv.ContainsKey("SERVICEBUS_TEST_CONNECTION_STRING"))
+        {
+            return true;
         }
+
+        return string.Equals(dotEnv.GetValueOrDefault("ACCEPT_EULA"), "Y", StringComparison.OrdinalIgnoreCase);
     }
 
     internal static IReadOnlyDictionary<string, string> Read()
+    {
+        var settings = ReadDotEnv();
+
+        // An explicit environment variable overrides the file.
+        foreach (var key in Keys)
+        {
+            var value = Environment.GetEnvironmentVariable(key);
+
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                settings[key] = value;
+            }
+        }
+
+        return settings;
+    }
+
+    private static Dictionary<string, string> ReadDotEnv()
     {
         var settings = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -64,17 +89,6 @@ internal static class LocalEnvironment
             var value = trimmed[(separator + 1)..].Trim();
 
             if (Keys.Contains(key, StringComparer.Ordinal))
-            {
-                settings[key] = value;
-            }
-        }
-
-        // An explicit environment variable overrides the file.
-        foreach (var key in Keys)
-        {
-            var value = Environment.GetEnvironmentVariable(key);
-
-            if (!string.IsNullOrWhiteSpace(value))
             {
                 settings[key] = value;
             }
