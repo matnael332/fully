@@ -24,7 +24,7 @@ public static class WorkContinuityModel
 
     /// <summary>The tenant-owned tables, every one of which carries a <c>tenant_id</c> column.</summary>
     public static IReadOnlyList<string> TenantOwnedTables { get; } =
-        ["tenants", "users", "raw_receipts", "outbox_messages"];
+        ["tenants", "users", "raw_receipts", "outbox_messages", "connections"];
 
     /// <summary>Applies the schema to a model builder.</summary>
     public static void Configure(ModelBuilder modelBuilder)
@@ -198,6 +198,36 @@ public static class WorkContinuityModel
             entity.HasIndex(record => new { record.PublishedAtUtc, record.OccurredAtUtc })
                 .HasDatabaseName("ix_outbox_messages_pending")
                 .HasFilter("published_at_utc IS NULL");
+        });
+
+        modelBuilder.Entity<ConnectionRecord>(entity =>
+        {
+            entity.ToTable("connections");
+            entity.HasKey(record => record.ConnectionId);
+            entity.Property(record => record.ConnectionId)
+                .HasColumnName("connection_id")
+                .ValueGeneratedNever();
+            entity.Property(record => record.TenantId)
+                .HasColumnName("tenant_id")
+                .HasConversion(tenantIdConverter)
+                .IsRequired();
+            entity.Property(record => record.SourceSystem)
+                .HasColumnName("source_system")
+                .HasMaxLength(64)
+                .IsRequired();
+            entity.Property(record => record.Status)
+                .HasColumnName("status")
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .IsRequired();
+            entity.Property(record => record.CreatedAtUtc)
+                .HasColumnName("created_at_utc")
+                .HasColumnType("timestamptz")
+                .IsRequired();
+
+            // Supports listing a tenant's connections under its own row-level security scope.
+            entity.HasIndex(record => record.TenantId)
+                .HasDatabaseName("ix_connections_tenant_id");
         });
     }
 

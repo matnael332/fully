@@ -29,6 +29,9 @@ public sealed class WorkContinuityDbContext(DbContextOptions<WorkContinuityDbCon
     /// <summary>Gets the transactional outbox.</summary>
     public DbSet<OutboxMessageRecord> OutboxMessages => Set<OutboxMessageRecord>();
 
+    /// <summary>Gets the registered source connections of the current tenant.</summary>
+    public DbSet<ConnectionRecord> Connections => Set<ConnectionRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         WorkContinuityModel.Configure(modelBuilder);
 }

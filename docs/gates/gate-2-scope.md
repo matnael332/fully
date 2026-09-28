@@ -8,8 +8,9 @@ at its owner boundary for review before the next begins.
 
 | Sub-gate | State |
 |---|---|
-| 2A Event contract, validation and authority table | Implemented and verified locally; at its owner boundary, uncommitted |
-| 2B–2G | Not started |
+| 2A Event contract, validation and authority table | **PASS** — commit `7ba941a`, CI run 36403160623 green |
+| 2B Durable ingress | Implemented and verified locally; at its owner boundary, uncommitted |
+| 2C–2G | Not started |
 | Gate 3 — monday Connector | **NOT STARTED**; requires explicit authorization |
 
 Standing constraints for all of Gate 2: no Azure write, no RBAC, identity, networking or Key Vault change,
@@ -112,3 +113,42 @@ Gate 2 measures but does not gate on (Gate 8).
 10. No change to Infrastructure, the database, migrations, Web, Worker, Bicep, workflows, packages or Azure.
     Build with 0 warnings; Unit, Security and Architecture tests, the full suite and both verifier scripts
     pass.
+
+## 2B Definition of Done
+
+1. An in-process ingress: `IEventIngress` in `App.Core`, implemented in `App.Infrastructure` and composed by
+   `AddEventIngress`. No public endpoint and no Web or Worker registration (decision 2); the source adapter
+   that calls it arrives with its connector Gate.
+2. A delivery has no tenant member. The tenant is resolved server-side from the registered connection only
+   (invariants 1 and 45) and set as a trusted-service context inside the ingress flow, never visible to the
+   caller afterwards. Ingress refuses to run in a scope that already carries a tenant.
+3. Order of checks: delivery shape and storable JSON, then the connection through the single approved
+   function, then source match, then verification by exactly one registered verifier (fail closed; none is
+   registered in production), then tenant status. Unknown or disabled connections, suspended or missing
+   tenants, a source mismatch, failed verification and malformed input are rejected before any payload is
+   persisted, each with a stable code and a canonical quarantine reason. There is no tenant-less payload or
+   quarantine store (decision 6).
+4. The raw receipt and a content-free outbox marker (the receipt id only) are written in one tenant-scoped
+   transaction under forced row-level security. A delivery is acknowledged only after that commit; any
+   failure rolls both back and returns a retryable, unacknowledged outcome. No outcome is silent.
+5. A repeated source event id on the same connection is acknowledged as a duplicate of the stored receipt,
+   with no second receipt or marker, including under concurrent delivery. A repeat with different content
+   keeps the first receipt and logs a warning. A delivery without a provider event id is stored each time
+   with its fingerprint; flagging such candidates is 2D work.
+6. Correlation: the caller's correlation id, or a generated one, is returned on every outcome and stored on
+   the marker. The marker's receipt id is the causation for the processing that follows.
+7. Database: a tenant-owned `connections` table with the same forced row-level security and tenant policy
+   as every tenant-owned table, and no secret column (invariant 53). Exactly one `SECURITY DEFINER`
+   function, `resolve_ingress_connection(uuid)`: it returns only an active connection's tenant id and
+   source system, runs with `search_path = pg_catalog, pg_temp`, has `EXECUTE` revoked from PUBLIC and
+   granted to the runtime role only, and reads through an owner-only, read-only, active-rows-only policy so
+   it also works under Azure's non-superuser owner. Every other table's policies are unchanged. All of this
+   is pinned by source-level and database-level tests.
+8. Logs and errors carry identifiers, codes and reasons only, never the payload or the proof, proven with a
+   capturing log provider across every path, Entity Framework Core's own records included.
+9. Tests: unit, security and integration tests against the real local PostgreSQL through the runtime role,
+   covering acceptance, duplicate and concurrent duplicate delivery, rollback and retry, unknown and
+   disabled connections, inactive tenants, verification failures, tenant isolation, log hygiene and a
+   rehearsal of the non-superuser owner, plus mutation checks showing the key tests are not vacuous.
+10. No Service Bus publication, outbox relay, consumer, dead-letter handling, Snapshot, Web, Worker, Bicep,
+    workflow, package or Azure change, and no 2C work. Build with 0 warnings; the full suite passes locally.

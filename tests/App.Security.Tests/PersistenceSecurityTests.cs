@@ -17,6 +17,7 @@ public sealed class PersistenceSecurityTests
         typeof(UserRecord),
         typeof(RawReceiptRecord),
         typeof(OutboxMessageRecord),
+        typeof(ConnectionRecord),
     ];
 
     [Fact]
@@ -86,6 +87,20 @@ public sealed class PersistenceSecurityTests
 
             Assert.Empty(publicSetters);
         }
+    }
+
+    [Fact]
+    public void A_connection_stores_no_credential_or_verification_secret()
+    {
+        // Secrets are never stored in ordinary database fields (invariant 53). A source's verification
+        // secret belongs to its connector Gate and Key Vault, so the connection's columns are pinned.
+        var properties = typeof(ConnectionRecord)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property => property.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(["ConnectionId", "CreatedAtUtc", "SourceSystem", "Status", "TenantId"], properties);
     }
 
     [Fact]

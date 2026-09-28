@@ -169,6 +169,8 @@ public sealed class TenantScopedDatabase(
         PostgresErrorCodes.ForeignKeyViolation => PersistenceErrors.ConstraintViolation,
         PostgresErrorCodes.CheckViolation => PersistenceErrors.ConstraintViolation,
         PostgresErrorCodes.NotNullViolation => PersistenceErrors.ConstraintViolation,
+        // Class 22 is a data exception: the value itself cannot be stored, so a retry cannot succeed.
+        string state when state.StartsWith("22", StringComparison.Ordinal) => PersistenceErrors.InvalidData,
         _ => PersistenceErrors.Unavailable,
     };
 

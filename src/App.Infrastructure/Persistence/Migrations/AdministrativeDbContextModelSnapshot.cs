@@ -22,6 +22,40 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ConnectionRecord", b =>
+                {
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("connection_id");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("SourceSystem")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("source_system");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("ConnectionId");
+
+                    b.HasIndex("TenantId")
+                        .HasDatabaseName("ix_connections_tenant_id");
+
+                    b.ToTable("connections", (string)null);
+                });
+
             modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.OutboxMessageRecord", b =>
                 {
                     b.Property<Guid>("OutboxMessageId")

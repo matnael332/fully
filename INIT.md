@@ -1,7 +1,7 @@
 # INIT — Project Handoff State
 
-Last updated: 2026-09-28 (Gate 2 authorized; sub-gate 2A at its owner boundary, uncommitted). Read this
-first when resuming.
+Last updated: 2026-09-28 (Gate 2 in progress; 2A PASS; sub-gate 2B at its owner boundary, uncommitted).
+Read this first when resuming.
 
 ## Where the project is
 
@@ -15,14 +15,17 @@ first when resuming.
 | 1F CI/CD & Identity | PASS — closure commit `f4535f7` |
 | 1G Foundation Hardening | **PASS** — commits `9651ed3` (implementation), `fc9bb3e` (CI fix), `450c13d` (Dev readiness probe on), plus this closure commit (Commit C) |
 | **Gate 1 — Foundation** | **PASS** |
-| Gate 2 — Event Backbone | **AUTHORIZED 2026-09-28, IN PROGRESS.** 2A (event contract, validation, authority table) implemented and verified locally, **uncommitted**, awaiting owner review. Scope and owner decisions: `docs/gates/gate-2-scope.md` |
+| Gate 2 — Event Backbone | **AUTHORIZED 2026-09-28, IN PROGRESS.** 2A (event contract, validation, authority table) **PASS**, commit `7ba941a`. 2B (durable ingress) implemented and verified locally, **uncommitted**, awaiting owner review. Scope and owner decisions: `docs/gates/gate-2-scope.md` |
 | Gate 3 — monday Connector | **NOT STARTED.** Requires explicit product-owner authorization. |
 
-**Repository pointers:** `main` == `origin/main` == `a4bfd18` (Gate 1 closure, CI 36397863168 green). The
-working tree holds the **uncommitted 2A change set**: new sources under `src/App.Core/Events/` and
-`src/App.Core/SourceOfTruth/`, new unit and security tests, the tightened architecture test, the new
-`docs/gates/gate-2-scope.md`, and the Gate 2 status lines in `CLAUDE.md`, `README.md`,
-`docs/canonical/PROJECT-STATUS.md` and this file. Nothing staged. Never discard it.
+**Repository pointers:** `main` == `origin/main` == `23607f9` (project skills; CI 36405216259 green), after
+`7ba941a` (Gate 2A; CI 36403160623 green). The working tree holds the **uncommitted 2B change set**: the
+ingress contract under `src/App.Core/Ingress/`, the ingress service under `src/App.Infrastructure/Ingress/`,
+the `connections` entity and the `DurableIngressConnections` migration, the identifier rule in
+`src/App.Core/Events/EventText.cs`, new unit, security and integration tests, and the Gate 2B status lines in
+`docs/gates/gate-2-scope.md`, `docs/canonical/PROJECT-STATUS.md` and this file. The local database already
+carries the new migration (applied by the integration tests); Azure does not. Nothing staged. Never discard
+it.
 
 **Product-owner decisions on record (2026-09-28):** Gate 1G runtime verification approved; Commit B
 (readiness probe on in Dev) approved and deployed; the single cold-start Service Bus timeout is a
@@ -114,10 +117,12 @@ Full evidence: `docs/gates/gate-1G-report.md`.
 
 ## Exact next step
 
-1. Product owner reviews the uncommitted 2A change set against its Definition of Done in
+1. Product owner reviews the uncommitted 2B change set against its Definition of Done in
    `docs/gates/gate-2-scope.md` and decides commit and push; CI must then be green (three jobs).
-2. Only after that may 2B (durable ingress) begin, again stopping at its owner boundary. No Azure write,
-   job start or `deploy: true` without separate approval; Gate 3 not before explicit authorization.
+2. Only after that may 2C (outbox relay, publisher, consumer, dead-letter handling) begin, again stopping at
+   its owner boundary. Applying the 2B migration in Azure is a separate approval: it needs the migration
+   job, which keeps exactly one execution until the owner orders a rerun. No Azure write, job start or
+   `deploy: true` without separate approval; Gate 3 not before explicit authorization.
 
 Rollback of Gate 1G runtime state, if ever ordered: dispatch `CD Dev` with `f4874302456a50c935a5429deed07699312de37c`
 to restore the previous images; redeploy Bicep with `webReadinessProbeEnabled` removed (probe off); the

@@ -35,6 +35,14 @@ public static class PersistenceErrors
         "persistence.constraint_violation",
         "The record failed a database constraint.");
 
+    /// <summary>
+    /// The database cannot store a value (a PostgreSQL data exception, SQLSTATE class 22). Permanent:
+    /// retrying the same data fails the same way.
+    /// </summary>
+    public static Error InvalidData { get; } = Error.Validation(
+        "persistence.invalid_data",
+        "The record contains data the database cannot store.");
+
     /// <summary>The database could not complete the operation.</summary>
     public static Error Unavailable { get; } = Error.Infrastructure(
         "persistence.unavailable",

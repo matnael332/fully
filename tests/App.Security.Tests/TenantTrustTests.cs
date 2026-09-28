@@ -89,14 +89,16 @@ public sealed class TenantTrustTests
     }
 
     [Fact]
-    public void No_production_source_assigns_a_tenant_context_yet()
+    public void Only_the_ingress_assigns_a_tenant_context_and_only_as_a_trusted_service()
     {
-        // Gate 1C ships no authentication, so no caller may invoke SetResolved. The files under
-        // Core/Tenancy are excluded because they declare the abstraction itself; this asserts that
-        // nothing in Web, Worker, Infrastructure or a connector assigns a tenant. The Gate that
-        // introduces validated SSO updates this expectation deliberately, rather than a tenant
-        // assignment slipping in unnoticed.
-        var offenders = RepositoryLayout.ProductionSourceFiles
+        // Gate 1C shipped no caller of SetResolved. Gate 2B adds exactly one: the ingress, which takes
+        // the tenant from the connection it resolved server-side and names the trusted-service source.
+        // The files under Core/Tenancy declare the abstraction itself and are excluded. The Gate that
+        // introduces validated SSO updates this list deliberately, rather than a tenant assignment
+        // slipping in unnoticed.
+        const string ingress = "src/App.Infrastructure/Ingress/EventIngressService.cs";
+
+        var assigning = RepositoryLayout.ProductionSourceFiles
             .Where(file => !RepositoryLayout.RelativePath(file)
                 .StartsWith("src/App.Core/Tenancy/", StringComparison.Ordinal))
             .Where(file => File.ReadAllText(file.FullName)
@@ -104,7 +106,12 @@ public sealed class TenantTrustTests
             .Select(RepositoryLayout.RelativePath)
             .ToList();
 
-        Assert.Empty(offenders);
+        Assert.Equal([ingress], assigning);
+
+        var text = File.ReadAllText(Path.Combine(RepositoryLayout.Root.FullName, ingress));
+        Assert.Equal(1, Occurrences(text, "SetResolved("));
+        Assert.Equal(1, Occurrences(text, "TenantResolutionSource."));
+        Assert.Contains("TenantResolutionSource.TrustedServiceIdentity", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -117,5 +124,18 @@ public sealed class TenantTrustTests
             .ToList();
 
         Assert.Empty(offenders);
+    }
+
+    private static int Occurrences(string text, string value)
+    {
+        var count = 0;
+        for (var index = text.IndexOf(value, StringComparison.Ordinal);
+             index >= 0;
+             index = text.IndexOf(value, index + value.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+
+        return count;
     }
 }

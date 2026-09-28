@@ -111,12 +111,15 @@ region/subscription decision, and the Free Trial upgrade before 2026-10-27.
 Status: **PASS — Gates 1A through 1G closed (2026-09-28)**
 
 ### Gate 2 — Event Backbone
-Status: **AUTHORIZED (2026-09-28), IN PROGRESS — sub-gate 2A at its owner boundary**
+Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`); sub-gate 2B at its owner boundary**
 
 Scope, the nine product-owner design decisions and the 2A–2G decomposition are recorded in
 `docs/gates/gate-2-scope.md`. Each sub-gate stops at an owner boundary before the next begins. 2A adds
 the canonical event contract, its validation and quarantine reasons, the CloudEvents attribute mapping
 and the PRD §5 authority table to `App.Core`, with no database, infrastructure, host or Azure change.
+2B adds the durable in-process ingress: tenant resolution from a registered connection through one narrowly
+scoped database function, source verification that fails closed, and the raw receipt with its outbox
+marker committed before acknowledgement. It publishes nothing to Service Bus and changes no Azure resource.
 
 ### Gate 3 onward
 Status: **NOT STARTED unless explicitly approved by the product owner**
