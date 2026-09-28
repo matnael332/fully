@@ -48,6 +48,11 @@ param workerImage = readEnvironmentVariable('WCE_DEV_WORKER_IMAGE', 'mcr.microso
 param migrationJobImage = readEnvironmentVariable('WCE_DEV_MIGRATION_JOB_IMAGE', 'mcr.microsoft.com/k8se/quickstart:latest')
 param bootstrapJobImage = readEnvironmentVariable('WCE_DEV_BOOTSTRAP_JOB_IMAGE', 'mcr.microsoft.com/k8se/quickstart:latest')
 
+// Dev-only readiness probe (Gate 1G). Web /health/ready proves PostgreSQL as the runtime role and a
+// Service Bus send link, so it is enabled only now that the bootstrap and migration jobs have run
+// and a real image is live. Synthetic keeps the template default (off).
+param webReadinessProbeEnabled = true
+
 // GitHub Actions continuous delivery (Gate 1F). The numeric ids make the OIDC subject immutable.
 param githubRepository = 'matnael332/fully'
 param githubOwnerId = '223243154'
