@@ -111,7 +111,7 @@ region/subscription decision, and the Free Trial upgrade before 2026-10-27.
 Status: **PASS — Gates 1A through 1G closed (2026-09-28)**
 
 ### Gate 2 — Event Backbone
-Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`), 2C PASS (`189f173`); sub-gate 2D at its owner boundary**
+Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`), 2C PASS (`189f173`), 2D PASS (`f97d22d`); 2E NEXT / NOT STARTED**
 
 Scope, the nine product-owner design decisions and the 2A–2G decomposition are recorded in
 `docs/gates/gate-2-scope.md`. Each sub-gate stops at an owner boundary before the next begins. 2A adds
@@ -139,9 +139,14 @@ authority, and orders every object field by the source's own evidence under row 
 append-only, metadata-only ledger entry per receipt, which makes redelivery a no-op, and quarantines whatever
 must never reach the Snapshot. Only an accepted event is handed on, in memory, for 2E. No Snapshot is
 written, no normalizer is registered in production, 2D is registered in no host, and no Azure resource
-changes. Azure Dev has none of the 2B, 2C or 2D migrations. The 2D session review recommends keeping tenant
-sessions: correctness never depends on the session, and per-object sessions would need a transport-contract
-change. 2D is implemented and verified locally, and awaits owner review, uncommitted.
+changes. 2D is PASS: commit `f97d22dc133b8cf1813ebaad6f0771d8bd0cdf06`, CI run 36439994562 green (493 tests:
+486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI).
+Azure Dev has none of the Gate 2B, 2C or 2D migrations or schema; applying them is a separate product-owner
+approval. Owner decisions at the 2D review: SessionId remains TenantId, with database ordering and idempotency
+as the source of truth, and finer-grained sessions may be revisited later only if real throughput or metrics
+justify it. The 5-minute source clock-skew tolerance is approved for now; it remains configurable and must be
+validated against real connector behavior later. Any authority conflict quarantines the whole event, and no
+authoritative subset is projected. 2E (Snapshot projection) is next and not started.
 
 ### Gate 3 onward
 Status: **NOT STARTED unless explicitly approved by the product owner**
@@ -306,8 +311,8 @@ post-Gate-1 hardening follow-ups.
 ## Immediate recommended next action in Claude Code
 
 Gate 1 (Foundation) is closed: Gates 1A through 1G are PASS. Gate 2 (Event Backbone) is authorized and in
-progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A, 2B and 2C are PASS, and 2D awaits
-owner review at its boundary, uncommitted. Do not begin a sub-gate without the product owner's explicit authorization, do not start
+progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A, 2B, 2C and 2D are PASS, and 2E is
+next and not started. Do not begin a sub-gate without the product owner's explicit authorization, do not start
 Gate 3, do not start the bootstrap or migration jobs (each has exactly one execution), and do not deploy,
 dispatch `CD Dev` with `deploy: true`, or change Azure resources, without explicit product-owner
 authorization. Azure Dev has none of the Gate 2B, 2C or 2D migrations. Before 2026-10-27 the product

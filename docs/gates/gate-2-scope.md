@@ -11,8 +11,9 @@ at its owner boundary for review before the next begins.
 | 2A Event contract, validation and authority table | **PASS** — commit `7ba941a`, CI run 36403160623 green |
 | 2B Durable ingress | **PASS** — commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design) |
 | 2C Outbox relay, publisher, consumer and dead-letter handling | **PASS** — commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally) |
-| 2D Processing pipeline and event ledger | Authorized 2026-09-28; implemented and verified locally; at its owner boundary, uncommitted; session review recorded under "2D session review" |
-| 2E–2G | Not started |
+| 2D Processing pipeline and event ledger | **PASS** — commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI) |
+| 2E Snapshot projection | **NEXT / NOT STARTED**; begins only on explicit product-owner authorization |
+| 2F–2G | Not started |
 | Gate 3 — monday Connector | **NOT STARTED**; requires explicit authorization |
 
 Azure Dev does **not** have the Gate 2B migration or schema: the `connections` table and the
@@ -344,7 +345,7 @@ Product-owner decisions at the 2C review:
     webhook logic, no AI or Work Memory, no Web or Worker activation, no Bicep, workflow, package or Azure
     change, and no change to the frozen documents. Build with 0 warnings; the full suite passes locally.
 
-## 2D session review (for the owner's decision at the 2D review)
+## 2D session review (decided at the 2D review; see "2D closure")
 
 Recommendation: **keep SessionId = TenantId**. The Gate 2C transport contract is unchanged.
 
@@ -368,3 +369,21 @@ Recommendation: **keep SessionId = TenantId**. The Gate 2C transport contract is
 5. **When to revisit.** When 2F's metrics show per-tenant lag or head-of-line blocking, or when Gate 3's initial
    sync needs more throughput for one tenant. Processing already tolerates concurrent delivery, so such a change
    would touch the transport only.
+
+## 2D closure (2026-09-28)
+
+2D is **PASS**. Implementation commit `f97d22dc133b8cf1813ebaad6f0771d8bd0cdf06`; CI run 36439994562 green on
+all three jobs: 493 tests, 486 passed, 0 failed, 7 skipped by design. The 7 skipped tests are the Service Bus
+emulator tests (3 from Gate 1G readiness, 4 from 2C), which CI does not run because no emulator licence is
+accepted there (decision 8); every 2D test ran and passed in CI. Azure Dev has none of the Gate 2B, 2C or 2D
+migrations or schema.
+
+Product-owner decisions at the 2D review:
+
+1. **SessionId remains TenantId.** Database ordering and idempotency are the source of truth. Finer-grained
+   sessions may be revisited later only if real throughput or metrics justify it. The 2C transport contract is
+   unchanged.
+2. **The 5-minute source clock-skew tolerance is approved for now.** It remains configurable
+   (`EventProcessingOptions.ClockSkewTolerance`) and must be validated against real connector behavior in later
+   Gates; it is not a fixed product assumption.
+3. **Any authority conflict quarantines the whole event.** No authoritative subset is projected.
