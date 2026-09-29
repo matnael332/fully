@@ -89,4 +89,4 @@ Each Premium Gate's own Definition of Done sets its acceptance criteria. As an i
 |---|---|
 | P0 Architecture Freeze | **PASS** — architecture frozen; closed by the product owner on 2026-09-29 |
 | P1 to P11 | Planned; NOT STARTED; each needs explicit authorization |
-| Core Gate 3 (monday Connector) | NEXT / NOT STARTED; may begin only after the P0 closure is committed, and only on explicit authorization |
+| Core Gate 3 (monday Connector) | IN PROGRESS: authorized 2026-09-29, after the P0 closure commit `999d2f9`; 3A PASS (2026-09-30); 3B next, not started |
