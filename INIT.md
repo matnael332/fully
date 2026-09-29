@@ -1,7 +1,7 @@
 # INIT — Project Handoff State
 
-Last updated: 2026-09-29 (Gate 2, Event Backbone, PASS and closed; Gate 3 next, not started). Read this first
-when resuming.
+Last updated: 2026-09-29 (Gate 2, Event Backbone, PASS and closed; Premium Gate P0, Architecture Freeze, PASS and
+closed; Gate 3 next, not started). Read this first when resuming.
 
 ## Where the project is
 
@@ -16,9 +16,12 @@ when resuming.
 | 1G Foundation Hardening | **PASS** — commits `9651ed3` (implementation), `fc9bb3e` (CI fix), `450c13d` (Dev readiness probe on), plus this closure commit (Commit C) |
 | **Gate 1 — Foundation** | **PASS** |
 | Gate 2 — Event Backbone | **PASS — closed 2026-09-29.** 2A (event contract, validation, authority table) **PASS**, commit `7ba941a`. 2B (durable ingress) **PASS**, commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design). 2C (outbox relay, publisher, consumer, dead-letter handling) **PASS**, commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally). 2D (processing pipeline and event ledger) **PASS**, commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI). 2E (Snapshot projection) **PASS**, commit `e165852`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI). 2F (retention and metrics) **PASS**, commit `259be35`, CI run 36542058355 green (584 tests: 577 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2F test ran and passed in CI). 2G (acceptance suite, crash recovery, tenant isolation and the Gate report) **PASS**, commit `59f74e1`, CI run 36552321567 green (613 tests: 604 passed, 0 failed, 9 Service Bus emulator tests skipped by design; every other 2G test ran and passed in CI; 613/613 locally). Acceptance satisfied: duplicate, delayed and out-of-order events do not corrupt the Snapshot and no event is silently lost. Report, risks and deferred items: `docs/gates/gate-2-report.md`. Azure Dev has **none** of the 2B, 2C, 2D, 2E or 2F migrations or schema. Scope and owner decisions: `docs/gates/gate-2-scope.md` |
-| Gate 3 — monday Connector | **NEXT / NOT STARTED.** Requires explicit product-owner authorization. |
+| Gate 3 — monday Connector | **NEXT / NOT STARTED.** May begin only after the Premium P0 closure commit, and only on explicit product-owner authorization. |
+| Premium P0 — Architecture Freeze | **PASS — ARCHITECTURE FROZEN, closed 2026-09-29.** D1–D4 and C1 approved; invariant 35 COMPATIBLE; audit rerun with no unresolved contradiction. Recorded by this closure commit (documentation only). `docs/premium/`, `docs/gates/gate-P0-report.md` |
+| Premium P1–P11 | Planned; NOT STARTED; not authorized |
 
-**Repository pointers:** `main` == `origin/main` == the Gate 2 closure commit, whose parent is
+**Repository pointers:** `main` == `origin/main` == the Premium Gate P0 closure commit (documentation only), whose
+parent is `9988f54`, the Gate 2 closure commit, whose own parent is
 `59f74e16e1332f70aca9924967ee082e84b798e8` (Gate 2G; CI run 36552321567 green on all three jobs: 613 tests,
 604 passed, 0 failed, 9 Service Bus emulator tests skipped by design; every other 2G test ran and passed in CI;
 gitleaks found no leaks). Earlier: `dcf5496` (Gate 2F status closure), `259be35` (Gate 2F), `2bb480e` (Gate 2E
@@ -53,12 +56,26 @@ Worker's clock only times runs; and the receipt time itself stamped by PostgreSQ
 and a trigger that replaces any supplied value and refuses any change, so no ingress clock moves a receipt's age.
 Gate 2G needed no new design decision. On 2026-09-29 the product owner approved the 2G change set (commit `59f74e1`,
 CI run 36552321567 green) and ordered the formal closure: Gate 2 is PASS and closed, and Gate 3 is next and not
-started.
+started. The product owner then authorized Premium Gate P0 (Architecture Freeze) as a planning prerequisite to Gate 3:
+documentation only, stopping at its owner boundary; Premium Gates P1 to P11 are planned only. The owner's P0 review
+(2026-09-29) approved D1, the Premium Autonomous Action Policy (LOW or MEDIUM CHANGE and SEND for verified Premium
+tenants only, under a closed, preconfigured Tenant Admin policy with execution-time checks and authoritative
+verification; SEND bounded by recipient, channel and content scope; HIGH risk always needs approval); D2, the tenant's
+policy plus the user's own revocable delegation, or an explicit Service Identity for service workflows; D3, the Local
+Agent extensions for Premium v1; and D4, Support as the first Premium Domain, with end-customer information as Tenant
+Work Data. It also corrected the audit: invariant 35 (Approve All) is COMPATIBLE, because Premium's advance policy is
+a different mechanism. At closure the owner approved clarification C1 (structured system state is a Premium v1
+information source, a separate preferred level above structured UI, with no new Local Agent authority) and closed
+Premium Gate P0 as PASS on 2026-09-29: the Premium architecture is frozen, and Gate 3 may begin only after this
+closure is committed, on explicit authorization.
 
 ## Rules that must not be broken (from CLAUDE.md and the canonical docs)
 
 - Work only on an explicitly authorized Gate. Gate 2 is closed (PASS; `docs/gates/gate-2-scope.md`,
-  `docs/gates/gate-2-report.md`). Gate 3 is not authorized.
+  `docs/gates/gate-2-report.md`), and so is Premium Gate P0 (PASS; `docs/gates/gate-P0-report.md`). Gate 3 is not
+  authorized; it may begin only after the P0 closure is committed, and only on explicit authorization. Premium Gates
+  P1 to P11 are not started and not authorized. The Premium documents in `docs/premium/` are frozen, subordinate to
+  the frozen Core documents, and change only with explicit product-owner approval.
 - Never modify `docs/canonical/PRD-v1.md`, `SYSTEM-ARCHITECTURE-v1.md`, `ARCHITECTURE-INVARIANTS-v1.md`
   or `DEVELOPMENT-GATES-v1.md`. If a contradiction appears, STOP and report it. (`PROJECT-STATUS.md`
   in the same folder is a status document.)
@@ -139,8 +156,10 @@ Full evidence: `docs/gates/gate-1G-report.md`.
 
 ## Exact next step
 
-1. Gate 3 (monday Connector) is NEXT / NOT STARTED. It begins only when the product owner explicitly authorizes
-   it. The risks and deferred items Gate 2 leaves open are listed in `docs/gates/gate-2-report.md`.
+1. Gate 3 (monday Connector) is NEXT / NOT STARTED. It may begin only after the Premium Gate P0 closure commit, and
+   only when the product owner explicitly authorizes it; its Definition of Done then includes the connector constraints
+   of Premium architecture §20. The risks and deferred items Gate 2 leaves open are listed in
+   `docs/gates/gate-2-report.md`.
 2. Azure Dev has none of the Gate 2B, 2C, 2D, 2E or 2F migrations. Applying them needs new images, an updated
    migration-job image and one migration-job run, each a separate approval; the migration job keeps exactly
    one execution until the owner orders a rerun. Running the relay, the consumer and the processing pipeline

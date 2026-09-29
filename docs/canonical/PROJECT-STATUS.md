@@ -7,6 +7,7 @@
 - First SaaS connector: monday.com
 - Target cloud: Azure
 - MVP OS Agent: Windows
+- Premium architecture (`docs/premium/`): FROZEN — Premium Gate P0 PASS (2026-09-29); subordinate to the Core documents; nothing implemented yet
 
 ## Development state
 
@@ -192,8 +193,21 @@ emulator tests skipped by design; every other 2G test ran and passed in CI; 613/
 and no event is silently lost. The risks and deferred items the report lists stay open: nothing of Gate 2 runs in
 Azure yet, reconciliation is Gate 3, and dead letters have no runbook, alert or UI yet.
 
+### Premium Gate P0 — Architecture Freeze
+Status: **PASS — ARCHITECTURE FROZEN (closed by the product owner on 2026-09-29)**
+
+Fully Premium is a second capability layer of the same product: bounded autonomous execution on top of Core, reusing
+Core and never creating a second Source of Truth. P0 froze its architecture, policies and Gate plan in `docs/premium/`
+and audited them against every frozen Core document in `docs/gates/gate-P0-report.md`: no unresolved contradiction;
+one intentional Premium policy difference, the Premium Autonomous Action Policy, from PRD v1 §7 and §9 and the
+approval flow of System Architecture v1 §6; and three extensions. The product owner approved decisions D1 to D4 and
+clarification C1 (structured system state as a Premium v1 information source) and corrected the audit: invariant 35
+(Approve All) is COMPATIBLE. Nothing of Premium is implemented; each Premium rule takes effect only when its Premium
+Gate passes. P0 is a planning prerequisite to Core Gate 3, not a technical dependency. Premium Gates P1 to P11 are
+planned and NOT STARTED.
+
 ### Gate 3 onward
-Status: **Gate 3 (monday Connector) NEXT / NOT STARTED unless explicitly approved by the product owner; later Gates not started**
+Status: **Gate 3 (monday Connector) NEXT / NOT STARTED; it may begin only after the Premium Gate P0 closure is committed, and then needs explicit approval; later Gates not started**
 
 ## Verified evidence for Gate 1A / 1B
 
@@ -355,7 +369,9 @@ post-Gate-1 hardening follow-ups.
 ## Immediate recommended next action in Claude Code
 
 Gate 1 (Foundation) and Gate 2 (Event Backbone) are closed: Gates 1A through 1G and 2A through 2G are PASS (Gate 2
-evidence: `docs/gates/gate-2-report.md`). Gate 3 (monday Connector) is next and has not started. Do not start Gate 3
+evidence: `docs/gates/gate-2-report.md`). Premium Gate P0 (Architecture Freeze) is PASS: the Premium architecture is
+frozen (closed 2026-09-29; `docs/premium/`, `docs/gates/gate-P0-report.md`). Gate 3 (monday Connector) is next and has
+not started; it may begin only after the P0 closure is committed. Do not start Gate 3 or any Premium Gate P1 to P11
 without the product owner's explicit authorization, do not start the bootstrap or migration jobs (each has exactly
 one execution), and do not deploy,
 dispatch `CD Dev` with `deploy: true`, or change Azure resources, without explicit product-owner

@@ -25,7 +25,8 @@ Claude Code and human developers must read:
 - Gate 1G — Foundation Hardening: **PASS**. Azure-aware readiness under managed identity (PostgreSQL as the runtime role, Service Bus link); runtime-role bootstrap job and first migration each executed exactly once in Dev; OpenTelemetry to Application Insights; pinned gitleaks in CI; 58 Security tests; readiness probe enabled in Dev. `dotnet test` PASS with 266 tests.
 - Gate 1 — Foundation: **PASS**.
 - Gate 2 — Event Backbone: **PASS** (2026-09-29). Canonical events, durable ingress, the outbox relay and Service Bus transport, processing with dedupe, ordering and quarantine, the event ledger, the Snapshot with provenance, and raw-content retention; the whole-path acceptance suite proves that duplicate, delayed and out-of-order events do not corrupt the Snapshot and no event is silently lost (613 tests in CI). Nothing of it runs in Azure yet. Scope: `docs/gates/gate-2-scope.md`; report: `docs/gates/gate-2-report.md`.
-- Gate 3 — monday Connector: **NEXT / NOT STARTED**. Do not start without explicit product-owner approval.
+- Gate 3 — monday Connector: **NEXT / NOT STARTED**. It may begin only after the Premium Gate P0 closure is committed, and only with explicit product-owner approval.
+- Premium Gate P0 — Architecture Freeze: **PASS — architecture frozen** (2026-09-29; `docs/premium/`, `docs/gates/gate-P0-report.md`). Premium Gates P1–P11: planned, NOT STARTED.
 
 See `docs/canonical/PROJECT-STATUS.md` for the full verified evidence table.
 
