@@ -111,7 +111,7 @@ region/subscription decision, and the Free Trial upgrade before 2026-10-27.
 Status: **PASS — Gates 1A through 1G closed (2026-09-28)**
 
 ### Gate 2 — Event Backbone
-Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`), 2C PASS (`189f173`), 2D PASS (`f97d22d`), 2E PASS (`e165852`), 2F PASS (`259be35`); sub-gate 2G at its owner boundary**
+Status: **PASS — closed 2026-09-29. 2A PASS (`7ba941a`), 2B PASS (`120183b`), 2C PASS (`189f173`), 2D PASS (`f97d22d`), 2E PASS (`e165852`), 2F PASS (`259be35`), 2G PASS (`59f74e1`)**
 
 Scope, the nine product-owner design decisions and the 2A–2G decomposition are recorded in
 `docs/gates/gate-2-scope.md`. Each sub-gate stops at an owner boundary before the next begins. 2A adds
@@ -183,13 +183,17 @@ retention clock and the source of the receipt time itself. 2F is PASS: commit
 `259be35ff3649e467266103acd9e95a73d65ae54`, CI run 36542058355 green (584 tests: 577 passed, 0 failed, 7 Service
 Bus emulator tests skipped by design; every 2F test ran and passed in CI). Azure Dev has none of the Gate 2B to 2F
 migrations or schema; applying them, and activating the purge with its hourly job and alerts, are separate
-product-owner approvals. 2G (acceptance suite, crash recovery, tenant isolation and the Gate report) is
-implemented and verified locally and awaits owner review, uncommitted: it adds whole-path acceptance, crash-recovery,
-tenant-isolation and local emulator tests, their mutation and vacuity evidence, and the Gate 2 report
-(`docs/gates/gate-2-report.md`), with no production code change.
+product-owner approvals. 2G (acceptance suite, crash recovery, tenant isolation and the Gate report) adds
+whole-path acceptance, crash-recovery, tenant-isolation and local emulator tests, their mutation and vacuity
+evidence, and the Gate 2 report (`docs/gates/gate-2-report.md`), with no production code change. 2G is PASS: commit
+`59f74e16e1332f70aca9924967ee082e84b798e8`, CI run 36552321567 green (613 tests: 604 passed, 0 failed, 9 Service Bus
+emulator tests skipped by design; every other 2G test ran and passed in CI; 613/613 locally with the emulator).
+**Gate 2 is PASS and closed (2026-09-29):** duplicate, delayed and out-of-order events do not corrupt the Snapshot,
+and no event is silently lost. The risks and deferred items the report lists stay open: nothing of Gate 2 runs in
+Azure yet, reconciliation is Gate 3, and dead letters have no runbook, alert or UI yet.
 
 ### Gate 3 onward
-Status: **NOT STARTED unless explicitly approved by the product owner**
+Status: **Gate 3 (monday Connector) NEXT / NOT STARTED unless explicitly approved by the product owner; later Gates not started**
 
 ## Verified evidence for Gate 1A / 1B
 
@@ -350,11 +354,10 @@ post-Gate-1 hardening follow-ups.
 
 ## Immediate recommended next action in Claude Code
 
-Gate 1 (Foundation) is closed: Gates 1A through 1G are PASS. Gate 2 (Event Backbone) is authorized and in
-progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A, 2B, 2C, 2D, 2E and 2F are PASS, and 2G
-awaits owner review at its boundary, uncommitted. Do not begin a sub-gate without the product owner's explicit
-authorization, do not start Gate 3, do not start the bootstrap or migration jobs (each has exactly one execution),
-and do not deploy,
+Gate 1 (Foundation) and Gate 2 (Event Backbone) are closed: Gates 1A through 1G and 2A through 2G are PASS (Gate 2
+evidence: `docs/gates/gate-2-report.md`). Gate 3 (monday Connector) is next and has not started. Do not start Gate 3
+without the product owner's explicit authorization, do not start the bootstrap or migration jobs (each has exactly
+one execution), and do not deploy,
 dispatch `CD Dev` with `deploy: true`, or change Azure resources, without explicit product-owner
 authorization. Azure Dev has none of the Gate 2B to 2F migrations. Before 2026-10-27 the product
 owner must decide on the Free Trial upgrade.

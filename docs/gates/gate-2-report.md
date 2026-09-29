@@ -2,10 +2,11 @@
 
 ## Status
 
-**Sub-gate 2G: implemented and verified locally; at its owner boundary, uncommitted.** Sub-gates 2A to 2F are
-PASS, each with its commit and a green CI run (see *Gate 2 by sub-gate*). **Recommendation: Gate 2 (Event
-Backbone) PASS.** Its acceptance criterion holds on the whole path, with the evidence below. Declaring it waits for
-the product owner's review of 2G, the 2G commit, and a green CI run on that commit.
+**Gate 2 (Event Backbone): PASS — closed by the product owner on 2026-09-29.** Sub-gates 2A to 2G are each PASS,
+with their commits and green CI runs (see *Gate 2 by sub-gate*). 2G is commit `59f74e1`, whose CI run 36552321567 was
+green on all three jobs: 613 tests, 604 passed, 0 failed, 9 Service Bus emulator tests skipped by design; locally
+613/613 passed, the emulator tests included. The acceptance criterion holds on the whole path, with the evidence
+below.
 
 What the Gate proves (Development Gates v1): **duplicate, delayed and out-of-order events do not corrupt the
 Snapshot, and no event is silently lost.** The 2G suite runs the real composition end to end — ingress, the outbox
@@ -41,7 +42,7 @@ consumer, processing or the purge in a host; and every Azure change.
 | 2D | Processing pipeline and append-only event ledger: idempotency by receipt, duplicate candidates, per-field ordering (revision, then source update time, then occurrence time), ambiguity held for reconciliation, impossibility and authority quarantine | `f97d22d`; CI 36439994562 green (493: 486 passed, 7 skipped) |
 | 2E | Field-level Snapshot with provenance and versions, projected in the ledger's own transaction, with a consistency guard | `e165852`; CI 36449846577 green (524: 517 passed, 7 skipped) |
 | 2F | Raw-content retention (purge at 28 days by the database clock, 30-day hard limit, receipt time stamped by PostgreSQL), the Worker purge entry point, and the event-backbone metrics | `259be35`; CI 36542058355 green (584: 577 passed, 7 skipped) |
-| 2G | Whole-path acceptance, the crash and recovery matrix, tenant-isolation acceptance, emulator acceptance, mutation and vacuity evidence, the contradiction audit and this report | uncommitted, at its owner boundary |
+| 2G | Whole-path acceptance, the crash and recovery matrix, tenant-isolation acceptance, emulator acceptance, mutation and vacuity evidence, the contradiction audit and this report | `59f74e1`; CI 36552321567 green (613: 604 passed, 9 skipped by design) |
 
 ## What 2G added
 
@@ -55,8 +56,8 @@ All in `tests/App.Integration.Tests/Acceptance/`, in the existing `postgres` dat
 | `TenantIsolationAcceptanceTests.cs` | 3 | Tenants that share ids through the whole path; a row-level-security sweep of every tenant-owned table; forged broker metadata and a foreign processing scope |
 | `ServiceBusAcceptanceTests.cs` | 2 | The whole path over the local Service Bus emulator (skipped in CI, decision 8) |
 
-Documentation: the 2G Definition of Done in `docs/gates/gate-2-scope.md`, this report, and the owner-boundary status
-in `INIT.md` and `docs/canonical/PROJECT-STATUS.md`.
+Documentation: the 2G Definition of Done in `docs/gates/gate-2-scope.md`, this report, and the status in `INIT.md`
+and `docs/canonical/PROJECT-STATUS.md`.
 
 ## Acceptance evidence
 
@@ -207,16 +208,16 @@ table.
 
 ## Test counts
 
-| Project | Gate 2F (CI run 36542058355) | After 2G (local) |
+| Project | Gate 2F (CI run 36542058355) | Gate 2G (CI run 36552321567; the same counts locally) |
 |---|---|---|
 | Unit | 251 | 251 |
 | Security | 101 | 101 |
 | Architecture | 14 | 14 |
 | Integration | 218 | 247 (+29: acceptance 10, crash matrix 14, tenant isolation 3, emulator 2) |
-| **Total** | **584** (577 passed, 7 emulator tests skipped by design) | **613** (613 passed locally, 0 failed, 0 skipped) |
+| **Total** | **584** (577 passed, 7 emulator tests skipped by design) | **613**: in CI 604 passed, 0 failed, 9 emulator tests skipped by design; locally 613 passed |
 
-In CI the same 613 are expected to report 604 passed and 9 skipped: the 7 earlier and 2 new emulator tests. The 27
-in-memory 2G tests run in CI on every push and take about 45 seconds.
+CI run 36552321567 reported exactly that: the 9 skipped tests are the Service Bus emulator tests (3 from Gate 1G, 4
+from 2C, 2 from 2G), and all 27 in-memory 2G tests ran and passed; the whole integration assembly took 19 s in CI.
 
 ## Verification (executed 2026-09-29)
 
@@ -226,6 +227,7 @@ in-memory 2G tests run in CI on every push and take about 45 seconds.
 | Baseline before 2G | Build 0 warnings, 0 errors; full suite 584 passed locally, including the 7 emulator tests |
 | `dotnet build WorkContinuityEngine.sln --no-incremental` (warnings as errors) | PASS — 0 warnings, 0 errors |
 | Full local suite (`dotnet test --solution`) | PASS — 613 tests: 613 passed, 0 failed, 0 skipped (Unit 251, Security 101, Architecture 14, Integration 247), with the local emulator |
+| CI run 36552321567 on `59f74e1` | SUCCESS on all three jobs: build with 0 warnings and 0 errors, both verifier scripts PASS, 613 tests (604 passed, 0 failed, 9 emulator tests skipped by design), Bicep build and lint; gitleaks scanned 32 commits and the working tree, no leaks; Web and Worker Release images built and passed their smoke tests |
 | The 29 2G tests | PASS — 29 passed in 55 s: acceptance 10, crash matrix 14, tenant isolation 3, emulator 2 |
 | Seeded runs | Reproducible: identical disturbance figures in two executions |
 | `eng/verify-architecture.py`, `eng/verify-local-env.py` | PASS, exit 0 |
@@ -234,7 +236,7 @@ in-memory 2G tests run in CI on every push and take about 45 seconds.
 | Production code | Unchanged: no file under `src/` differs from `dcf5496` |
 | Frozen documents | PRD, System Architecture, Architecture Invariants and Development Gates unchanged |
 | Azure | Untouched: no Azure command of any kind was run |
-| Gate 3 | Not started |
+| Gate 3 | NEXT / NOT STARTED |
 
 ## Contradiction audit
 
@@ -403,13 +405,15 @@ evidence, each in the new tests only:
 ## Azure state
 
 Unchanged. No Azure command, deployment, job start, CD dispatch, RBAC, identity, network or Key Vault change was
-made in 2G. Azure Dev remains as recorded at the Gate 2F closure: none of the Gate 2B to 2F migrations or schema,
-Web and Worker on their Gate 1G images, each job with exactly one execution.
+made in 2G or by the Gate 2 closure, and the 2G push triggered CI only. Azure Dev remains as recorded at the Gate 2F
+closure: none of the Gate 2B to 2F migrations or schema, Web and Worker on their Gate 1G images, each job with
+exactly one execution.
 
-## Recommendation
+## Decision
 
-**Gate 2 (Event Backbone): PASS recommended.** The acceptance criterion is met on the whole path, every durable
-boundary recovers or fails visibly, tenant isolation holds at every layer, the evidence is proven not vacuous, and
-no contradiction exists. To declare it: the product owner reviews the 2G change set; on approval it is committed and
-pushed; its CI run must be green (613 tests, with 604 passed and the 9 emulator tests skipped by design); and a
-closure commit then records Gate 2 PASS. Gate 3 is **NOT STARTED** and requires explicit authorization.
+**Gate 2 (Event Backbone): PASS — closed 2026-09-29.** The acceptance criterion is met on the whole path, every
+durable boundary recovers or fails visibly, tenant isolation holds at every layer, the evidence is proven not
+vacuous, and no contradiction exists. The product owner approved the 2G change set; it was committed as `59f74e1`
+and pushed; its CI run 36552321567 was green (613 tests: 604 passed, 0 failed, 9 emulator tests skipped by design);
+and the owner then ordered this closure. The remaining risks and deferred items above stay open. Gate 3 (monday
+Connector) is **NEXT / NOT STARTED** and requires explicit authorization.

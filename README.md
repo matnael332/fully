@@ -24,7 +24,8 @@ Claude Code and human developers must read:
 - Gate 1F — CI/CD & Identity: **PASS**. GitHub Actions CI on every push; manual `main`-only CD to Dev through GitHub OIDC (no Azure secret in GitHub); immutable SHA-tagged images; Web and Worker run real images in Dev; the migration and bootstrap jobs stay outside CD.
 - Gate 1G — Foundation Hardening: **PASS**. Azure-aware readiness under managed identity (PostgreSQL as the runtime role, Service Bus link); runtime-role bootstrap job and first migration each executed exactly once in Dev; OpenTelemetry to Application Insights; pinned gitleaks in CI; 58 Security tests; readiness probe enabled in Dev. `dotnet test` PASS with 266 tests.
 - Gate 1 — Foundation: **PASS**.
-- Gate 2 — Event Backbone: **AUTHORIZED (2026-09-28), IN PROGRESS**. Scope, owner decisions and sub-gates: `docs/gates/gate-2-scope.md`. Gate 3 is not started.
+- Gate 2 — Event Backbone: **PASS** (2026-09-29). Canonical events, durable ingress, the outbox relay and Service Bus transport, processing with dedupe, ordering and quarantine, the event ledger, the Snapshot with provenance, and raw-content retention; the whole-path acceptance suite proves that duplicate, delayed and out-of-order events do not corrupt the Snapshot and no event is silently lost (613 tests in CI). Nothing of it runs in Azure yet. Scope: `docs/gates/gate-2-scope.md`; report: `docs/gates/gate-2-report.md`.
+- Gate 3 — monday Connector: **NEXT / NOT STARTED**. Do not start without explicit product-owner approval.
 
 See `docs/canonical/PROJECT-STATUS.md` for the full verified evidence table.
 

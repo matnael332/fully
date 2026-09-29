@@ -2,9 +2,10 @@
 
 ## Status
 
-**AUTHORIZED 2026-09-28** by the product owner, in fully auto-safe mode, from baseline `a4bfd18`
-(Gate 1 closure; CI run 36397863168 green). Work proceeds one sub-gate at a time, and each sub-gate stops
-at its owner boundary for review before the next begins.
+**Gate 2 (Event Backbone): PASS — closed 2026-09-29.** Authorized 2026-09-28 by the product owner, in fully
+auto-safe mode, from baseline `a4bfd18` (Gate 1 closure; CI run 36397863168 green). Work proceeded one sub-gate at
+a time, each stopping at its owner boundary for review before the next began. Evidence and the contradiction audit:
+`docs/gates/gate-2-report.md`; see also *Gate 2 closure* at the end.
 
 | Sub-gate | State |
 |---|---|
@@ -14,8 +15,9 @@ at its owner boundary for review before the next begins.
 | 2D Processing pipeline and event ledger | **PASS** — commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI) |
 | 2E Snapshot projection | **PASS** — commit `e165852`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI) |
 | 2F Retention and metrics | **PASS** — commit `259be35`, CI run 36542058355 green (584 tests: 577 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2F test ran and passed in CI) |
-| 2G Acceptance suite, crash recovery, tenant isolation and the Gate report | Authorized 2026-09-29; implemented and verified locally; at its owner boundary, uncommitted (evidence: `docs/gates/gate-2-report.md`) |
-| Gate 3 — monday Connector | **NOT STARTED**; requires explicit authorization |
+| 2G Acceptance suite, crash recovery, tenant isolation and the Gate report | **PASS** — commit `59f74e1`, CI run 36552321567 green (613 tests: 604 passed, 0 failed, 9 Service Bus emulator tests skipped by design; every other 2G test ran and passed in CI) |
+| **Gate 2 — Event Backbone** | **PASS — closed 2026-09-29** |
+| Gate 3 — monday Connector | **NEXT / NOT STARTED**; requires explicit authorization |
 
 Azure Dev does **not** have the Gate 2B migration or schema: the `connections` table and the
 `resolve_ingress_connection` function exist only in local databases. Neither does it have the Gate 2C
@@ -686,3 +688,29 @@ owner decisions.
    smallest root-cause fix with a regression test, reported. No monday or Gate 3 work, no Azure change, no
    activation of the relay, the consumer, processing or the purge in a host, and no change to the frozen
    documents. Build with 0 warnings; the full suite, both verifier scripts and the local emulator tests pass.
+
+## 2G closure (2026-09-29)
+
+2G is **PASS**. Commit `59f74e16e1332f70aca9924967ee082e84b798e8` added tests and documentation only: 29 whole-path
+integration tests in `tests/App.Integration.Tests/Acceptance/` and the Gate 2 report. CI run 36552321567 green on all
+three jobs: 613 tests, 604 passed, 0 failed, 9 skipped by design. The 9 skipped tests are the Service Bus emulator
+tests (3 from Gate 1G readiness, 4 from 2C, 2 from 2G), which CI does not run because no emulator licence is accepted
+there (decision 8); every other 2G test ran and passed in CI. Locally the full suite passed 613/613, the emulator
+tests included. The crash and recovery matrix, the tenant-isolation results, the mutation and vacuity evidence (16
+production-code mutations and 20 row-level-security weakenings, all caught) and the contradiction audit are in
+`docs/gates/gate-2-report.md`. 2G needed no product-owner design decision and changed no production code.
+
+## Gate 2 closure (2026-09-29)
+
+**Gate 2 (Event Backbone) is PASS and closed** by the product owner. Sub-gates 2A to 2G are each PASS with a green CI
+run. The acceptance criterion of Development Gates v1 is satisfied: duplicate, delayed and out-of-order events do not
+corrupt the Snapshot, and no event is silently lost. No contradiction with PRD v1, System Architecture v1, the
+Architecture Invariants, Development Gates v1 or the owner decisions was found, and no frozen document changed.
+
+Carried forward unchanged, as the report's remaining risks and deferred items: Azure Dev has none of the Gate 2B to
+2F migrations or schema and runs none of the pipeline, and applying the migrations, activating the relay, the
+consumer, processing and the purge with its hourly job and alerts, and granting the Worker Service Bus send access
+are each separate product-owner approvals; reconciliation of events recorded as `ReconciliationRequired` is Gate 3;
+dead letters have no runbook, alert or UI yet; the session stays the tenant; unprocessed content that waits 28 days
+is purged and dead-lettered; the real broker is proven on the local emulator only; and performance is measured, not
+gated (Gate 8). Gate 3 (monday Connector) is **NEXT / NOT STARTED** and requires explicit authorization.
