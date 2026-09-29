@@ -13,14 +13,16 @@ at its owner boundary for review before the next begins.
 | 2C Outbox relay, publisher, consumer and dead-letter handling | **PASS** — commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally) |
 | 2D Processing pipeline and event ledger | **PASS** — commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI) |
 | 2E Snapshot projection | **PASS** — commit `e165852`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI) |
-| 2F Retention and metrics | Authorized 2026-09-28; implemented and verified locally; at its owner boundary, uncommitted |
-| 2G | Not started |
+| 2F Retention and metrics | **PASS** — commit `259be35`, CI run 36542058355 green (584 tests: 577 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2F test ran and passed in CI) |
+| 2G Acceptance suite, crash recovery, tenant isolation and the Gate report | **NEXT / NOT STARTED**; begins only on explicit product-owner authorization |
 | Gate 3 — monday Connector | **NOT STARTED**; requires explicit authorization |
 
 Azure Dev does **not** have the Gate 2B migration or schema: the `connections` table and the
 `resolve_ingress_connection` function exist only in local databases. Neither does it have the Gate 2C
 migration (the `outbox_pending_tenants` function and its owner read policy), the Gate 2D migration (the
-three ledger tables and one index on `raw_receipts`) or the Gate 2E migration (the two Snapshot tables).
+three ledger tables and one index on `raw_receipts`), the Gate 2E migration (the two Snapshot tables) or the
+Gate 2F migrations (`RawContentRetention` and `RawContentPurgeAge`: purgeable content columns and their check,
+the content index, the retention function and its owner read policy, and the database's receipt-time stamp).
 Applying them needs new images, an updated migration-job image and one migration-job run, each a separate
 product-owner approval.
 
@@ -605,5 +607,15 @@ Product-owner decisions at the 2F review (2026-09-29):
    never writes it and reads it back. It stays the one receipt time: the canonical metadata, the ledger and the
    Snapshot's observed time carry it as before, so provenance and the 2D impossibility check use the same database
    time, and provider times are untouched. An ingress clock far ahead can no longer delay a purge, nor one far behind
-   cause an early one. The change went into the same uncommitted follow-up migration: no new column, index,
+   cause an early one. The change went into the same follow-up migration, before its commit: no new column, index,
    tenant-less function or permission, and one trigger function that is no definer and reads nothing.
+
+## 2F closure (2026-09-29)
+
+2F is **PASS**. Implementation commit `259be35ff3649e467266103acd9e95a73d65ae54`; CI run 36542058355 green on
+all three jobs: 584 tests, 577 passed, 0 failed, 7 skipped by design. The 7 skipped tests are the Service Bus
+emulator tests (3 from Gate 1G readiness, 4 from 2C), which CI does not run because no emulator licence is
+accepted there (decision 8); every 2F test ran and passed in CI. Azure Dev has none of the Gate 2B, 2C, 2D, 2E
+or 2F migrations or schema, and nothing schedules or runs the purge there: its activation, with the hourly job
+and the alerts of items 13 to 15, is a separate product-owner approval. The product-owner decisions of the 2F
+reviews are the nine recorded above.

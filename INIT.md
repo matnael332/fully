@@ -1,7 +1,7 @@
 # INIT — Project Handoff State
 
-Last updated: 2026-09-29 (Gate 2 in progress; 2A, 2B, 2C, 2D and 2E PASS; sub-gate 2F at its owner
-boundary, uncommitted). Read this first when resuming.
+Last updated: 2026-09-29 (Gate 2 in progress; 2A, 2B, 2C, 2D, 2E and 2F PASS; 2G next, not started). Read
+this first when resuming.
 
 ## Where the project is
 
@@ -15,19 +15,18 @@ boundary, uncommitted). Read this first when resuming.
 | 1F CI/CD & Identity | PASS — closure commit `f4535f7` |
 | 1G Foundation Hardening | **PASS** — commits `9651ed3` (implementation), `fc9bb3e` (CI fix), `450c13d` (Dev readiness probe on), plus this closure commit (Commit C) |
 | **Gate 1 — Foundation** | **PASS** |
-| Gate 2 — Event Backbone | **AUTHORIZED 2026-09-28, IN PROGRESS.** 2A (event contract, validation, authority table) **PASS**, commit `7ba941a`. 2B (durable ingress) **PASS**, commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design). 2C (outbox relay, publisher, consumer, dead-letter handling) **PASS**, commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally). 2D (processing pipeline and event ledger) **PASS**, commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI). 2E (Snapshot projection) **PASS**, commit `e165852`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI). 2F (retention and metrics) implemented and verified locally, **uncommitted**, awaiting owner review. Azure Dev has **none** of the 2B, 2C, 2D, 2E or 2F migrations or schema. Scope and owner decisions: `docs/gates/gate-2-scope.md` |
+| Gate 2 — Event Backbone | **AUTHORIZED 2026-09-28, IN PROGRESS.** 2A (event contract, validation, authority table) **PASS**, commit `7ba941a`. 2B (durable ingress) **PASS**, commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design). 2C (outbox relay, publisher, consumer, dead-letter handling) **PASS**, commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally). 2D (processing pipeline and event ledger) **PASS**, commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI). 2E (Snapshot projection) **PASS**, commit `e165852`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI). 2F (retention and metrics) **PASS**, commit `259be35`, CI run 36542058355 green (584 tests: 577 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2F test ran and passed in CI). 2G (acceptance suite, crash recovery, tenant isolation and the Gate report) **NEXT / NOT STARTED**. Azure Dev has **none** of the 2B, 2C, 2D, 2E or 2F migrations or schema. Scope and owner decisions: `docs/gates/gate-2-scope.md` |
 | Gate 3 — monday Connector | **NOT STARTED.** Requires explicit product-owner authorization. |
 
-**Repository pointers:** `main` == `origin/main` == the Gate 2E status-closure commit, whose parent is
-`e165852e4a659e49107571a9bcf84c9a1329a056` (Gate 2E; CI run 36449846577 green on all three jobs: 524 tests,
-517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI;
-gitleaks found no leaks). Earlier: `4b54bec` (the `event-driven-systems` skill aligned with the Gate 2D session
-decision), `32e2909` (Gate 2D status closure), `f97d22d` (Gate 2D), `1f59a96` (Gate 2C status closure),
-`189f173` (Gate 2C), `3209e57` (Gate 2B status closure), `120183b` (Gate 2B), `23607f9` (project skills),
-`7ba941a` (Gate 2A). The working tree holds the **uncommitted 2F change set**, reviewed against the 2F
-Definition of Done in `docs/gates/gate-2-scope.md`. The local database carries the 2B, 2C, 2D, 2E and 2F
-migrations (with the 2F follow-up `RawContentPurgeAge`), applied by the integration tests; Azure Dev carries
-none of them.
+**Repository pointers:** `main` == `origin/main` == the Gate 2F status-closure commit, whose parent is
+`259be35ff3649e467266103acd9e95a73d65ae54` (Gate 2F; CI run 36542058355 green on all three jobs: 584 tests,
+577 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2F test ran and passed in CI;
+gitleaks found no leaks). Earlier: `2bb480e` (Gate 2E status closure), `e165852` (Gate 2E), `4b54bec` (the
+`event-driven-systems` skill aligned with the Gate 2D session decision), `32e2909` (Gate 2D status closure),
+`f97d22d` (Gate 2D), `1f59a96` (Gate 2C status closure), `189f173` (Gate 2C), `3209e57` (Gate 2B status
+closure), `120183b` (Gate 2B), `23607f9` (project skills), `7ba941a` (Gate 2A). The working tree is clean. The
+local database carries the 2B, 2C, 2D, 2E and 2F migrations (with the 2F follow-up `RawContentPurgeAge`),
+applied by the integration tests; Azure Dev carries none of them.
 
 **Product-owner decisions on record (2026-09-28):** Gate 1G runtime verification approved; Commit B
 (readiness probe on in Dev) approved and deployed; the single cold-start Service Bus timeout is a
@@ -137,9 +136,9 @@ Full evidence: `docs/gates/gate-1G-report.md`.
 
 ## Exact next step
 
-1. The product owner reviews the uncommitted Gate 2F change set against its Definition of Done in
-   `docs/gates/gate-2-scope.md`; commit and push happen only on explicit approval. 2G begins only after that, on
-   explicit authorization, and stops at its own owner boundary.
+1. Gate 2G (acceptance suite, crash recovery, tenant isolation and the Gate report) is NEXT / NOT STARTED. It
+   begins only when the product owner explicitly authorizes it, and stops at its owner boundary like every
+   sub-gate.
 2. Azure Dev has none of the Gate 2B, 2C, 2D, 2E or 2F migrations. Applying them needs new images, an updated
    migration-job image and one migration-job run, each a separate approval; the migration job keeps exactly
    one execution until the owner orders a rerun. Running the relay, the consumer and the processing pipeline
