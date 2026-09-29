@@ -14,8 +14,8 @@ internal sealed record StoredReceipt(
     string? SourceEventId,
     string SchemaVersion,
     DateTimeOffset ReceivedAtUtc,
-    string Payload,
-    string PayloadFingerprint,
+    string? Payload,
+    string? PayloadFingerprint,
     string ProcessingState);
 
 /// <summary>An outbox marker as the database holds it.</summary>
@@ -124,12 +124,33 @@ internal static class IngressData
                 reader.IsDBNull(4) ? null : reader.GetString(4),
                 reader.GetString(5),
                 reader.GetFieldValue<DateTimeOffset>(6),
-                reader.GetString(7),
-                reader.GetString(8),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.IsDBNull(8) ? null : reader.GetString(8),
                 reader.GetString(9)));
         }
 
         return receipts;
+    }
+
+    /// <summary>The database's own clock, which stamps every receipt time.</summary>
+    public static async Task<DateTimeOffset> DatabaseNowAsync(DatabaseFixture fixture, CancellationToken cancellationToken)
+    {
+        await using var connection = await fixture.OpenAdministrativeConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("SELECT now();", connection);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        Assert.True(await reader.ReadAsync(cancellationToken));
+        return reader.GetFieldValue<DateTimeOffset>(0);
+    }
+
+    /// <summary>The receipt time the database stamped when it stored the receipt.</summary>
+    public static async Task<DateTimeOffset> ReceiptTimeAsync(DatabaseFixture fixture, Guid receiptId, CancellationToken cancellationToken)
+    {
+        await using var connection = await fixture.OpenAdministrativeConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("SELECT received_at_utc FROM raw_receipts WHERE receipt_id = @receipt;", connection);
+        command.Parameters.AddWithValue("receipt", receiptId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        Assert.True(await reader.ReadAsync(cancellationToken));
+        return reader.GetFieldValue<DateTimeOffset>(0);
     }
 
     public static async Task<IReadOnlyList<StoredMarker>> MarkersAsync(

@@ -13,7 +13,7 @@ at its owner boundary for review before the next begins.
 | 2C Outbox relay, publisher, consumer and dead-letter handling | **PASS** — commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally) |
 | 2D Processing pipeline and event ledger | **PASS** — commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI) |
 | 2E Snapshot projection | **PASS** — commit `e165852`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI) |
-| 2F Retention and metrics | **NEXT / NOT STARTED**; begins only on explicit product-owner authorization |
+| 2F Retention and metrics | Authorized 2026-09-28; implemented and verified locally; at its owner boundary, uncommitted |
 | 2G | Not started |
 | Gate 3 — monday Connector | **NOT STARTED**; requires explicit authorization |
 
@@ -463,3 +463,147 @@ Product-owner decisions at the 2E review:
 3. **The 1,024-character field-value limit is approved for Gate 2E.** `EventText.MaxValueLength` stays the one
    centralized limit, never repeated as a magic number. Gate 3 must validate it against real connector data;
    if real data needs more, the limit is widened explicitly, and values are never truncated.
+
+## 2F Definition of Done
+
+1. **Raw content, its purge age and its limit.** Raw work-event content is a receipt's `payload` and
+   `payload_fingerprint`, which is the 2D classification ("raw content stays only in `raw_receipts`, payload and
+   fingerprint, and expires with it"). Its age is the database's own clock, PostgreSQL `now()`, less the receipt
+   time `received_at_utc`, which the database itself stamps with `now()` when it stores the receipt: a trigger
+   replaces any supplied value and refuses any later change, and the application never writes it. It is due for
+   purge once that age reaches 28 days (672 hours) and must never be older than the 30-day hard limit. The database
+   clock alone stamps and decides both; neither the ingress host's nor the purge Worker's clock, nor a provider's
+   times, decide anything here. The purge age (the
+   30-day limit less a 48-hour lead margin), the overdue age and the limit are fixed constants in
+   `RawContentRetention`, not configuration values that could purge early or keep content longer.
+2. **What is purged.** Purging clears `payload` and `payload_fingerprint` of due receipts in every processing
+   state, and nothing else. The receipt row stays, because it is the durable dedupe metadata of the existing
+   design: tenant, connection, source system, provider event id, schema version, receipt time and state. The
+   outbox payload is only the receipt-id marker, and the ledger and Snapshot hold no raw content, so none of them
+   is purged. The Snapshot and every piece of ledger metadata are retained.
+3. **After the purge.** Ingress still recognizes a repeated provider event id through the retained receipt row. A
+   redelivered message whose receipt was processed is still a ledger no-op. A receipt whose content was purged
+   before it was processed is refused with `processing.receipt.content_expired` and dead-lettered, visibly and
+   never silently. Duplicate-candidate flagging by fingerprint only reaches content not yet purged. Ledger and
+   Snapshot provenance are untouched.
+4. **Tenant safety.** One more narrowly scoped `SECURITY DEFINER` function, in owner decision 1's retention
+   category: `retention_expired_tenants(p_limit)`. It takes no cutoff: it returns only the ids of tenants holding
+   content that the database's own clock shows at least 672 hours old (the 28-day purge age in exact hours),
+   oldest first, at most 100, so no caller can move its boundary or make it reveal recent activity.
+   It has the fixed `search_path`, EXECUTE for the runtime role only, and an owner-only read policy for Azure's
+   non-superuser owner that shows only content already past those 672 hours. Each tenant is purged in its own
+   scope and transactions, as a trusted-service tenant, under forced row-level security. There is no
+   cross-tenant read or write, and neither existing tenant-less function changes.
+5. **Bounded, idempotent and concurrent-safe.** A run discovers a bounded number of tenants and purges each in
+   bounded batches (`FOR UPDATE SKIP LOCKED`, oldest first) up to a per-tenant budget. The purge statement takes
+   no time from the Worker: the database's clock bounds it at the same 672 hours and measures each cleared
+   receipt's age, so a Worker clock running behind cannot delay a purge and one running ahead cannot purge early.
+   It is deterministic, retry-safe and idempotent, because purged content never matches
+   again. Overlapping runs skip each other's locked rows, and a receipt that processing holds is left to a later
+   run.
+6. **Worker entry point.** `--purge-raw-content` runs one bounded purge as the runtime role and prints a JSON
+   summary of counts, ages, lateness statuses and a duration, then exits with the code item 14 defines. There is
+   no HTTP endpoint, no schedule, no Container Apps Job and no Azure activation.
+7. **Metrics.** One meter, `WorkContinuity.EventBackbone`, exported through the existing OpenTelemetry and
+   Application Insights pipelines: the Worker adds a meter provider on its existing Azure Monitor exporter, and
+   the Web adds the meter to its Azure Monitor distro. It has counters and histograms for ingress, the outbox
+   relay, transport settlement and re-drive, processing, Snapshot projection and retention, including the age of
+   the oldest content a run purged, the oldest due content it left, and `workcontinuity.retention.overdue` by
+   level (`overdue`, `limit_exceeded`) and state (`purged`, `remaining`). Tags come only from bounded
+   vocabularies: outcomes, canonical reasons, known reason codes, settlement kinds, receipt states and retention
+   levels. No tenant, connection, object, event, receipt or actor id, and no value, ever appears in a tag.
+   Per-tenant diagnosis stays in the existing structured logs. A measurement is taken only once what it measures
+   has committed.
+8. **Session decision support.** Processing lag (receipt to decision), processing duration, delivery counts,
+   relay lag and tenants per relay pass make tenant-serial head-of-line symptoms observable without per-tenant
+   dimensions.
+9. **Migrations.** Additive `RawContentRetention`: it relaxes `NOT NULL` on the two content columns and checks
+   that they are cleared together, and it adds a partial index over content-bearing receipts, the owner read
+   policy and the function. Its Down restores `NOT NULL` without a default or backfill, so it refuses, and rolls
+   back whole, while any content was purged, rather than invent content. The follow-up `RawContentPurgeAge`
+   replaces the function with `retention_expired_tenants(p_limit)`, which takes no cutoff and applies the 672-hour
+   bound by the database's clock, with the same grants, and alters the owner policy to the same bound. It also makes
+   the receipt time the database's own: a `now()` default and the trigger `stamp_receipt_time_raw_receipts`, whose
+   function is no definer, reads nothing, has the fixed `search_path` and EXECUTE revoked from PUBLIC, stamp every
+   insert with `now()` and refuse any change; receipts stored before keep their receipt time. It changes nothing
+   else. Its Down removes the trigger, its function and the default, and restores the `RawContentRetention`
+   function (caller cutoff, 720-hour bound), its grants and the owner policy exactly; it touches no data, so it
+   works after purges. EF reverts one
+   migration per transaction, so a rollback past `RawContentRetention` while purged rows exist stops,
+   consistently, at `RawContentRetention`.
+10. **Hygiene.** Purge logs and metrics carry counts, codes, ages and ids only; the discovery function returns ids
+    only.
+11. **Tests.** Every required retention and metric test, security tests, mutation and vacuity checks, round trips
+    of both migrations, and the full suite locally.
+12. **Out of scope and unchanged.** No Gate 2G, no monday or webhook logic, no Work Memory or AI, and no UI. No
+    host activation of the relay, the consumer or processing. No schedule, Azure resource, RBAC, identity or Key
+    Vault change, and no change to the frozen documents. Build with 0 warnings; the full suite passes locally.
+13. **Timing model.** The hourly schedule's assumptions are fixed in `RawContentPurgeSchedule` and must hold at
+    activation:
+    - cadence `C` = 1 hour between scheduled runs;
+    - a scheduled run starts at most `d_s` = 5 minutes late;
+    - a run takes at most `d_r` = 15 minutes (the job's timeout enforces it);
+    - the database clock, which stamps each receipt's time and measures its age, is corrected by at most
+      `d_c` = 1 minute while content ages;
+    - each run can clear all due content: at most 100 tenants with due content and 10,000 due receipts per tenant
+      per run, the default budgets.
+
+    Ages are the database clock's at both ends. The database stamps content that arrives at `t` with `t` and shows
+    it due at `t + 28 d`, or at the latest `t + 28 d + d_c` if its clock was corrected meanwhile, and any run that
+    starts then clears it; no application clock plays a part. The next scheduled start after that moment is less
+    than `C` away, may start `d_s` late, and clears the content within `d_r`. So, while every scheduled run
+    succeeds, raw content is never older than `28 d + C + d_s + d_r + d_c` = **28 days, 1 hour and 21 minutes**
+    (`NormalMaximumAge`; derived and tested). The overdue age, 28 days and 6 hours, lies 4 hours 39 minutes above
+    it, so normal operation never reports overdue content; the 30-day hard limit lies 46 hours 39 minutes above
+    it. This is not an unconditional guarantee: if purge runs stop or fail, because of the scheduler, the
+    database or the Worker, content keeps aging, and without a successful run for about the 48-hour lead margin it
+    can pass the physical 30-day limit. The system does not claim the limit during such an outage; it reports it
+    (item 14 and the alerts of item 15).
+14. **Lateness and exit codes.** Every run measures the oldest content it purged and the oldest due content left;
+    the retention function names the tenant with the oldest due content, so that content is the oldest anywhere.
+    Content at or past the overdue age (28 days 6 hours) is overdue; at or past 30 days the limit is exceeded.
+    Either is logged (a warning, or critical at the limit) and counted whenever it is seen, purged or remaining.
+    The Worker exits 0 when the run succeeded and no overdue or limit-exceeded content remains, including a run
+    that cleared overdue content; 3 only when overdue or limit-exceeded content still remains after the run; 1
+    when any step failed, including measuring what remains; and 2 when it is not configured. Every age, and so
+    every lateness status, metric, log line and exit code, is measured by the database's clock
+    (`now() - received_at_utc`) from a receipt time the database itself stamped; the Worker's clock only times the
+    run and stamps the summary, and decides nothing.
+15. **Activation preconditions (recorded, not created).** Activating the purge in Azure is a later, separately
+    approved step that needs all of: an hourly purge job running `--purge-raw-content` (one replica, 15-minute
+    timeout); an alert when no successful purge run (`workcontinuity.retention.runs` with outcome `completed` or
+    `partial`) occurs for 3 hours; an overdue raw-content alert (`workcontinuity.retention.overdue`, level
+    `overdue`); a critical 30-day limit-exceeded alert (level `limit_exceeded`); a failed purge run alert (outcome
+    `failed`, or exit code 1); and an unprocessed-content-purged alert (`workcontinuity.retention.purged`, state
+    `unprocessed`). None of them exists yet.
+
+Product-owner decisions at the 2F review (2026-09-29):
+
+1. **No fourth tenant-less function** for exact outbox backlog counts. Relay lag, the backlog flag, tenants per
+   relay pass, processing lag and duration, and delivery counts are sufficient for 2F; exact global backlog counts
+   may be revisited only if operational evidence shows they are needed.
+2. **Purge at 28 days.** The hard retention limit stays 30 days, with a 48-hour lead margin; the future production
+   cadence is hourly; no Azure scheduler or job is authorized in this gate.
+3. **The database clock stays the authoritative safety clock.** Its purge guard moves from 720 to 672 hours with
+   the purge age; provider timestamps never control retention.
+4. **A separate follow-up migration** (`RawContentPurgeAge`) carries the 672-hour bound; the applied
+   `RawContentRetention` migration is not edited.
+5. **Exit code 3 only for overdue or limit-exceeded content that remains** at the end of a run. Lateness is
+   reported whenever it is seen, a run that clears overdue content exits 0, and failures keep exit code 1.
+6. **The timing model is derived from stated assumptions** and never claims an unconditional 30-day guarantee
+   during a prolonged outage.
+7. **The activation preconditions** are recorded for the later Azure activation and are not created now.
+8. **Database time is the authoritative retention clock** (final 2F review, 2026-09-29). PostgreSQL `now()`
+   decides purge eligibility, the 28-day boundary and the 30-day classification, and measures the age of content
+   purged and left, so every overdue or limit-exceeded finding is the database's. The Worker's clock only measures
+   durations and stamps non-authoritative timestamps, so its skew can neither delay deletion nor make overdue
+   content look younger. The retention function takes no cutoff. The change went into the follow-up migration
+   `RawContentPurgeAge` before it was committed, with no new function, permission or migration.
+9. **The retention age's origin is database time too** (final 2F review, 2026-09-29). PostgreSQL stamps the
+   receipt time `received_at_utc` with `now()` at insert: a `now()` default and the trigger
+   `stamp_receipt_time_raw_receipts` replace any supplied value and refuse any later change, and the application
+   never writes it and reads it back. It stays the one receipt time: the canonical metadata, the ledger and the
+   Snapshot's observed time carry it as before, so provenance and the 2D impossibility check use the same database
+   time, and provider times are untouched. An ingress clock far ahead can no longer delay a purge, nor one far behind
+   cause an early one. The change went into the same uncommitted follow-up migration: no new column, index,
+   tenant-less function or permission, and one trigger function that is no definer and reads nothing.

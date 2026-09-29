@@ -1,11 +1,14 @@
 using Azure.Messaging.ServiceBus;
+using Microsoft.Extensions.DependencyInjection;
 using WorkContinuity.Core.Correlation;
 using WorkContinuity.Core.Ingress;
 using WorkContinuity.Core.Results;
 using WorkContinuity.Core.Tenancy;
 using WorkContinuity.Core.Transport;
+using WorkContinuity.Infrastructure.Observability;
 using WorkContinuity.Integration.Tests.Database;
 using WorkContinuity.Integration.Tests.Ingress;
+using WorkContinuity.Integration.Tests.Observability;
 
 namespace WorkContinuity.Integration.Tests.Transport;
 
@@ -85,6 +88,7 @@ public sealed class ServiceBusTransportTests(DatabaseFixture fixture)
             options.SessionIdleTimeout = TimeSpan.FromSeconds(2);
             options.MaxDeadLetterScan = 5000;
         });
+        using var recorder = new MetricsRecorder(host.Services.GetRequiredService<EventBackboneMetrics>());
 
         var succeeds = EventTransportConsumerTests.Envelope(tenant);
         var retried = EventTransportConsumerTests.Envelope(tenant);
@@ -140,6 +144,12 @@ public sealed class ServiceBusTransportTests(DatabaseFixture fixture)
             Assert.Equal(rejected.CausationId, redriven.Envelope.CausationId);
             Assert.Equal(tenant, redriven.Tenant);
             await WaitUntilAsync(async () => (await DeadLettersAsync(host, rejected.OutboxMessageId)).Count == 0);
+
+            // Measured as it happened: the abandon, the dead-letter and the explicit re-drive, by kind only.
+            Assert.Equal(1, recorder.Sum("workcontinuity.transport.settlements", ("settlement", "abandon")));
+            Assert.Equal(1, recorder.Sum("workcontinuity.transport.settlements", ("settlement", "dead_letter")));
+            Assert.Equal(1, recorder.Sum("workcontinuity.transport.redrives", ("outcome", "redriven")));
+            recorder.AssertBoundedTags(tenant.ToString(), rejected.OutboxMessageId.ToString("D"));
         }
         finally
         {

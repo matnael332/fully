@@ -5,6 +5,7 @@ using WorkContinuity.Core.Ingress;
 using WorkContinuity.Core.Processing;
 using WorkContinuity.Core.Results;
 using WorkContinuity.Core.Tenancy;
+using WorkContinuity.Core.Time;
 using WorkContinuity.Core.Transport;
 using WorkContinuity.Infrastructure.Processing;
 using WorkContinuity.Integration.Tests.Database;
@@ -67,19 +68,24 @@ internal static class ProcessingHarness
     public static TransportHost Host(
         DatabaseFixture fixture,
         InMemoryTransport transport,
-        Action<IServiceCollection>? normalizers = null) =>
-        TransportHost.InMemory(fixture, transport, handlers: services =>
-        {
-            services.AddEventProcessing();
-            if (normalizers is null)
+        Action<IServiceCollection>? normalizers = null,
+        IClock? clock = null) =>
+        TransportHost.InMemory(
+            fixture,
+            transport,
+            handlers: services =>
             {
-                services.AddSingleton<ISourceEventNormalizer, SyntheticNormalizer>();
-            }
-            else
-            {
-                normalizers(services);
-            }
-        });
+                services.AddEventProcessing();
+                if (normalizers is null)
+                {
+                    services.AddSingleton<ISourceEventNormalizer, SyntheticNormalizer>();
+                }
+                else
+                {
+                    normalizers(services);
+                }
+            },
+            clock: clock);
 
     public static async Task<Delivered> SubmitAsync(
         this TransportHost host,

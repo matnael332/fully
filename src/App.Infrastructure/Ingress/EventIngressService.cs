@@ -8,6 +8,7 @@ using WorkContinuity.Core.Ingress;
 using WorkContinuity.Core.Results;
 using WorkContinuity.Core.Tenancy;
 using WorkContinuity.Core.Time;
+using WorkContinuity.Infrastructure.Observability;
 using WorkContinuity.Infrastructure.Persistence;
 using WorkContinuity.Infrastructure.Persistence.Entities;
 
@@ -33,7 +34,12 @@ namespace WorkContinuity.Infrastructure.Ingress;
 /// duplicate path.
 /// </para>
 /// <para>
-/// Hygiene: logs carry ids, codes and reasons only, never the payload or the proof.
+/// Time: the receipt time is the database's own. PostgreSQL stamps it when the receipt is stored, so no host clock
+/// decides how old a receipt's raw content is; this service's clock only dates the outbox marker.
+/// </para>
+/// <para>
+/// Hygiene: logs carry ids, codes and reasons only, never the payload or the proof. Every outcome is counted
+/// once, by status and canonical rejection reason only.
 /// </para>
 /// </remarks>
 internal sealed class EventIngressService(
@@ -42,6 +48,7 @@ internal sealed class EventIngressService(
     IngressConnectionResolver connectionResolver,
     IEnumerable<ISourceVerifier> verifiers,
     IClock clock,
+    EventBackboneMetrics metrics,
     ILogger<EventIngressService> logger) : IEventIngress
 {
     private static readonly JsonDocumentOptions PayloadParsing = new()
@@ -63,6 +70,15 @@ internal sealed class EventIngressService(
     public async Task<IngressOutcome> SubmitAsync(
         IngressSubmission submission,
         CancellationToken cancellationToken = default)
+    {
+        var outcome = await ReceiveAsync(submission, cancellationToken);
+        metrics.IngressDelivery(outcome);
+        return outcome;
+    }
+
+    private async Task<IngressOutcome> ReceiveAsync(
+        IngressSubmission submission,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(submission);
 
@@ -117,7 +133,7 @@ internal sealed class EventIngressService(
             TenantContext.Resolved(connection.TenantId, TenantResolutionSource.TrustedServiceIdentity));
 
         var receiptId = Guid.CreateVersion7();
-        var receivedAt = clock.UtcNow;
+        var queuedAt = clock.UtcNow;
         var connectionReference = ConnectionRecord.ReferenceFor(submission.ConnectionId);
         var fingerprint = Fingerprint(submission.Payload);
 
@@ -141,7 +157,6 @@ internal sealed class EventIngressService(
                     submission.SourceSystem,
                     submission.SourceEventId,
                     submission.SchemaVersion,
-                    receivedAt,
                     submission.Payload,
                     fingerprint));
                 dbContext.OutboxMessages.Add(OutboxMessageRecord.Queue(
@@ -149,7 +164,7 @@ internal sealed class EventIngressService(
                     connection.TenantId,
                     IngressMessageTypes.ReceiptReceived,
                     MarkerPayload(receiptId),
-                    receivedAt,
+                    queuedAt,
                     correlationId));
                 return WriteResult.Written;
             },
@@ -219,7 +234,17 @@ internal sealed class EventIngressService(
             return Fail(PersistenceErrors.Unavailable, connectionId, correlationId);
         }
 
-        if (!string.Equals(stored.PayloadFingerprint, fingerprint, StringComparison.Ordinal))
+        if (stored.PayloadFingerprint is null)
+        {
+            // The stored receipt's content has passed its retention window. Its identity still decides: the
+            // provider event id stands as the duplicate key, and there is nothing left to compare.
+            logger.LogInformation(
+                "Ingress received a repeated source event on connection {ConnectionId} whose stored content has expired; receipt {ReceiptId} stands (correlation {CorrelationId}).",
+                connectionId,
+                stored.ReceiptId,
+                correlationId);
+        }
+        else if (!string.Equals(stored.PayloadFingerprint, fingerprint, StringComparison.Ordinal))
         {
             // The provider event id is the authoritative key, so the first stored delivery stands. The
             // differing content is not stored, and this warning keeps that from being silent.
@@ -354,5 +379,5 @@ internal sealed class EventIngressService(
         return true;
     }
 
-    private sealed record StoredReceipt(Guid ReceiptId, string PayloadFingerprint);
+    private sealed record StoredReceipt(Guid ReceiptId, string? PayloadFingerprint);
 }

@@ -25,7 +25,23 @@ public static class PersistenceRegistration
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        var options = ReadOptions(configuration);
+        return services.AddPersistence(ReadOptions(configuration));
+    }
+
+    /// <summary>
+    /// Registers tenant-scoped persistence from options the host composed itself, for a host without a
+    /// configuration framework such as the Worker's explicit entry points.
+    /// </summary>
+    /// <remarks>
+    /// Exactly what the configuration overload registers: only <see cref="ITenantScopedDatabase"/>, bound to the
+    /// application connection.
+    /// </remarks>
+    public static IServiceCollection AddPersistence(
+        this IServiceCollection services,
+        PersistenceOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(options);
 
         if (string.IsNullOrWhiteSpace(options.ApplicationConnectionString))
         {

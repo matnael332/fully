@@ -5,6 +5,7 @@ using WorkContinuity.Core.Results;
 using WorkContinuity.Core.Tenancy;
 using WorkContinuity.Core.Time;
 using WorkContinuity.Core.Transport;
+using WorkContinuity.Infrastructure.Observability;
 using WorkContinuity.Infrastructure.Persistence;
 using WorkContinuity.Infrastructure.Persistence.Entities;
 
@@ -31,7 +32,9 @@ namespace WorkContinuity.Infrastructure.Transport;
 /// and reason on every pass and skipped, so it cannot block the rows behind it.
 /// </para>
 /// <para>
-/// Hygiene: logs carry ids, codes and counts only, never a payload or an exception message.
+/// Hygiene: logs carry ids, codes and counts only, never a payload or an exception message. Metrics count
+/// messages by outcome, the relay lag of each published message, and each pass by outcome, backlog and the
+/// number of tenants it found, never a tenant or message id.
 /// </para>
 /// </remarks>
 internal sealed class OutboxRelay(
@@ -40,10 +43,18 @@ internal sealed class OutboxRelay(
     IEventTransportPublisher publisher,
     IClock clock,
     EventTransportOptions options,
+    EventBackboneMetrics metrics,
     ILogger<OutboxRelay> logger) : IOutboxRelay
 {
     /// <inheritdoc />
     public async Task<OutboxRelayPass> RelayPendingAsync(CancellationToken cancellationToken = default)
+    {
+        var pass = await RelayPassAsync(cancellationToken);
+        metrics.RelayPass(pass);
+        return pass;
+    }
+
+    private async Task<OutboxRelayPass> RelayPassAsync(CancellationToken cancellationToken)
     {
         if (tenantContextAccessor.Current.IsResolved)
         {
@@ -215,6 +226,7 @@ internal sealed class OutboxRelay(
             if (envelope.IsFailure)
             {
                 skipped.Add(record.OutboxMessageId);
+                metrics.OutboxUnrelayable();
                 logger.LogError(
                     "Outbox message {OutboxMessageId} for tenant {TenantId} cannot be relayed: {ErrorCode}; it stays pending and unpublished.",
                     record.OutboxMessageId,
@@ -226,6 +238,7 @@ internal sealed class OutboxRelay(
             var sent = await publisher.PublishAsync(envelope.Value, cancellationToken);
             if (sent.IsFailure)
             {
+                metrics.OutboxPublishFailed();
                 logger.LogWarning(
                     "The broker did not accept outbox message {OutboxMessageId} for tenant {TenantId}: {ErrorCode}; it and the rest of its batch stay pending (correlation {CorrelationId}).",
                     record.OutboxMessageId,
@@ -235,7 +248,9 @@ internal sealed class OutboxRelay(
                 return new BatchRelayed(claimed.Count, published, PublishFailed: true);
             }
 
-            record.MarkPublished(clock.UtcNow);
+            var publishedAt = clock.UtcNow;
+            record.MarkPublished(publishedAt);
+            metrics.OutboxPublished(publishedAt - record.OccurredAtUtc);
             published++;
             logger.LogInformation(
                 "Published outbox message {OutboxMessageId} for tenant {TenantId} as {MessageId} (correlation {CorrelationId}).",

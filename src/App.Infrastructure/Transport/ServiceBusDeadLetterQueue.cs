@@ -1,6 +1,7 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Logging;
 using WorkContinuity.Core.Transport;
+using WorkContinuity.Infrastructure.Observability;
 
 namespace WorkContinuity.Infrastructure.Transport;
 
@@ -25,6 +26,7 @@ namespace WorkContinuity.Infrastructure.Transport;
 internal sealed class ServiceBusDeadLetterQueue(
     ServiceBusClient client,
     EventTransportOptions options,
+    EventBackboneMetrics metrics,
     ILogger<ServiceBusDeadLetterQueue> logger) : IDeadLetterQueue
 {
     private const int ReceiveBatchSize = 50;
@@ -64,6 +66,13 @@ internal sealed class ServiceBusDeadLetterQueue(
 
     /// <inheritdoc />
     public async Task<RedriveOutcome> RedriveAsync(Guid outboxMessageId, CancellationToken cancellationToken = default)
+    {
+        var outcome = await RedriveMessageAsync(outboxMessageId, cancellationToken);
+        metrics.Redriven(outcome.Status);
+        return outcome;
+    }
+
+    private async Task<RedriveOutcome> RedriveMessageAsync(Guid outboxMessageId, CancellationToken cancellationToken)
     {
         await using var receiver = client.CreateReceiver(
             TransportContract.EventProcessingQueue,

@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using WorkContinuity.Core.Processing;
 using WorkContinuity.Core.Transport;
+using WorkContinuity.Infrastructure.Observability;
 
 namespace WorkContinuity.Infrastructure.Processing;
 
@@ -64,6 +66,7 @@ public static class EventProcessingRegistration
         options.Validate();
 
         services.AddSingleton(options);
+        services.TryAddSingleton<EventBackboneMetrics>();
         services.AddScoped<IEventProcessor, EventProcessor>();
         services.AddScoped<ITransportMessageHandler, EventProcessingHandler>();
         return services;

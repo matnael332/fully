@@ -111,7 +111,7 @@ region/subscription decision, and the Free Trial upgrade before 2026-10-27.
 Status: **PASS — Gates 1A through 1G closed (2026-09-28)**
 
 ### Gate 2 — Event Backbone
-Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`), 2C PASS (`189f173`), 2D PASS (`f97d22d`), 2E PASS (`e165852`); 2F NEXT / NOT STARTED**
+Status: **AUTHORIZED (2026-09-28), IN PROGRESS — 2A PASS (`7ba941a`), 2B PASS (`120183b`), 2C PASS (`189f173`), 2D PASS (`f97d22d`), 2E PASS (`e165852`); sub-gate 2F at its owner boundary**
 
 Scope, the nine product-owner design decisions and the 2A–2G decomposition are recorded in
 `docs/gates/gate-2-scope.md`. Each sub-gate stops at an owner boundary before the next begins. 2A adds
@@ -161,8 +161,26 @@ Bus emulator tests skipped by design; every 2E test ran and passed in CI). Azure
 and crash safety require. The canonical field-value rule is approved: NULL means the source cleared the field,
 invalid values are rejected and quarantined, and source facts are never silently truncated or rewritten. The
 1,024-character value limit is approved for 2E and stays centralized in `EventText.MaxValueLength`; Gate 3 must
-validate it against real connector data and widen it explicitly if needed, never truncating. 2F (retention and
-metrics) is next and not started.
+validate it against real connector data and widen it explicitly if needed, never truncating. 2F adds raw-content
+retention and the Event Backbone's metrics. A receipt's raw content, its payload and payload fingerprint, is due
+for purge once the database's own clock shows it 28 days past the server-side receipt time, and must never be
+older than the 30-day hard limit. The database clock stamps every receipt time and alone decides and measures
+every age; neither an ingress host's nor the purge Worker's clock, nor a provider's times, ever decide. An explicit,
+bounded and idempotent Worker purge
+(`--purge-raw-content`) clears the content of due receipts in every processing state and keeps the receipt row,
+the ledger, the ordering state, the Snapshot and the outbox marker, so ingress and processing idempotency hold
+after the purge; a receipt whose content was purged before it was processed is refused and dead-lettered
+visibly. The purge finds tenants through one more narrowly scoped database function, which takes no cutoff,
+returns tenant ids only and never reports content younger than the 28-day purge age by the database's own clock,
+and clears each tenant's rows under that tenant's own row-level security. Under the hourly schedule required at
+activation, content is never older than 28 days 1 hour 21 minutes while every run succeeds; a purge outage of
+about the 48-hour lead margin or longer can pass the 30-day limit, which is reported as overdue and then
+limit-exceeded content, never claimed away. One meter, `WorkContinuity.EventBackbone`, reports ingress, relay,
+transport, processing, Snapshot and retention metrics with bounded tags only, through the existing Application
+Insights pipelines. Nothing schedules the purge, and 2F changes no Azure resource. The 2F reviews of 2026-09-29
+approved nine decisions, recorded in the 2F Definition of Done, the last two making database time the authoritative
+retention clock and the source of the receipt time itself. 2F is implemented and verified locally with those
+corrections, awaiting owner review, uncommitted.
 
 ### Gate 3 onward
 Status: **NOT STARTED unless explicitly approved by the product owner**
@@ -327,9 +345,9 @@ post-Gate-1 hardening follow-ups.
 ## Immediate recommended next action in Claude Code
 
 Gate 1 (Foundation) is closed: Gates 1A through 1G are PASS. Gate 2 (Event Backbone) is authorized and in
-progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A, 2B, 2C, 2D and 2E are PASS, and 2F is
-next and not started. Do not begin a sub-gate without the product owner's explicit authorization, do not start
+progress one sub-gate at a time under `docs/gates/gate-2-scope.md`: 2A, 2B, 2C, 2D and 2E are PASS, and 2F awaits
+owner review at its boundary, uncommitted. Do not begin a sub-gate without the product owner's explicit authorization, do not start
 Gate 3, do not start the bootstrap or migration jobs (each has exactly one execution), and do not deploy,
 dispatch `CD Dev` with `deploy: true`, or change Azure resources, without explicit product-owner
-authorization. Azure Dev has none of the Gate 2B, 2C, 2D or 2E migrations. Before 2026-10-27 the product
+authorization. Azure Dev has none of the Gate 2B to 2F migrations. Before 2026-10-27 the product
 owner must decide on the Free Trial upgrade.

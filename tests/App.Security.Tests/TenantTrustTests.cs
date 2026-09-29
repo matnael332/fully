@@ -89,18 +89,21 @@ public sealed class TenantTrustTests
     }
 
     [Fact]
-    public void Only_the_ingress_and_the_transport_assign_a_tenant_context_and_only_as_trusted_services()
+    public void Only_the_ingress_the_transport_and_retention_assign_a_tenant_context_and_only_as_trusted_services()
     {
         // Gate 1C shipped no caller of SetResolved. Gate 2B added the ingress, which takes the tenant
         // from the connection it resolved server-side. Gate 2C adds the outbox relay, which takes each
         // tenant from the approved discovery function and then works under that tenant's row-level
-        // security, and the transport consumer, which takes it from a validated broker envelope. Each
-        // names the trusted-service source exactly once. The files under Core/Tenancy declare the
-        // abstraction itself and are excluded. The Gate that introduces validated SSO updates this list
-        // deliberately, rather than a tenant assignment slipping in unnoticed.
+        // security, and the transport consumer, which takes it from a validated broker envelope. Gate 2F
+        // adds the raw-content purge, which takes each tenant from the approved retention function and then
+        // works under that tenant's row-level security. Each names the trusted-service source exactly once.
+        // The files under Core/Tenancy declare the abstraction itself and are excluded. The Gate that
+        // introduces validated SSO updates this list deliberately, rather than a tenant assignment slipping
+        // in unnoticed.
         string[] allowed =
         [
             "src/App.Infrastructure/Ingress/EventIngressService.cs",
+            "src/App.Infrastructure/Retention/RawContentPurge.cs",
             "src/App.Infrastructure/Transport/EventTransportConsumer.cs",
             "src/App.Infrastructure/Transport/OutboxRelay.cs",
         ];

@@ -20,6 +20,10 @@ public sealed class IngressSecurityTests
         "src/App.Infrastructure/Persistence/Migrations/20260928101033_DurableIngressConnections.cs";
     private const string RelayMigrationFile =
         "src/App.Infrastructure/Persistence/Migrations/20260928114056_OutboxRelayTenantDiscovery.cs";
+    private const string RetentionMigrationFile =
+        "src/App.Infrastructure/Persistence/Migrations/20260928171310_RawContentRetention.cs";
+    private const string PurgeAgeMigrationFile =
+        "src/App.Infrastructure/Persistence/Migrations/20260928235219_RawContentPurgeAge.cs";
 
     [Fact]
     public void A_delivery_has_no_way_to_name_its_tenant()
@@ -118,8 +122,12 @@ public sealed class IngressSecurityTests
     public void Security_definer_and_database_functions_exist_only_in_the_approved_migrations()
     {
         // Gate 2 owner decision 1 allows narrowly scoped functions for three operations. Gate 2B added the
-        // connection resolver and Gate 2C the outbox discovery function, one per migration; each later one
-        // must be added to this list deliberately, with its own pinned tests.
+        // connection resolver, Gate 2C the outbox discovery function and Gate 2F the retention function, which
+        // completes the three; the Gate 2F follow-up migration redefines that same function, without a cutoff, at
+        // the 28-day purge age by the database's clock, and its Down restores the original. It also adds the
+        // receipt-time trigger's function, which is no definer and reads nothing: it only stamps the inserted row's
+        // own receipt time with the database's clock. Any other must be added to this list deliberately, with its own
+        // pinned tests.
         var securityDefiner = new Regex(@"\bSECURITY\s+DEFINER\b", RegexOptions.IgnoreCase);
         var createsRoutine = new Regex(
             @"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b",
@@ -130,14 +138,16 @@ public sealed class IngressSecurityTests
             .Select(RepositoryLayout.RelativePath)
             .Order(StringComparer.Ordinal)
             .ToArray();
-        Assert.Equal([MigrationFile, RelayMigrationFile], definerFiles);
+        Assert.Equal([MigrationFile, RelayMigrationFile, RetentionMigrationFile, PurgeAgeMigrationFile], definerFiles);
 
         var routines = RepositoryLayout.ProductionSourceFiles
             .SelectMany(file => createsRoutine.Matches(File.ReadAllText(file.FullName))
                 .Select(_ => RepositoryLayout.RelativePath(file)))
             .Order(StringComparer.Ordinal)
             .ToArray();
-        Assert.Equal([MigrationFile, RelayMigrationFile], routines);
+        Assert.Equal(
+            [MigrationFile, RelayMigrationFile, RetentionMigrationFile, PurgeAgeMigrationFile, PurgeAgeMigrationFile, PurgeAgeMigrationFile],
+            routines);
     }
 
     [Fact]

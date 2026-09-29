@@ -250,49 +250,76 @@ public sealed class PersistenceFoundationTests(DatabaseFixture fixture)
         var tenant = TenantId.New();
         await fixture.SeedTenantAsync(tenant, Token);
 
-        // A non-UTC input must be normalised, not stored with its original offset.
+        // A non-UTC input must be normalised, not stored with its original offset. A receipt takes no time at all:
+        // the database stamps its receipt time, in UTC, with its own clock.
         var localInstant = new DateTimeOffset(2026, 3, 4, 9, 30, 0, TimeSpan.FromHours(3));
         var expectedUtc = localInstant.ToUniversalTime();
 
         var receiptId = Guid.CreateVersion7();
+        var outboxMessageId = Guid.CreateVersion7();
 
+        var before = await DatabaseNowAsync();
         var (writeDatabase, writeContext) = fixture.CreateTenantScoped(tenant);
         await using (writeContext)
         {
             var written = await writeDatabase.ExecuteAsync(
-                async (dbContext, token) => await dbContext.RawReceipts.AddAsync(
-                    RawReceiptRecord.Receive(
-                        receiptId,
-                        tenant,
-                        "monday-connection-utc",
-                        "monday",
-                        "evt-" + receiptId.ToString("N"),
-                        "1",
-                        localInstant,
-                        """{"kind":"utc"}""",
-                        "fingerprint-" + receiptId.ToString("N")),
-                    token),
+                async (dbContext, token) =>
+                {
+                    await dbContext.RawReceipts.AddAsync(
+                        RawReceiptRecord.Receive(
+                            receiptId,
+                            tenant,
+                            "monday-connection-utc",
+                            "monday",
+                            "evt-" + receiptId.ToString("N"),
+                            "1",
+                            """{"kind":"utc"}""",
+                            "fingerprint-" + receiptId.ToString("N")),
+                        token);
+                    await dbContext.OutboxMessages.AddAsync(
+                        OutboxMessageRecord.Queue(outboxMessageId, tenant, "test.utc", """{"kind":"utc"}""", localInstant, CorrelationId.New()),
+                        token);
+                },
                 Token);
 
             Assert.True(written.IsSuccess, written.IsSuccess ? "" : written.Error.Code);
         }
 
+        var after = await DatabaseNowAsync();
         var (readDatabase, readContext) = fixture.CreateTenantScoped(tenant);
         await using (readContext)
         {
             var read = await readDatabase.ExecuteAsync(
-                async (dbContext, token) => await dbContext.RawReceipts
-                    .AsNoTracking()
-                    .Where(receipt => receipt.ReceiptId == receiptId)
-                    .Select(receipt => receipt.ReceivedAtUtc)
-                    .SingleAsync(token),
+                async (dbContext, token) => (
+                    Occurred: await dbContext.OutboxMessages
+                        .AsNoTracking()
+                        .Where(message => message.OutboxMessageId == outboxMessageId)
+                        .Select(message => message.OccurredAtUtc)
+                        .SingleAsync(token),
+                    Received: await dbContext.RawReceipts
+                        .AsNoTracking()
+                        .Where(receipt => receipt.ReceiptId == receiptId)
+                        .Select(receipt => receipt.ReceivedAtUtc)
+                        .SingleAsync(token)),
                 Token);
 
             Assert.True(read.IsSuccess, read.IsSuccess ? "" : read.Error.Code);
-            Assert.Equal(TimeSpan.Zero, read.Value.Offset);
-            Assert.Equal(expectedUtc, read.Value);
-            Assert.Equal(6, read.Value.Hour);
+            Assert.Equal(TimeSpan.Zero, read.Value.Occurred.Offset);
+            Assert.Equal(expectedUtc, read.Value.Occurred);
+            Assert.Equal(6, read.Value.Occurred.Hour);
+            Assert.Equal(TimeSpan.Zero, read.Value.Received.Offset);
+            Assert.InRange(read.Value.Received, before, after);
         }
+    }
+
+    private async Task<DateTimeOffset> DatabaseNowAsync()
+    {
+        await using var connection = await fixture.OpenAdministrativeConnectionAsync(Token);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT now();";
+        await using var reader = await command.ExecuteReaderAsync(Token);
+        Assert.True(await reader.ReadAsync(Token));
+        return reader.GetFieldValue<DateTimeOffset>(0);
     }
 
     [Fact]
@@ -491,7 +518,6 @@ public sealed class PersistenceFoundationTests(DatabaseFixture fixture)
             sourceSystem: "monday",
             sourceEventId: sourceEventId,
             schemaVersion: "1",
-            receivedAtUtc: DateTimeOffset.UtcNow,
             payload: """{"kind":"test"}""",
             payloadFingerprint: "fingerprint-" + receiptId.ToString("N"));
 

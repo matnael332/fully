@@ -460,7 +460,7 @@ public sealed class OutboxRelayTests(DatabaseFixture fixture)
                         {
                             dbContext.RawReceipts.Add(RawReceiptRecord.Receive(
                                 receiptId, tenant, ConnectionRecord.ReferenceFor(connection), SyntheticSource.System,
-                                $"evt-uncommitted-{receiptId:N}", SyntheticSource.SchemaVersion, IngressHost.Now, "{}", "fingerprint"));
+                                $"evt-uncommitted-{receiptId:N}", SyntheticSource.SchemaVersion, "{}", "fingerprint"));
                             dbContext.OutboxMessages.Add(OutboxMessageRecord.Queue(
                                 outboxId, tenant, IngressMessageTypes.ReceiptReceived, TransportData.Marker(receiptId), IngressHost.Now, CorrelationId.New()));
                             await dbContext.SaveChangesAsync(token);

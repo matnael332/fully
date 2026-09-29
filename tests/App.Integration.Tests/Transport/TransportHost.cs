@@ -96,14 +96,15 @@ internal sealed class TransportHost : IAsyncDisposable
     /// <summary>Gets the Service Bus consumer host (Service Bus hosts only).</summary>
     public ServiceBusEventConsumerHost ConsumerHost => _provider.GetRequiredService<ServiceBusEventConsumerHost>();
 
-    /// <summary>A host over the in-memory broker.</summary>
+    /// <summary>A host over the in-memory broker, on the frozen clock unless another is given.</summary>
     public static TransportHost InMemory(
         DatabaseFixture? fixture,
         InMemoryTransport transport,
         Action<EventTransportOptions>? configure = null,
-        Action<IServiceCollection>? handlers = null) =>
+        Action<IServiceCollection>? handlers = null,
+        IClock? clock = null) =>
         Create(fixture, configure, handlers, serviceBusConnectionString: null, (services, _) =>
-            services.AddSingleton<IEventTransportPublisher>(transport));
+            services.AddSingleton<IEventTransportPublisher>(transport), clock);
 
     /// <summary>A host over Service Bus, here the local emulator.</summary>
     public static TransportHost ServiceBus(
@@ -154,7 +155,8 @@ internal sealed class TransportHost : IAsyncDisposable
         Action<EventTransportOptions>? configure,
         Action<IServiceCollection>? handlers,
         string? serviceBusConnectionString,
-        Action<IServiceCollection, IConfiguration> adapter)
+        Action<IServiceCollection, IConfiguration> adapter,
+        IClock? clock = null)
     {
         var logs = new CapturingLoggerProvider();
         var settings = new Dictionary<string, string?>
@@ -170,7 +172,7 @@ internal sealed class TransportHost : IAsyncDisposable
 
         var services = new ServiceCollection();
         services.AddLogging(logging => logging.SetMinimumLevel(LogLevel.Trace).AddProvider(logs));
-        services.AddSingleton<IClock>(new FixedClock(IngressHost.Now));
+        services.AddSingleton<IClock>(clock ?? new FixedClock(IngressHost.Now));
         services.AddSingleton<ITenantContextAccessor, TenantContextAccessor>();
         services.AddSingleton<ISourceVerifier>(new SyntheticSourceVerifier());
         services.AddPersistence(configuration);

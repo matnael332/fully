@@ -1,7 +1,7 @@
 # INIT — Project Handoff State
 
-Last updated: 2026-09-28 (Gate 2 in progress; 2A, 2B, 2C, 2D and 2E PASS; 2F next, not started). Read
-this first when resuming.
+Last updated: 2026-09-29 (Gate 2 in progress; 2A, 2B, 2C, 2D and 2E PASS; sub-gate 2F at its owner
+boundary, uncommitted). Read this first when resuming.
 
 ## Where the project is
 
@@ -15,7 +15,7 @@ this first when resuming.
 | 1F CI/CD & Identity | PASS — closure commit `f4535f7` |
 | 1G Foundation Hardening | **PASS** — commits `9651ed3` (implementation), `fc9bb3e` (CI fix), `450c13d` (Dev readiness probe on), plus this closure commit (Commit C) |
 | **Gate 1 — Foundation** | **PASS** |
-| Gate 2 — Event Backbone | **AUTHORIZED 2026-09-28, IN PROGRESS.** 2A (event contract, validation, authority table) **PASS**, commit `7ba941a`. 2B (durable ingress) **PASS**, commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design). 2C (outbox relay, publisher, consumer, dead-letter handling) **PASS**, commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally). 2D (processing pipeline and event ledger) **PASS**, commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI). 2E (Snapshot projection) **PASS**, commit `e165852`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI). 2F (retention and metrics) **NEXT / NOT STARTED**. Azure Dev has **none** of the 2B, 2C, 2D or 2E migrations or schema. Scope and owner decisions: `docs/gates/gate-2-scope.md` |
+| Gate 2 — Event Backbone | **AUTHORIZED 2026-09-28, IN PROGRESS.** 2A (event contract, validation, authority table) **PASS**, commit `7ba941a`. 2B (durable ingress) **PASS**, commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design). 2C (outbox relay, publisher, consumer, dead-letter handling) **PASS**, commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally). 2D (processing pipeline and event ledger) **PASS**, commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI). 2E (Snapshot projection) **PASS**, commit `e165852`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI). 2F (retention and metrics) implemented and verified locally, **uncommitted**, awaiting owner review. Azure Dev has **none** of the 2B, 2C, 2D, 2E or 2F migrations or schema. Scope and owner decisions: `docs/gates/gate-2-scope.md` |
 | Gate 3 — monday Connector | **NOT STARTED.** Requires explicit product-owner authorization. |
 
 **Repository pointers:** `main` == `origin/main` == the Gate 2E status-closure commit, whose parent is
@@ -24,8 +24,10 @@ this first when resuming.
 gitleaks found no leaks). Earlier: `4b54bec` (the `event-driven-systems` skill aligned with the Gate 2D session
 decision), `32e2909` (Gate 2D status closure), `f97d22d` (Gate 2D), `1f59a96` (Gate 2C status closure),
 `189f173` (Gate 2C), `3209e57` (Gate 2B status closure), `120183b` (Gate 2B), `23607f9` (project skills),
-`7ba941a` (Gate 2A). The working tree is clean. The local database carries the 2B, 2C, 2D and 2E migrations,
-applied by the integration tests; Azure Dev carries none of them.
+`7ba941a` (Gate 2A). The working tree holds the **uncommitted 2F change set**, reviewed against the 2F
+Definition of Done in `docs/gates/gate-2-scope.md`. The local database carries the 2B, 2C, 2D, 2E and 2F
+migrations (with the 2F follow-up `RawContentPurgeAge`), applied by the integration tests; Azure Dev carries
+none of them.
 
 **Product-owner decisions on record (2026-09-28):** Gate 1G runtime verification approved; Commit B
 (readiness probe on in Dev) approved and deployed; the single cold-start Service Bus timeout is a
@@ -40,7 +42,16 @@ validated against real connectors; and any authority conflict quarantines the wh
 approved three more, recorded under "2E closure": Snapshot projection stays in the same transaction as the 2D
 ledger write; the canonical field-value rule, where NULL means the source cleared the field, invalid values are
 quarantined and nothing is truncated or rewritten; and the 1,024-character value limit, kept only in
-`EventText.MaxValueLength`, which Gate 3 must validate against real connector data.
+`EventText.MaxValueLength`, which Gate 3 must validate against real connector data. The 2F reviews (2026-09-29)
+approved nine more, recorded in the 2F Definition of Done: no fourth tenant-less function for exact outbox
+backlog counts; raw content purged at 28 days with the 30-day hard limit and an hourly future cadence; the
+database clock stays the authoritative safety clock, its guard moved from 720 to 672 hours; a separate follow-up
+migration, `RawContentPurgeAge`; exit code 3 only for overdue or limit-exceeded content that remains after a run;
+a timing model derived from stated assumptions, with no unconditional guarantee during outages; the activation
+preconditions recorded, not created; and database time as the authoritative retention clock: PostgreSQL `now()`
+decides purge eligibility, the 28-day boundary and the 30-day classification and measures every age, while the
+Worker's clock only times runs; and the receipt time itself stamped by PostgreSQL at insert, through a `now()` default
+and a trigger that replaces any supplied value and refuses any change, so no ingress clock moves a receipt's age.
 
 ## Rules that must not be broken (from CLAUDE.md and the canonical docs)
 
@@ -126,12 +137,18 @@ Full evidence: `docs/gates/gate-1G-report.md`.
 
 ## Exact next step
 
-1. Gate 2F (retention and metrics) is NEXT / NOT STARTED. It begins only when the product owner explicitly
-   authorizes it, and stops at its owner boundary like every sub-gate.
-2. Azure Dev has none of the Gate 2B, 2C, 2D or 2E migrations. Applying them needs new images, an updated
+1. The product owner reviews the uncommitted Gate 2F change set against its Definition of Done in
+   `docs/gates/gate-2-scope.md`; commit and push happen only on explicit approval. 2G begins only after that, on
+   explicit authorization, and stops at its own owner boundary.
+2. Azure Dev has none of the Gate 2B, 2C, 2D, 2E or 2F migrations. Applying them needs new images, an updated
    migration-job image and one migration-job run, each a separate approval; the migration job keeps exactly
    one execution until the owner orders a rerun. Running the relay, the consumer and the processing pipeline
    in the Worker, including Service Bus send access for the Worker identity, is a further separate approval.
+   So is activating the raw-content purge (`--purge-raw-content`), which runs only when invoked explicitly
+   until then. Activation needs the hourly job and all five alerts of the 2F Definition of Done (items 13 to 15).
+   Content is purged at 28 days; while every hourly run succeeds it is never older than 28 days 1 hour 21
+   minutes, and a purge outage of about the 48-hour lead margin or longer can pass the 30-day limit, which the
+   alerts report but cannot prevent.
 3. No Azure write, job start or `deploy: true` without separate approval; Gate 3 not before explicit
    authorization. When it is authorized, Gate 3 must validate the 1,024-character field-value limit against
    real connector data and widen it explicitly if needed, never truncating.
@@ -180,8 +197,8 @@ database holds no data. Tags are immutable and additive.
   only those two containers: `docker compose --env-file .env -f infra/local/docker-compose.yml up -d
   --force-recreate --no-deps mssql servicebus-emulator`. Never `docker … prune`.
 - `dotnet test` under Microsoft.Testing.Platform: `dotnet test --project <csproj> -c Debug` or the
-  solution path; never pass `--nologo`. Unit (244), Security (91) and Architecture (14) run without Docker;
-  the full suite (524, with Integration 175) needs `./eng/dev.ps1 up`; the seven Service Bus emulator tests
+  solution path; never pass `--nologo`. Unit (251), Security (101) and Architecture (14) run without Docker;
+  the full suite (584, with Integration 218) needs `./eng/dev.ps1 up`; the seven Service Bus emulator tests
   skip when `.env` has no `ACCEPT_EULA=Y`, as in CI.
 - The GitHub Ubuntu runner exports `ACCEPT_EULA=Y` globally; never treat a process-level licence flag as
   evidence that a local service exists.

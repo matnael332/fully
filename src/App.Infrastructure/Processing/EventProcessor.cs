@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using WorkContinuity.Core.Events;
@@ -7,6 +8,7 @@ using WorkContinuity.Core.SourceOfTruth;
 using WorkContinuity.Core.Tenancy;
 using WorkContinuity.Core.Time;
 using WorkContinuity.Core.Transport;
+using WorkContinuity.Infrastructure.Observability;
 using WorkContinuity.Infrastructure.Persistence;
 using WorkContinuity.Infrastructure.Persistence.Entities;
 
@@ -37,8 +39,15 @@ namespace WorkContinuity.Infrastructure.Processing;
 /// any other outcome, and the ledger, the ordering state and the Snapshot commit together or not at all.
 /// </para>
 /// <para>
+/// A receipt whose raw content retention cleared before it was ever processed (Gate 2F) is refused after the
+/// idempotency check, and nothing is written: nothing is left to normalize, so the message is dead-lettered
+/// with its reason instead of becoming a guessed event. A receipt already in the ledger needs no content, so
+/// its redelivery stays a no-op after the purge.
+/// </para>
+/// <para>
 /// Hygiene: logs carry ids, outcomes, reason codes, counts and the Snapshot version only, never the payload or
-/// a value.
+/// a value. Metrics count each outcome by its canonical reason and reason code, with its duration and lag; a
+/// projection counts only once its transaction committed.
 /// </para>
 /// </remarks>
 internal sealed class EventProcessor : IEventProcessor
@@ -48,6 +57,7 @@ internal sealed class EventProcessor : IEventProcessor
     private readonly IReadOnlyDictionary<string, ISourceEventNormalizer> _normalizers;
     private readonly IClock _clock;
     private readonly EventProcessingOptions _options;
+    private readonly EventBackboneMetrics _metrics;
     private readonly ILogger<EventProcessor> _logger;
 
     /// <exception cref="InvalidOperationException">Two normalizers serve one source system.</exception>
@@ -57,6 +67,7 @@ internal sealed class EventProcessor : IEventProcessor
         IEnumerable<ISourceEventNormalizer> normalizers,
         IClock clock,
         EventProcessingOptions options,
+        EventBackboneMetrics metrics,
         ILogger<EventProcessor> logger)
     {
         var bySource = new Dictionary<string, ISourceEventNormalizer>(StringComparer.Ordinal);
@@ -73,6 +84,7 @@ internal sealed class EventProcessor : IEventProcessor
         _normalizers = bySource;
         _clock = clock;
         _options = options;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -82,6 +94,7 @@ internal sealed class EventProcessor : IEventProcessor
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(envelope);
+        var started = Stopwatch.GetTimestamp();
 
         if (!_tenantContextAccessor.Current.TryGetTenantId(out var tenant) || tenant != envelope.TenantId)
         {
@@ -90,7 +103,7 @@ internal sealed class EventProcessor : IEventProcessor
                 envelope.MessageId,
                 ProcessingErrors.TenantMismatch.Code,
                 envelope.CorrelationId);
-            return Result<EventProcessingResult>.Failure(ProcessingErrors.TenantMismatch);
+            return Refuse(ProcessingErrors.TenantMismatch, started);
         }
 
         var processed = await _database.ExecuteAsync(
@@ -106,6 +119,7 @@ internal sealed class EventProcessor : IEventProcessor
                 tenant,
                 processed.Error.Code,
                 envelope.CorrelationId);
+            _metrics.ProcessingFailed(ProcessingErrors.Unavailable, transient: true, Stopwatch.GetElapsedTime(started));
             return Result<EventProcessingResult>.Failure(ProcessingErrors.Unavailable);
         }
 
@@ -117,32 +131,38 @@ internal sealed class EventProcessor : IEventProcessor
                 tenant,
                 ProcessingErrors.ReceiptNotVisible.Code,
                 envelope.CorrelationId);
-            return Result<EventProcessingResult>.Failure(ProcessingErrors.ReceiptNotVisible);
+            return Refuse(ProcessingErrors.ReceiptNotVisible, started);
         }
 
-        Log(outcome.Result, outcome.SnapshotVersion, tenant, envelope);
-        return Result<EventProcessingResult>.Success(outcome.Result);
+        if (outcome.Result is not { } result)
+        {
+            _logger.LogError(
+                "Processing refused receipt {ReceiptId} of tenant {TenantId}: {ReasonCode}; its raw content expired before it was processed, and nothing was recorded (correlation {CorrelationId}).",
+                envelope.CausationId,
+                tenant,
+                ProcessingErrors.ReceiptContentExpired.Code,
+                envelope.CorrelationId);
+            return Refuse(ProcessingErrors.ReceiptContentExpired, started);
+        }
+
+        // The outcome committed; only now is it measured.
+        _metrics.Processed(result, Stopwatch.GetElapsedTime(started), outcome.Lag);
+        if (outcome.Projection is { } projected)
+        {
+            _metrics.Projected(projected.Fields, projected.Duration, _clock.UtcNow - outcome.ReceivedAtUtc);
+        }
+
+        Log(result, outcome.Projection?.SnapshotVersion, tenant, envelope);
+        return Result<EventProcessingResult>.Success(result);
+    }
+
+    private Result<EventProcessingResult> Refuse(Error reason, long started)
+    {
+        _metrics.ProcessingFailed(reason, transient: false, Stopwatch.GetElapsedTime(started));
+        return Result<EventProcessingResult>.Failure(reason);
     }
 
     private async Task<Processed?> ProcessReceiptAsync(
-        WorkContinuityDbContext dbContext,
-        TransportEnvelope envelope,
-        TenantId tenant,
-        CancellationToken cancellationToken)
-    {
-        if (await DecideAsync(dbContext, envelope, tenant, cancellationToken) is not { } result)
-        {
-            return null;
-        }
-
-        // Only an accepted result has a handoff, and it is projected in this same transaction.
-        long? snapshotVersion = result.TryGetProjection(out var projection)
-            ? await SnapshotProjection.ProjectAsync(dbContext, projection!, cancellationToken)
-            : null;
-        return new Processed(result, snapshotVersion);
-    }
-
-    private async Task<EventProcessingResult?> DecideAsync(
         WorkContinuityDbContext dbContext,
         TransportEnvelope envelope,
         TenantId tenant,
@@ -159,6 +179,7 @@ internal sealed class EventProcessor : IEventProcessor
             return null;
         }
 
+        // The ledger decides idempotency from ids alone, so a redelivery stays a no-op after its content expired.
         var recorded = await dbContext.EventLedger
             .AsNoTracking()
             .Where(entry => entry.ReceiptId == receiptId)
@@ -166,11 +187,55 @@ internal sealed class EventProcessor : IEventProcessor
             .SingleOrDefaultAsync(cancellationToken);
         if (recorded is not null)
         {
-            return EventProcessingResult.Duplicate(CanonicalEventId.From(recorded.EventId), receiptId, recorded.Outcome);
+            return new Processed(
+                EventProcessingResult.Duplicate(CanonicalEventId.From(recorded.EventId), receiptId, recorded.Outcome),
+                receipt.ReceivedAtUtc,
+                Lag: null,
+                Projection: null);
         }
 
-        var eventId = EventIdentity.ForReceipt(receiptId);
+        // Retention cleared the content of a receipt that was never processed: nothing is left to decide from.
+        if (!receipt.HasContent)
+        {
+            return new Processed(Result: null, receipt.ReceivedAtUtc, Lag: null, Projection: null);
+        }
+
         var processedAt = _clock.UtcNow;
+        var result = await DecideAsync(dbContext, receipt, envelope, tenant, processedAt, cancellationToken);
+
+        // Only an accepted result has a handoff, and it is projected in this same transaction.
+        Projected? projected = null;
+        if (result.TryGetProjection(out var projection))
+        {
+            var projecting = Stopwatch.GetTimestamp();
+            try
+            {
+                var snapshotVersion = await SnapshotProjection.ProjectAsync(dbContext, projection!, cancellationToken);
+                projected = new Projected(snapshotVersion, projection!.AdvancedFields.Count, Stopwatch.GetElapsedTime(projecting));
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The whole transaction rolls back, and the message is retried.
+                _metrics.ProjectionFailed();
+                throw;
+            }
+        }
+
+        return new Processed(result, receipt.ReceivedAtUtc, processedAt - receipt.ReceivedAtUtc, projected);
+    }
+
+    private async Task<EventProcessingResult> DecideAsync(
+        WorkContinuityDbContext dbContext,
+        RawReceiptRecord receipt,
+        TransportEnvelope envelope,
+        TenantId tenant,
+        DateTimeOffset processedAt,
+        CancellationToken cancellationToken)
+    {
+        var receiptId = receipt.ReceiptId;
+        var eventId = EventIdentity.ForReceipt(receiptId);
+        var payload = receipt.Payload
+            ?? throw new InvalidOperationException("A receipt whose content expired is refused before it is decided.");
 
         if (!_normalizers.TryGetValue(receipt.SourceSystem, out var normalizer) || !normalizer.Supports(receipt.SchemaVersion))
         {
@@ -181,7 +246,7 @@ internal sealed class EventProcessor : IEventProcessor
         try
         {
             normalized = normalizer.Normalize(new SourcePayload(
-                receipt.SourceSystem, receipt.ConnectionReference, receipt.SchemaVersion, receipt.SourceEventId, receipt.Payload));
+                receipt.SourceSystem, receipt.ConnectionReference, receipt.SchemaVersion, receipt.SourceEventId, payload));
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -495,6 +560,12 @@ internal sealed class EventProcessor : IEventProcessor
         }
     }
 
-    /// <summary>A settled outcome and, for an accepted one, the Snapshot object version it was projected at.</summary>
-    private sealed record Processed(EventProcessingResult Result, long? SnapshotVersion);
+    /// <summary>
+    /// What one transaction settled: an outcome, or none for a receipt whose content expired; the receipt's time,
+    /// the lag to a fresh decision, and the projection of an accepted outcome.
+    /// </summary>
+    private sealed record Processed(EventProcessingResult? Result, DateTimeOffset ReceivedAtUtc, TimeSpan? Lag, Projected? Projection);
+
+    /// <summary>A projection: the Snapshot object version it produced, the fields it wrote and how long it took.</summary>
+    private sealed record Projected(long SnapshotVersion, int Fields, TimeSpan Duration);
 }

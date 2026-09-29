@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using WorkContinuity.Core.Ingress;
+using WorkContinuity.Infrastructure.Observability;
 
 namespace WorkContinuity.Infrastructure.Ingress;
 
@@ -16,6 +18,7 @@ public static class IngressRegistration
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        services.TryAddSingleton<EventBackboneMetrics>();
         services.AddScoped<IngressConnectionResolver>();
         services.AddScoped<IEventIngress, EventIngressService>();
         return services;

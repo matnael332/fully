@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using WorkContinuity.Core.Correlation;
 using WorkContinuity.Core.Events;
@@ -110,7 +111,10 @@ public static class WorkContinuityModel
 
         modelBuilder.Entity<RawReceiptRecord>(entity =>
         {
-            entity.ToTable("raw_receipts");
+            // Raw content is purged as a whole: the payload and its fingerprint are present or cleared together.
+            entity.ToTable("raw_receipts", table => table.HasCheckConstraint(
+                "ck_raw_receipts_content",
+                "(payload IS NULL) = (payload_fingerprint IS NULL)"));
             entity.HasKey(record => record.ReceiptId);
             entity.Property(record => record.ReceiptId)
                 .HasColumnName("receipt_id")
@@ -134,23 +138,29 @@ public static class WorkContinuityModel
                 .HasColumnName("schema_version")
                 .HasMaxLength(64)
                 .IsRequired();
-            entity.Property(record => record.ReceivedAtUtc)
+            // The receipt time is the database's own and the retention age basis: it defaults to now(), a trigger
+            // stamps it on every insert whatever is supplied and refuses any later change, and the application never
+            // writes it; the stored value is read back once the receipt is saved.
+            var receivedAt = entity.Property(record => record.ReceivedAtUtc)
                 .HasColumnName("received_at_utc")
                 .HasColumnType("timestamptz")
+                .HasDefaultValueSql("now()")
+                .ValueGeneratedOnAdd()
                 .IsRequired();
+            receivedAt.Metadata.SetBeforeSaveBehavior(PropertySaveBehavior.Ignore);
+            receivedAt.Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
             entity.Property(record => record.Payload)
                 .HasColumnName("payload")
-                .HasColumnType("jsonb")
-                .IsRequired();
+                .HasColumnType("jsonb");
             entity.Property(record => record.PayloadFingerprint)
                 .HasColumnName("payload_fingerprint")
-                .HasMaxLength(128)
-                .IsRequired();
+                .HasMaxLength(128);
             entity.Property(record => record.ProcessingState)
                 .HasColumnName("processing_state")
                 .HasConversion<string>()
                 .HasMaxLength(32)
                 .IsRequired();
+            entity.Ignore(record => record.HasContent);
 
             // Partial unique index: a provider event id is unique per tenant and connection, while
             // rows without one stay unconstrained. PostgreSQL treats NULLs as distinct, so an
@@ -170,6 +180,11 @@ public static class WorkContinuityModel
             entity.HasIndex(record => new { record.TenantId, record.ConnectionReference, record.PayloadFingerprint })
                 .HasDatabaseName("ix_raw_receipts_tenant_connection_fingerprint")
                 .HasFilter("source_event_id IS NULL");
+
+            // Supports the per-tenant purge of expired content, oldest first; purged rows leave the index.
+            entity.HasIndex(record => new { record.TenantId, record.ReceivedAtUtc })
+                .HasDatabaseName("ix_raw_receipts_tenant_content_received")
+                .HasFilter("payload IS NOT NULL");
         });
 
         modelBuilder.Entity<OutboxMessageRecord>(entity =>

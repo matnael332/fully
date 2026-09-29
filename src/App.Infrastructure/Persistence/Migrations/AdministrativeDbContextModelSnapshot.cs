@@ -354,12 +354,10 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                         .HasColumnName("connection_reference");
 
                     b.Property<string>("Payload")
-                        .IsRequired()
                         .HasColumnType("jsonb")
                         .HasColumnName("payload");
 
                     b.Property<string>("PayloadFingerprint")
-                        .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)")
                         .HasColumnName("payload_fingerprint");
@@ -371,8 +369,10 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                         .HasColumnName("processing_state");
 
                     b.Property<DateTimeOffset>("ReceivedAtUtc")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("timestamptz")
-                        .HasColumnName("received_at_utc");
+                        .HasColumnName("received_at_utc")
+                        .HasDefaultValueSql("now()");
 
                     b.Property<string>("SchemaVersion")
                         .IsRequired()
@@ -400,6 +400,10 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                     b.HasIndex("ReceivedAtUtc")
                         .HasDatabaseName("ix_raw_receipts_received_at_utc");
 
+                    b.HasIndex("TenantId", "ReceivedAtUtc")
+                        .HasDatabaseName("ix_raw_receipts_tenant_content_received")
+                        .HasFilter("payload IS NOT NULL");
+
                     b.HasIndex("TenantId", "ConnectionReference", "PayloadFingerprint")
                         .HasDatabaseName("ix_raw_receipts_tenant_connection_fingerprint")
                         .HasFilter("source_event_id IS NULL");
@@ -409,7 +413,10 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ux_raw_receipts_tenant_connection_source_event")
                         .HasFilter("source_event_id IS NOT NULL");
 
-                    b.ToTable("raw_receipts", (string)null);
+                    b.ToTable("raw_receipts", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_raw_receipts_content", "(payload IS NULL) = (payload_fingerprint IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.SnapshotFieldRecord", b =>

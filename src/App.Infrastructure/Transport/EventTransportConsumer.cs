@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using WorkContinuity.Core.Tenancy;
 using WorkContinuity.Core.Transport;
+using WorkContinuity.Infrastructure.Observability;
 
 namespace WorkContinuity.Infrastructure.Transport;
 
@@ -25,12 +26,15 @@ namespace WorkContinuity.Infrastructure.Transport;
 /// <para>
 /// Hygiene: logs carry ids, codes, counts and exception type names only, never the body or an exception
 /// message. An invalid message is identified by its broker sequence number, never by the text it carries.
+/// Metrics count every settlement by kind and catalogued reason code, and record each message's delivery
+/// attempt, which is where retries and head-of-line blocking show.
 /// </para>
 /// </remarks>
 internal sealed class EventTransportConsumer(
     IServiceScopeFactory scopeFactory,
     ITenantContextAccessor tenantContextAccessor,
     EventTransportOptions options,
+    EventBackboneMetrics metrics,
     ILogger<EventTransportConsumer> logger) : IEventTransportConsumer
 {
     /// <inheritdoc />
@@ -56,7 +60,9 @@ internal sealed class EventTransportConsumer(
                 message.SequenceNumber,
                 message.DeliveryCount,
                 read.Error.Code);
-            return TransportSettlement.DeadLetter(read.Error);
+            var invalid = TransportSettlement.DeadLetter(read.Error);
+            metrics.Settled(invalid, result: null, message.DeliveryCount);
+            return invalid;
         }
 
         return await HandleAsync(read.Value, message.DeliveryCount, cancellationToken);
@@ -104,6 +110,7 @@ internal sealed class EventTransportConsumer(
 
         var settlement = options.RetryPolicy.Settle(result, deliveryCount, Random.Shared.NextDouble());
         Log(settlement, result, envelope, deliveryCount);
+        metrics.Settled(settlement, result, deliveryCount);
         return settlement;
     }
 

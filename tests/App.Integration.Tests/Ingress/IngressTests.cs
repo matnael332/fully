@@ -32,8 +32,10 @@ public sealed class IngressTests(DatabaseFixture fixture)
         var correlation = CorrelationId.New();
         const string payload = """{"item":{"id":"1001","status":"done"},"board":"b-7"}""";
 
+        var before = await IngressData.DatabaseNowAsync(fixture, Token);
         var outcome = await host.SubmitAsync(
             SyntheticSource.Delivery(connection, "evt-accepted", payload, correlation));
+        var after = await IngressData.DatabaseNowAsync(fixture, Token);
 
         Assert.Equal(IngressStatus.Accepted, outcome.Status);
         Assert.True(outcome.IsAcknowledged);
@@ -50,10 +52,13 @@ public sealed class IngressTests(DatabaseFixture fixture)
         Assert.Equal(SyntheticSource.System, receipt.SourceSystem);
         Assert.Equal("evt-accepted", receipt.SourceEventId);
         Assert.Equal(SyntheticSource.SchemaVersion, receipt.SchemaVersion);
-        Assert.Equal(IngressHost.Now, receipt.ReceivedAtUtc);
+
+        // The receipt time is the database's own, stamped when it stored the receipt, never the ingress host's clock.
+        Assert.InRange(receipt.ReceivedAtUtc, before, after);
+        Assert.NotEqual(IngressHost.Now, receipt.ReceivedAtUtc);
         Assert.Equal(nameof(RawReceiptState.Received), receipt.ProcessingState);
         Assert.Equal(Sha256Hex(payload), receipt.PayloadFingerprint);
-        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(payload), JsonNode.Parse(receipt.Payload)));
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(payload), JsonNode.Parse(receipt.Payload!)));
 
         // The marker names the receipt and nothing else, so it holds no content that must expire.
         var marker = Assert.Single(await MarkersAsync(tenant));
@@ -96,6 +101,7 @@ public sealed class IngressTests(DatabaseFixture fixture)
         var delivery = SyntheticSource.Delivery(connection, "evt-repeat", """{"n":1}""");
 
         var first = await host.SubmitAsync(delivery);
+        var stored = Assert.Single(await ReceiptsAsync(tenant));
         var second = await host.SubmitAsync(delivery);
         var retriedUnderNewCorrelation = await host.SubmitAsync(
             SyntheticSource.Delivery(connection, "evt-repeat", """{"n":1}"""));
@@ -108,7 +114,8 @@ public sealed class IngressTests(DatabaseFixture fixture)
         Assert.Equal(first.ReceiptId, second.ReceiptId);
         Assert.Equal(first.ReceiptId, retriedUnderNewCorrelation.ReceiptId);
 
-        Assert.Single(await ReceiptsAsync(tenant));
+        // The first receipt stands exactly as stored, its database-stamped receipt time included.
+        Assert.Equal(stored, Assert.Single(await ReceiptsAsync(tenant)));
         Assert.Single(await MarkersAsync(tenant));
         Assert.DoesNotContain(host.Logs.Entries, entry =>
             entry.Message.Contains("different payload fingerprint", StringComparison.Ordinal));
@@ -129,7 +136,7 @@ public sealed class IngressTests(DatabaseFixture fixture)
         Assert.Equal(first.ReceiptId, second.ReceiptId);
 
         var receipt = Assert.Single(await ReceiptsAsync(tenant));
-        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(original), JsonNode.Parse(receipt.Payload)));
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(original), JsonNode.Parse(receipt.Payload!)));
         Assert.Single(await MarkersAsync(tenant));
 
         var warning = Assert.Single(host.Logs.Entries, entry =>

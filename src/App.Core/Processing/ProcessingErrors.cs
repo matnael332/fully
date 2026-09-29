@@ -55,4 +55,11 @@ public static class ProcessingErrors
     /// <summary>The event carries no revision, source update time or occurrence time.</summary>
     public static Error NoOrderingEvidence { get; } =
         Error.Conflict("processing.ordering.no_evidence", "The event carries no revision, source update time or occurrence time.");
+
+    /// <summary>
+    /// The receipt's raw content reached the end of its retention window before it was processed. Permanent: the
+    /// content no longer exists, so the message cannot be processed as delivered.
+    /// </summary>
+    public static Error ReceiptContentExpired { get; } =
+        Error.NotFound("processing.receipt.content_expired", "The receipt's raw content expired before it was processed.");
 }

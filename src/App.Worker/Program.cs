@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using OpenTelemetry;
 using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using WorkContinuity.Core.Correlation;
@@ -14,7 +15,9 @@ using WorkContinuity.Core.Operations;
 using WorkContinuity.Core.Tenancy;
 using WorkContinuity.Core.Time;
 using WorkContinuity.Infrastructure.Health;
+using WorkContinuity.Infrastructure.Observability;
 using WorkContinuity.Infrastructure.Persistence;
+using WorkContinuity.Infrastructure.Retention;
 
 const string ServiceName = "work-continuity-worker";
 const string ActivitySourceName = "WorkContinuity.Worker";
@@ -232,6 +235,15 @@ using var tracerProvider = exportTelemetry
         .Build()
     : null;
 
+// The Event Backbone's metrics (Gate 2F) join the same exporter. They carry bounded tags only, never an id.
+using var meterProvider = exportTelemetry
+    ? Sdk.CreateMeterProviderBuilder()
+        .SetResourceBuilder(resource)
+        .AddMeter(EventBackboneMetrics.MeterName)
+        .AddAzureMonitorMetricExporter(exporter => exporter.ConnectionString = telemetryConnectionString)
+        .Build()
+    : null;
+
 var logger = loggerFactory.CreateLogger("WorkContinuity.Worker");
 using var activitySource = new ActivitySource(ActivitySourceName);
 
@@ -247,6 +259,75 @@ Console.CancelKeyPress += (_, eventArgs) =>
     eventArgs.Cancel = true;
     shutdown.Cancel();
 };
+
+// Raw-content retention (Gate 2F): one bounded, idempotent purge of the raw content that is due (28 days old by
+// the database's clock, two days before the 30-day limit), then exit. This process's clock only times the run and
+// stamps the summary; it decides nothing. It runs only when invoked explicitly; nothing in this process schedules
+// it, and it is safe to rerun, to retry after a failure and to run alongside another run. It connects as the
+// runtime role, so each tenant's rows are purged under that tenant's own row-level security. The summary carries
+// counts, ages by the database's clock and statuses only. Exit codes: 0 done, nothing overdue left; 1 a step
+// failed; 2 not configured; 3 overdue or limit-exceeded raw content still remains after the run.
+if (args.Contains("--purge-raw-content", StringComparer.OrdinalIgnoreCase))
+{
+    var runtimeConnectionString = Env("ConnectionStrings__Postgres");
+
+    if (string.IsNullOrWhiteSpace(runtimeConnectionString))
+    {
+        Console.Error.WriteLine(
+            "ConnectionStrings__Postgres is not set. The purge requires the runtime-role connection.");
+        return 2;
+    }
+
+    var operation = StartOperation();
+    using var metrics = new EventBackboneMetrics();
+
+    try
+    {
+        var run = await RawContentPurgeEntryPoint.RunOnceAsync(
+            runtimeConnectionString,
+            loggerFactory,
+            metrics,
+            cancellationToken: shutdown.Token);
+        meterProvider?.ForceFlush(10_000);
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            correlationId = operation.CorrelationId.Value,
+            purgedAt = operation.StartedAtUtc,
+            outcome = run.Outcome.ToString(),
+            tenantsVisited = run.TenantsVisited,
+            tenantFailures = run.TenantFailures,
+            discoveryFailed = run.DiscoveryFailed,
+            receiptsPurged = run.ReceiptsPurged,
+            processedPurged = run.ProcessedPurged,
+            quarantinedPurged = run.QuarantinedPurged,
+            unprocessedPurged = run.UnprocessedPurged,
+            dueContentRemaining = run.DueContentRemaining,
+            oldestPurgedAgeSeconds = run.OldestPurgedAge?.TotalSeconds,
+            oldestRemainingAgeSeconds = run.OldestRemainingAge?.TotalSeconds,
+            purgedContentStatus = run.PurgedStatus.ToString(),
+            remainingContentStatus = run.RemainingStatus.ToString(),
+            durationMilliseconds = (long)run.Duration.TotalMilliseconds,
+        }));
+
+        // A partial run within the limit is not a failure, and neither is a run that cleared overdue content: only
+        // overdue content still left behind needs attention.
+        return RawContentPurgeEntryPoint.ExitCodeFor(run);
+    }
+    catch (Exception exception) when (exception is not OutOfMemoryException)
+    {
+        meterProvider?.ForceFlush(10_000);
+        Console.Error.WriteLine(JsonSerializer.Serialize(new
+        {
+            correlationId = operation.CorrelationId.Value,
+            failedAt = operation.StartedAtUtc,
+            operation = "purge-raw-content",
+            failure = DescribeFailure(exception),
+        }));
+
+        return 1;
+    }
+}
 
 logger.LogInformation(
     "Work Continuity Worker started; environment={Environment} telemetry={Telemetry}",

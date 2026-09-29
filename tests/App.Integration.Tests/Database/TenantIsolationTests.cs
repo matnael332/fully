@@ -267,7 +267,6 @@ public sealed class TenantIsolationTests(DatabaseFixture fixture)
             sourceSystem: "monday",
             sourceEventId: sourceEventId,
             schemaVersion: "1",
-            receivedAtUtc: DateTimeOffset.UtcNow,
             payload: """{"kind":"test"}""",
             payloadFingerprint: "fingerprint-" + receiptId.ToString("N"));
 

@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using WorkContinuity.Core.Transport;
+using WorkContinuity.Infrastructure.Observability;
 
 namespace WorkContinuity.Infrastructure.Transport;
 
@@ -31,6 +33,7 @@ public static class EventTransportRegistration
         options.Validate();
 
         services.AddSingleton(options);
+        services.TryAddSingleton<EventBackboneMetrics>();
         services.AddScoped<OutboxTenantDiscovery>();
         services.AddSingleton<IOutboxRelay, OutboxRelay>();
         services.AddSingleton<IEventTransportConsumer, EventTransportConsumer>();
@@ -52,6 +55,7 @@ public static class EventTransportRegistration
         var settings = ServiceBusTransportSettings.FromConfiguration(configuration);
 
         services.AddSingleton(_ => settings.CreateClient());
+        services.TryAddSingleton<EventBackboneMetrics>();
         services.AddSingleton<IEventTransportPublisher, ServiceBusEventPublisher>();
         services.AddSingleton<IDeadLetterQueue, ServiceBusDeadLetterQueue>();
         services.AddSingleton(provider => new ServiceBusEventConsumerHost(

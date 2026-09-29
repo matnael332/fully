@@ -50,7 +50,12 @@ public sealed class EventProcessingTests(DatabaseFixture fixture)
         Assert.Equal(delivered.ReceiptId, metadata.CausationId);
         Assert.Equal(new EventSource(EventSourceKind.SaasConnector, SyntheticSource.System, ConnectionRecord.ReferenceFor(connection)), metadata.Source);
         Assert.Equal("evt-first", metadata.SourceEventId);
-        Assert.Equal(IngressHost.Now, metadata.ReceivedAtUtc);
+
+        // The receipt time is the one the database stamped on the receipt; the source's own times are untouched.
+        var receiptTime = await IngressData.ReceiptTimeAsync(fixture, delivered.ReceiptId, Token);
+        Assert.Equal(receiptTime, metadata.ReceivedAtUtc);
+        Assert.Equal(T0, metadata.SourceUpdatedAtUtc);
+        Assert.Equal(T0.AddSeconds(-5), metadata.OccurredAtUtc);
         Assert.Equal(1, metadata.SourceRevision);
         Assert.Equal(["status"], handoff.AdvancedFields.Select(field => field.Field));
 
@@ -65,6 +70,7 @@ public sealed class EventProcessingTests(DatabaseFixture fixture)
         Assert.Equal(delivered.Correlation.Value, entry.CorrelationId);
         Assert.Null(entry.QuarantineReason);
         Assert.Null(entry.ReasonCode);
+        Assert.Equal(receiptTime, await LedgerReceiptTimeAsync(entry.EventId));
         Assert.Equal([("status", "TaskStatus", "Advance")], await ProcessingHarness.LedgerFieldsAsync(fixture, entry.EventId));
 
         var state = Assert.Single(await ProcessingHarness.FieldStatesAsync(fixture, tenant));
@@ -119,7 +125,7 @@ public sealed class EventProcessingTests(DatabaseFixture fixture)
                 {
                     var fabricated = RawReceiptRecord.Receive(
                         Guid.CreateVersion7(), tenant, ConnectionRecord.ReferenceFor(connection), SyntheticSource.System,
-                        "evt-repeated", SyntheticSource.SchemaVersion, IngressHost.Now, "{}", "fingerprint");
+                        "evt-repeated", SyntheticSource.SchemaVersion, "{}", "fingerprint");
                     dbContext.EventLedger.Add(EventLedgerRecord.ForUnnormalizedReceipt(
                         EventIdentity.ForReceipt(fabricated.ReceiptId), fabricated, EventSourceKind.SaasConnector, IngressHost.Now,
                         CorrelationId.New(), QuarantineReason.BadSchema, "test.duplicate"));
@@ -279,8 +285,10 @@ public sealed class EventProcessingTests(DatabaseFixture fixture)
         var (tenant, connection) = await IngressData.NewConnectionAsync(fixture, Token);
         var accepted = await host.ProcessSettledAsync((await host.SubmitAsync(fixture, tenant, connection, new SyntheticEvent { Revision = 4 }, "evt-rev-4-a")).Envelope);
 
+        // An hour after the receipt time, which the database stamps when it stores the receipt.
+        var afterReceipt = (await IngressData.DatabaseNowAsync(fixture, Token)).AddHours(1);
         var future = await host.ProcessSettledAsync((await host.SubmitAsync(
-            fixture, tenant, connection, new SyntheticEvent { Revision = 9, UpdatedAt = IngressHost.Now.AddHours(1) }, "evt-future")).Envelope);
+            fixture, tenant, connection, new SyntheticEvent { Revision = 9, UpdatedAt = afterReceipt }, "evt-future")).Envelope);
         var afterUpdate = await host.ProcessSettledAsync((await host.SubmitAsync(
             fixture, tenant, connection, new SyntheticEvent { Revision = 9, UpdatedAt = T0, OccurredAt = T0.AddMinutes(10) }, "evt-after-update")).Envelope);
         var claimedTwice = await host.ProcessSettledAsync((await host.SubmitAsync(
@@ -716,6 +724,17 @@ public sealed class EventProcessingTests(DatabaseFixture fixture)
         Assert.NotEmpty(host.Logs.Entries);
         Assert.Contains(host.Logs.Entries, entry => entry.Text.Contains(accepted.ReceiptId.ToString("D"), StringComparison.Ordinal));
         Assert.DoesNotContain(host.Logs.Entries, entry => entry.Text.Contains(marker, StringComparison.Ordinal));
+    }
+
+    /// <summary>The receipt time a ledger entry keeps as its provenance.</summary>
+    private async Task<DateTimeOffset> LedgerReceiptTimeAsync(Guid eventId)
+    {
+        await using var connection = await fixture.OpenAdministrativeConnectionAsync(Token);
+        await using var command = new NpgsqlCommand("SELECT received_at_utc FROM event_ledger WHERE event_id = @event;", connection);
+        command.Parameters.AddWithValue("event", eventId);
+        await using var reader = await command.ExecuteReaderAsync(Token);
+        Assert.True(await reader.ReadAsync(Token));
+        return reader.GetFieldValue<DateTimeOffset>(0);
     }
 
     /// <summary>A consumer that processes and commits, then dies before its settlement can be applied.</summary>

@@ -10,12 +10,12 @@ namespace WorkContinuity.Integration.Tests.Ingress;
 
 /// <summary>
 /// The tenant-less database functions Gate 2 owner decision 1 approves, pinned against the real database:
-/// they are exactly the Gate 2B connection resolver and the Gate 2C outbox discovery function, each with a
-/// fixed search path and its definition pinned. This class covers the resolver: only the runtime role may
-/// execute it, and it returns one active connection's tenant and source and nothing else. The owners' narrow
-/// read policies are the only policies beyond the tenant policies, and every other table's row-level security
-/// is unchanged. The discovery function's own behaviour is pinned in
-/// <c>Transport/OutboxDiscoveryDatabaseSecurityTests</c>.
+/// they are exactly the Gate 2B connection resolver, the Gate 2C outbox discovery function and the Gate 2F
+/// retention function, each with a fixed search path and its definition pinned. This class covers the
+/// resolver: only the runtime role may execute it, and it returns one active connection's tenant and source and
+/// nothing else. The owners' narrow read policies are the only policies beyond the tenant policies, and every
+/// other table's row-level security is unchanged. The discovery and retention functions' own behaviour is pinned
+/// in <c>Transport/OutboxDiscoveryDatabaseSecurityTests</c> and <c>Retention/RetentionDatabaseSecurityTests</c>.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
@@ -41,7 +41,8 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
                    pg_get_userbyid(p.proowner),
                    (SELECT pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.oid = 'public.connections'::regclass),
                    (SELECT pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.oid = 'public.outbox_messages'::regclass),
-                   p.prosrc
+                   p.prosrc,
+                   (SELECT pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.oid = 'public.raw_receipts'::regclass)
             FROM pg_proc p
             JOIN pg_namespace n ON n.oid = p.pronamespace
             JOIN pg_language l ON l.oid = p.prolang
@@ -87,13 +88,31 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
                     Assert.Contains("LIMIT least(greatest(p_limit, 0), 100)", body, StringComparison.Ordinal);
                     break;
 
+                case "public.retention_expired_tenants":
+                    // No cutoff: the database's own clock alone decides what is due.
+                    Assert.Equal("p_limit integer", reader.GetString(1));
+                    Assert.Equal("TABLE(tenant_id uuid)", reader.GetString(2));
+                    Assert.Equal(reader.GetString(12), reader.GetString(8));
+
+                    var retention = reader.GetString(11);
+                    Assert.Contains("FROM public.raw_receipts AS r", retention, StringComparison.Ordinal);
+                    Assert.Contains("WHERE r.payload IS NOT NULL", retention, StringComparison.Ordinal);
+                    Assert.Contains("AND r.received_at_utc <= now() - interval '672 hours'", retention, StringComparison.Ordinal);
+                    Assert.DoesNotContain("p_cutoff", retention, StringComparison.Ordinal);
+                    Assert.Contains("LIMIT least(greatest(p_limit, 0), 100)", retention, StringComparison.Ordinal);
+                    Assert.DoesNotContain("UPDATE", retention, StringComparison.OrdinalIgnoreCase);
+                    Assert.DoesNotContain("FOR ", retention, StringComparison.Ordinal);
+                    break;
+
                 default:
                     Assert.Fail($"{name} is not an approved SECURITY DEFINER function.");
                     break;
             }
         }
 
-        Assert.Equal(["public.outbox_pending_tenants", "public.resolve_ingress_connection"], definers);
+        Assert.Equal(
+            ["public.outbox_pending_tenants", "public.resolve_ingress_connection", "public.retention_expired_tenants"],
+            definers);
     }
 
     [Fact]
@@ -247,6 +266,7 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
                 "field_ordering_states.tenant_isolation_field_ordering_states",
                 "outbox_messages.relay_discovery_outbox_messages",
                 "outbox_messages.tenant_isolation_outbox_messages",
+                "raw_receipts.retention_discovery_raw_receipts",
                 "raw_receipts.tenant_isolation_raw_receipts",
                 "snapshot_fields.no_delete_snapshot_fields",
                 "snapshot_fields.tenant_isolation_snapshot_fields",
@@ -316,6 +336,17 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
         Assert.Equal("SELECT", relayPolicy.Command);
         Assert.Null(relayPolicy.Check);
         Assert.Equal("(published_at_utc IS NULL)", relayPolicy.Using);
+
+        // The retention owner's policy (Gate 2F) only reads, only content already past the 672-hour purge age, and
+        // only for that role: exactly the rows the purge is about to clear.
+        var retentionPolicy = Assert.Single(policies, policy => policy.Name == "retention_discovery_raw_receipts");
+        Assert.Equal("PERMISSIVE", retentionPolicy.Permissive);
+        Assert.Equal([owner], retentionPolicy.Roles);
+        Assert.Equal("SELECT", retentionPolicy.Command);
+        Assert.Null(retentionPolicy.Check);
+        Assert.Equal(
+            "((payload IS NOT NULL) AND (received_at_utc <= (now() - '672:00:00'::interval)))",
+            retentionPolicy.Using);
     }
 
     [Fact]

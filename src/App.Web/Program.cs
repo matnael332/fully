@@ -1,5 +1,6 @@
 using Azure.Monitor.OpenTelemetry.AspNetCore;
 using OpenTelemetry;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using WorkContinuity.Core.Correlation;
@@ -7,6 +8,7 @@ using WorkContinuity.Core.Features;
 using WorkContinuity.Core.Tenancy;
 using WorkContinuity.Core.Time;
 using WorkContinuity.Infrastructure.Health;
+using WorkContinuity.Infrastructure.Observability;
 using WorkContinuity.Infrastructure.Persistence;
 using WorkContinuity.Web.Platform;
 
@@ -31,13 +33,15 @@ builder.Services.AddPersistence(builder.Configuration);
 // OpenTelemetry baseline (Gate 1G): requests, dependencies (HTTP, PostgreSQL, Azure SDK), logs and
 // runtime metrics to Application Insights. Enabled only when Azure supplies the connection string
 // from Key Vault; locally and in CI smoke tests the endpoints run without any exporter. Nothing here
-// captures request or response bodies, so no work content or credential can reach telemetry.
+// captures request or response bodies, so no work content or credential can reach telemetry. The
+// Event Backbone's metrics (Gate 2F), which carry bounded tags only, join the same pipeline.
 if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
 {
     builder.Services.AddOpenTelemetry()
         .UseAzureMonitor()
         .ConfigureResource(resource => resource.AddService("work-continuity-web"))
-        .WithTracing(tracing => tracing.AddSource("Npgsql"));
+        .WithTracing(tracing => tracing.AddSource("Npgsql"))
+        .WithMetrics(metrics => metrics.AddMeter(EventBackboneMetrics.MeterName));
 }
 
 var app = builder.Build();

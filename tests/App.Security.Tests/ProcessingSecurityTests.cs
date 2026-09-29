@@ -91,6 +91,7 @@ public sealed class ProcessingSecurityTests
         Assert.DoesNotContain("SetResolved", processor, StringComparison.Ordinal);
         Assert.DoesNotContain("outbox_pending_tenants", processor, StringComparison.Ordinal);
         Assert.DoesNotContain("resolve_ingress_connection", processor, StringComparison.Ordinal);
+        Assert.DoesNotContain("retention_expired_tenants", processor, StringComparison.Ordinal);
 
         // It reads the tenant from the scope the transport restored, and refuses a message of another tenant.
         Assert.Contains("_tenantContextAccessor.Current.TryGetTenantId(out var tenant) || tenant != envelope.TenantId", processor, StringComparison.Ordinal);
@@ -103,7 +104,7 @@ public sealed class ProcessingSecurityTests
             .Select(property => (Core.Results.Error)property.GetValue(null)!)
             .ToList();
 
-        Assert.Equal(12, errors.Count);
+        Assert.Equal(13, errors.Count);
         Assert.Equal(errors.Count, errors.Select(error => error.Code).Distinct(StringComparer.Ordinal).Count());
         Assert.All(errors, error =>
         {

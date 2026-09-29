@@ -29,7 +29,8 @@ public sealed class SnapshotProjectionTests(DatabaseFixture fixture)
 {
     private static readonly DateTimeOffset T0 = IngressHost.Now.AddHours(-1);
 
-    // A processing clock later than the receipt, so the observed and processed times are told apart.
+    // A processing clock of its own, so the observed time, the receipt time the database stamped, and the processed
+    // time are told apart.
     private static readonly DateTimeOffset Later = IngressHost.Now.AddMinutes(3);
 
     private CancellationToken Token => TestContext.Current.CancellationToken;
@@ -52,10 +53,13 @@ public sealed class SnapshotProjectionTests(DatabaseFixture fixture)
         Assert.Equal(
             new SnapshotObjectRow("1001", 1, accepted.EventId.Value, IngressHost.Now),
             Assert.Single(await ProcessingHarness.SnapshotObjectsAsync(fixture, tenant)));
+
+        // Observed at the receipt time the database stamped, processed on the processing clock.
+        var observed = await IngressData.ReceiptTimeAsync(fixture, accepted.ReceiptId, Token);
         Assert.Equal(
             new SnapshotFieldRow(
                 "1001", "status", "TaskStatus", "done", "SourceTaskSystem", "SaasConnector", SyntheticSource.System, ConnectionRecord.ReferenceFor(connection),
-                accepted.EventId.Value, "evt-first", 7, T0, T0.AddMinutes(-2), IngressHost.Now, IngressHost.Now, FieldVersion: 1, ObjectVersion: 1),
+                accepted.EventId.Value, "evt-first", 7, T0, T0.AddMinutes(-2), observed, IngressHost.Now, FieldVersion: 1, ObjectVersion: 1),
             Assert.Single(await ProcessingHarness.SnapshotFieldsAsync(fixture, tenant)));
     }
 
@@ -97,7 +101,10 @@ public sealed class SnapshotProjectionTests(DatabaseFixture fixture)
 
         var facts = await ProcessingHarness.SnapshotFieldsAsync(fixture, tenant);
         Assert.Equal(3, facts.Count);
-        Assert.All(facts, fact => Assert.Equal((IngressHost.Now, Later), (fact.ObservedAtUtc, fact.ProcessedAtUtc)));
+
+        // Each fact was observed at its own receipt's database-stamped time, which the count below matches exactly.
+        Assert.All(facts, fact => Assert.Equal(Later, fact.ProcessedAtUtc));
+        Assert.All(facts, fact => Assert.NotEqual(fact.ProcessedAtUtc, fact.ObservedAtUtc));
         Assert.Equal(facts.Count, await CountFactsMatchingTheirLedgerAndOrderingEvidenceAsync(tenant));
     }
 
@@ -214,6 +221,8 @@ public sealed class SnapshotProjectionTests(DatabaseFixture fixture)
         await using var host = ProcessingHarness.Host(fixture, new InMemoryTransport());
         var (tenant, connection) = await IngressData.NewConnectionAsync(fixture, Token);
 
+        // An hour after the receipt time, which the database stamps when it stores the receipt.
+        var afterReceipt = (await IngressData.DatabaseNowAsync(fixture, Token)).AddHours(1);
         var cases = new (Delivered Delivered, QuarantineReason Reason, string Code)[]
         {
             (await host.SubmitAsync(fixture, tenant, connection, new SyntheticEvent
@@ -232,7 +241,7 @@ public sealed class SnapshotProjectionTests(DatabaseFixture fixture)
             {
                 ObjectId = "5003",
                 Revision = 1,
-                UpdatedAt = IngressHost.Now.AddHours(1),
+                UpdatedAt = afterReceipt,
             }, "evt-q-future"), QuarantineReason.ImpossibleOrdering, ProcessingErrors.SourceTimeAfterReceipt.Code),
             (await host.SubmitAsync(fixture, tenant, connection, new SyntheticEvent
             {
@@ -321,8 +330,13 @@ public sealed class SnapshotProjectionTests(DatabaseFixture fixture)
 
         Assert.True(withActor.TryGetProjection(out var handoff));
         Assert.False(handoff!.Event.Content.Actor!.IsResolved);
+        // Apart from what names each receipt, its object and its event, including the receipt time the database stamped
+        // on each, the two facts are identical: the unresolved actor changed nothing.
         var facts = await ProcessingHarness.SnapshotFieldsAsync(fixture, tenant);
-        var neutral = facts.Select(fact => fact with { ObjectId = string.Empty, LastEventId = Guid.Empty, SourceEventId = null }).Distinct().ToList();
+        var neutral = facts
+            .Select(fact => fact with { ObjectId = string.Empty, LastEventId = Guid.Empty, SourceEventId = null, ObservedAtUtc = default })
+            .Distinct()
+            .ToList();
         Assert.Single(neutral);
         Assert.Equal((0L, 0L, 0L), await CountInSnapshotAsync(marker));
     }
@@ -641,7 +655,9 @@ public sealed class SnapshotProjectionTests(DatabaseFixture fixture)
                 AND o.object_id = s.object_id AND o.field = s.field
             JOIN snapshot_objects so ON so.tenant_id = s.tenant_id AND so.object_system = s.object_system
                 AND so.object_connection = s.object_connection AND so.object_type = s.object_type AND so.object_id = s.object_id
+            JOIN raw_receipts r ON r.tenant_id = l.tenant_id AND r.receipt_id = l.receipt_id
             WHERE s.tenant_id = @tenant
+              AND r.received_at_utc = s.observed_at_utc
               AND l.outcome = 'AcceptedForProjection' AND f.decision = 'Advance' AND f.data_type = s.data_type
               AND o.last_event_id = s.last_event_id
               AND (l.object_system, l.object_connection, l.object_type, l.object_id) = (s.object_system, s.object_connection, s.object_type, s.object_id)
