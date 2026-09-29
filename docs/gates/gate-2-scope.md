@@ -14,7 +14,7 @@ at its owner boundary for review before the next begins.
 | 2D Processing pipeline and event ledger | **PASS** — commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI) |
 | 2E Snapshot projection | **PASS** — commit `e165852`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI) |
 | 2F Retention and metrics | **PASS** — commit `259be35`, CI run 36542058355 green (584 tests: 577 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2F test ran and passed in CI) |
-| 2G Acceptance suite, crash recovery, tenant isolation and the Gate report | **NEXT / NOT STARTED**; begins only on explicit product-owner authorization |
+| 2G Acceptance suite, crash recovery, tenant isolation and the Gate report | Authorized 2026-09-29; implemented and verified locally; at its owner boundary, uncommitted (evidence: `docs/gates/gate-2-report.md`) |
 | Gate 3 — monday Connector | **NOT STARTED**; requires explicit authorization |
 
 Azure Dev does **not** have the Gate 2B migration or schema: the `connections` table and the
@@ -619,3 +619,70 @@ accepted there (decision 8); every 2F test ran and passed in CI. Azure Dev has n
 or 2F migrations or schema, and nothing schedules or runs the purge there: its activation, with the hourly job
 and the alerts of items 13 to 15, is a separate product-owner approval. The product-owner decisions of the 2F
 reviews are the nine recorded above.
+
+## 2G Definition of Done
+
+Authorized 2026-09-29 from `dcf5496` (the Gate 2F closure). 2G adds evidence, not features: it proves the Gate 2
+acceptance on the whole path and closes Gate 2 with a report. Every item derives from Development Gates v1, System
+Architecture v1 §3 and §8 to §10, the Architecture Invariants, PRD v1 §5, §11, §12, §17 and §22, and the Gate 2
+owner decisions.
+
+1. **Whole-path acceptance suite.** New integration tests drive the real composition end to end on the
+   deterministic in-memory broker (decision 8): ingress, the outbox relay, the broker with its sessions,
+   duplicate-detection window, delivery counts, abandon, dead-lettering and re-drive, the transport consumer,
+   processing, the ledger and the Snapshot, against the local PostgreSQL through the runtime role. Each scenario
+   states its expected Snapshot from the synthetic source's own ordering evidence, the ground truth, and covers:
+   - duplicates at every hop: a source repeat, a relay republish, a broker redelivery and a redelivery after a
+     settled outcome;
+   - delayed and out-of-order delivery of revisions and source times across objects and fields, and events
+     without ordering evidence;
+   - retries: a transient failure retried to success, and a failure past the retry limit dead-lettered and
+     re-driven after the fix;
+   - invalid and untrusted input: deliveries ingress refuses (unknown or disabled connection, source mismatch,
+     failed verification, malformed input) and events processing quarantines (bad schema, unknown schema
+     version, impossible ordering, authority conflict);
+   - accepted events projected with their provenance;
+   - a seeded run that reorders, duplicates and delays one ground truth under several fixed seeds.
+
+   It passes only if the final Snapshot equals the ground truth whatever the order, duplication or redelivery;
+   every fact's provenance matches its ledger entry and ordering state; nothing invalid or untrusted reaches the
+   Snapshot; and **no event is silently lost**: every delivery ingress acknowledged ends in exactly one durable,
+   observable state, a ledger entry with its outcome or a dead-letter entry with a stable reason code that
+   re-drive can return, and every delivery it refused was reported to the source and stored nothing.
+2. **Crash and recovery matrix.** Every material durable boundary is interrupted, before and after its commit
+   where both exist, then redelivered or restarted from the database state alone. Each row must converge on the
+   fault-free ledger and Snapshot or fail visibly, unacknowledged to the source or dead-lettered with a reason
+   code, and never lose or double an effect: the ingress write and its acknowledgement, a lost acknowledgement
+   included; receipt and outbox atomicity; the relay before the send, after the send and before its commit, and
+   after a lost commit; broker duplicate delivery and a lost lock; consumer settlement (a transient retry,
+   retries exhausted, a permanent failure, cancellation); processing before and after the ledger commit; the
+   Snapshot and the ledger in one transaction; a restarted host; and content purged before processing, which is
+   refused and dead-lettered, never discarded. The report maps each row to its evidence: the new whole-path tests
+   and the 2B to 2F component tests.
+3. **Tenant isolation acceptance.** Tenants that share object ids and provider event ids run through the whole
+   path together while cross-tenant misuse is attempted at every layer: every tenant-owned table under row-level
+   security (read, update, delete, and moving a row to another tenant); ingress tenant resolution from the
+   connection only; outbox discovery and the relay (tenant ids only; each tenant published from its own scope
+   under its own tenant and session); broker metadata (a forged tenant, a session that disagrees with the tenant,
+   a causation that names another tenant's receipt); processing in a foreign scope; the ledger and the Snapshot;
+   retention; logs and metrics. Any cross-tenant read, write or projection is a Gate FAIL.
+4. **Local emulator acceptance.** The whole path also runs over the local Service Bus emulator with the real
+   consumer host and processing: out-of-order events converge, a republished message id is absorbed, and a forged
+   message is dead-lettered and changes nothing. Skipped in CI (decision 8).
+5. **Evidence that the suite is not vacuous.** With the repository's existing approach, a scratchpad driver that
+   changes one guard, runs the named tests, restores the file and verifies its hash, and database guards
+   weakened and restored in the local database, deliberately weakening each critical protection makes the
+   acceptance, crash or isolation tests fail: idempotency, ordering precedence, the impossibility and authority
+   checks, dead-lettering, the relay's mark-after-send, acknowledge-after-commit, the tenant-session binding and
+   row-level security.
+6. **Contradiction audit.** The final 2A to 2G implementation is checked against PRD v1, System Architecture v1,
+   all 83 Architecture Invariants, Development Gates v1 and the Gate 2 owner decisions. Each invariant is recorded
+   as satisfied, with its evidence, not applicable to Gate 2, or deferred to a named later Gate. No frozen
+   document changes.
+7. **Gate 2 report.** `docs/gates/gate-2-report.md` records the acceptance evidence, test counts, the
+   crash-recovery matrix, tenant-isolation results, mutation and vacuity evidence, the contradiction audit,
+   remaining risks, deferred items and why, the Azure state, and a PASS or FAIL recommendation.
+8. **Scope.** Tests and documentation. Production code changes only if the suite finds a real defect: the
+   smallest root-cause fix with a regression test, reported. No monday or Gate 3 work, no Azure change, no
+   activation of the relay, the consumer, processing or the purge in a host, and no change to the frozen
+   documents. Build with 0 warnings; the full suite, both verifier scripts and the local emulator tests pass.
