@@ -50,10 +50,198 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
 
                     b.HasKey("ConnectionId");
 
+                    b.HasAlternateKey("TenantId", "ConnectionId")
+                        .HasName("ak_connections_tenant_connection");
+
                     b.HasIndex("TenantId")
                         .HasDatabaseName("ix_connections_tenant_id");
 
                     b.ToTable("connections", (string)null);
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ConnectorAuthorizationRecord", b =>
+                {
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("connection_id");
+
+                    b.Property<DateTimeOffset>("AccessExpiresAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("access_expires_at_utc");
+
+                    b.Property<DateTimeOffset>("AuthorizedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("authorized_at_utc");
+
+                    b.Property<Guid>("CanonicalUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("canonical_user_id");
+
+                    b.Property<long>("Generation")
+                        .HasColumnType("bigint")
+                        .HasColumnName("generation");
+
+                    b.Property<string>("GrantedScopes")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("granted_scopes");
+
+                    b.Property<Guid>("MaterialVersion")
+                        .HasColumnType("uuid")
+                        .HasColumnName("material_version");
+
+                    b.Property<string>("ProviderAccount")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("provider_account");
+
+                    b.Property<bool?>("ProviderRevocationConfirmed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("provider_revocation_confirmed");
+
+                    b.Property<string>("ProviderSubject")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("provider_subject");
+
+                    b.Property<DateTimeOffset?>("ReauthorizationRequiredAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("reauthorization_required_at_utc");
+
+                    b.Property<Guid?>("RefreshClaimId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("refresh_claim_id");
+
+                    b.Property<DateTimeOffset?>("RefreshClaimedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("refresh_claimed_at_utc");
+
+                    b.Property<DateTimeOffset?>("RefreshedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("refreshed_at_utc");
+
+                    b.Property<DateTimeOffset?>("RevokedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("revoked_at_utc");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("state");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("ConnectionId");
+
+                    b.HasIndex("TenantId", "CanonicalUserId")
+                        .HasDatabaseName("ix_connector_authorizations_tenant_user");
+
+                    b.HasIndex("TenantId", "ConnectionId")
+                        .HasDatabaseName("ix_connector_authorizations_tenant_connection");
+
+                    b.ToTable("connector_authorizations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_connector_authorizations_claim", "(refresh_claim_id IS NULL) = (refresh_claimed_at_utc IS NULL)");
+
+                            t.HasCheckConstraint("ck_connector_authorizations_generation", "generation >= 1");
+
+                            t.HasCheckConstraint("ck_connector_authorizations_identifiers", "provider_subject <> '' AND provider_account <> '' AND granted_scopes <> ''");
+
+                            t.HasCheckConstraint("ck_connector_authorizations_reauthorization", "state <> 'ReauthorizationRequired' OR reauthorization_required_at_utc IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_connector_authorizations_revocation_confirmed", "provider_revocation_confirmed IS NULL OR state = 'Revoked'");
+
+                            t.HasCheckConstraint("ck_connector_authorizations_revoked", "(state = 'Revoked') = (revoked_at_utc IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_connector_authorizations_state", "state IN ('Active', 'ReauthorizationRequired', 'Revoked')");
+                        });
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ConnectorAuthorizationTransactionRecord", b =>
+                {
+                    b.Property<Guid>("TransactionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("transaction_id");
+
+                    b.Property<Guid>("CanonicalUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("canonical_user_id");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("connection_id");
+
+                    b.Property<DateTimeOffset?>("ConsumedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("consumed_at_utc");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("expires_at_utc");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("purpose");
+
+                    b.Property<byte[]>("RedirectHash")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("redirect_hash");
+
+                    b.Property<string>("RequestedScopes")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("requested_scopes");
+
+                    b.Property<string>("SourceSystem")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("source_system");
+
+                    b.Property<byte[]>("StateHash")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("state_hash");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("TransactionId");
+
+                    b.HasIndex("TenantId", "CanonicalUserId")
+                        .HasDatabaseName("ix_connector_authorization_transactions_tenant_user");
+
+                    b.HasIndex("TenantId", "ExpiresAtUtc")
+                        .HasDatabaseName("ix_connector_authorization_transactions_open")
+                        .HasFilter("consumed_at_utc IS NULL");
+
+                    b.ToTable("connector_authorization_transactions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_connector_authorization_transactions_consumed", "consumed_at_utc IS NULL OR consumed_at_utc >= created_at_utc");
+
+                            t.HasCheckConstraint("ck_connector_authorization_transactions_hashes", "octet_length(state_hash) = 32 AND octet_length(redirect_hash) = 32");
+
+                            t.HasCheckConstraint("ck_connector_authorization_transactions_lifetime", "expires_at_utc > created_at_utc AND expires_at_utc <= created_at_utc + interval '10 minutes'");
+
+                            t.HasCheckConstraint("ck_connector_authorization_transactions_purpose", "purpose IN ('Connect', 'Reauthorize')");
+
+                            t.HasCheckConstraint("ck_connector_authorization_transactions_scopes", "requested_scopes <> ''");
+                        });
                 });
 
             modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.EventLedgerFieldRecord", b =>
@@ -643,11 +831,44 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
 
                     b.HasKey("UserId");
 
+                    b.HasAlternateKey("TenantId", "UserId")
+                        .HasName("ak_users_tenant_user");
+
                     b.HasIndex("TenantId", "Provider", "ProviderSubject")
                         .IsUnique()
                         .HasDatabaseName("ux_users_tenant_provider_subject");
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ConnectorAuthorizationRecord", b =>
+                {
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.UserRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CanonicalUserId")
+                        .HasPrincipalKey("TenantId", "UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_connector_authorizations_user");
+
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.ConnectionRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ConnectionId")
+                        .HasPrincipalKey("TenantId", "ConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_connector_authorizations_connection");
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ConnectorAuthorizationTransactionRecord", b =>
+                {
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.UserRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CanonicalUserId")
+                        .HasPrincipalKey("TenantId", "UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_connector_authorization_transactions_user");
                 });
 
             modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.EventLedgerFieldRecord", b =>

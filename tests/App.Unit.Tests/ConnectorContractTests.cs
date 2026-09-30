@@ -205,7 +205,7 @@ public sealed class ConnectorContractTests
     {
         var codes = ConnectorErrors.All.Select(error => error.Code).ToList();
 
-        Assert.Equal(17, codes.Count);
+        Assert.Equal(18, codes.Count);
         Assert.Equal(codes.Count, codes.Distinct(StringComparer.Ordinal).Count());
         Assert.All(ConnectorErrors.All, error =>
         {

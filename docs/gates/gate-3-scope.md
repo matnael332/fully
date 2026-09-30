@@ -6,8 +6,9 @@
 |---|---|
 | Gate 3 — monday Connector | **AUTHORIZED 2026-09-29, IN PROGRESS** |
 | 3A — Connector contract and monday client foundation | **PASS** — approved by the product owner on 2026-09-30 |
-| 3B — OAuth 2.1 connection lifecycle | **NEXT / NOT STARTED**; needs its own product-owner authorization |
-| 3C to 3G | Not started; each needs its own product-owner authorization |
+| 3B — OAuth 2.1 connection lifecycle | **PASS** — approved by the product owner on 2026-09-30 |
+| 3C — Webhook intake | **NEXT / NOT STARTED**; needs its own product-owner authorization |
+| 3D to 3G | Not started; each needs its own product-owner authorization |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -193,9 +194,9 @@ One sub-gate at a time; no later functionality enters an earlier sub-gate.
   or another approved route) for 3C and 3G.
 - Azure Dev has none of the Gate 2B to 2F migrations and runs none of the Event Backbone; deploying, migrating and
   activating are separate approvals.
-- Decisions expected later: the identity a connection acts under (3B), token storage (3B), widening
-  `EventText.MaxValueLength` if monday data needs it (3D), the clock-skew tolerance (3E), and rate budgets and
-  scheduling (3E, 3F).
+- Decided for 3B on 2026-09-30: the identity a connection acts under (D3B-1) and the secret boundary (D3B-2); see
+  *3B owner decisions*. Decisions expected later: widening `EventText.MaxValueLength` if monday data needs it (3D),
+  the clock-skew tolerance (3E), and rate budgets and scheduling (3E, 3F).
 
 ## Contradiction audit before implementation
 
@@ -263,3 +264,349 @@ completed before Claude Code stopped it for low system memory during M32; M32, r
 restored source, was caught too. **Final mutation result: 32/32 caught**, with every file restored and verified by
 hash. **3B (OAuth 2.1 connection lifecycle) is NEXT / NOT STARTED** and begins only on its own authorization; it needs
 the owner decisions listed under *Owner boundaries*. Gate 3 stays IN PROGRESS.
+
+## 3B — OAuth 2.1 connection lifecycle
+
+Authorized by the product owner on 2026-09-30 in SAFE AUTO MODE. Baseline: `main` == `origin/main` == `d06ed66` (the
+Gate 3A commit), working tree clean, the frozen Core and Premium documents byte-identical to their recorded hashes.
+3B stops at its owner boundary: no commit, no push, no 3C.
+
+### 3B owner decisions (2026-09-30)
+
+- **D3B-1 — Delegated identity: APPROVED.** A normal monday connection acts through the explicit delegated identity
+  of the user who authorized that connection. Required chain: Tenant → canonical user → monday connection → delegated
+  monday identity. Email is never the security identity, no user is invented, and a Service Identity is not the
+  default for a normal monday connection.
+- **D3B-2 — Secret boundary: APPROVED.** The monday client secret, the OAuth access token, the OAuth refresh token and
+  the PKCE code verifier are secrets. They never appear in ordinary PostgreSQL fields, source, logs, telemetry, events
+  or Core contracts. Ordinary database fields may hold only: the tenant; the connection id; the canonical user id; the
+  OAuth transaction id; the state hash; timestamps and expiry; granted scope names; connection status; an opaque secret
+  reference or version; the token generation or version; and non-secret provider and account identifiers. 3B needs no
+  Azure change and creates or updates no Key Vault resource: it defines the narrow secret-storage abstraction, tests
+  it with deterministic in-memory storage, and adds no Azure deployment, RBAC or IaC work. The lack of a deployed Key
+  Vault adapter is not a 3B blocker.
+- **D3B-3 — No real monday app in 3B.** No monday app is created or configured. The code is ready for the New OAuth
+  Flow, a server-controlled redirect URI, minimum scopes, a client id and a client secret. A personal API token is
+  never the architecture.
+
+### monday OAuth 2.1, reverified (2026-09-30)
+
+Reverified against monday's own sources only: the authorization server metadata
+(`https://auth.monday.com/oauth_ms/.well-known/oauth-authorization-server`), the
+[OAuth 2.1 migration guide](https://developer.monday.com/apps/docs/migrating-to-the-new-oauth-flow) and the
+[OAuth reference](https://developer.monday.com/apps/docs/oauth). Nothing contradicts a material point of the 3B
+authorization.
+
+| Topic | Verified fact |
+|---|---|
+| Metadata | Issuer `https://auth.monday.com`; authorization `https://auth.monday.com/oauth2/authorize`; token `https://auth.monday.com/oauth_ms/oauth/token`; revocation `https://auth.monday.com/oauth_ms/oauth/revoke`; response type `code` only; grants `authorization_code` and `refresh_token`; PKCE method `S256` only; client authentication `client_secret_post` or `client_secret_basic`; `authorization_response_iss_parameter_supported: true`. 26 scopes: 14 end in `:read`, 11 in `:write`, plus `ai:consume` |
+| Authorization request | PKCE is required: `code_challenge` (base64url SHA-256 of the verifier) and `code_challenge_method=S256`; the verifier is 43–128 unreserved characters. `redirect_uri` must be one of the app's configured redirect URLs, and the requested scopes must match the scopes configured in the app |
+| Callback | "Same parameters — `code`, `state`, and `status`. Check `status` to confirm the user approved the authorization." The code is valid for 10 minutes |
+| Code exchange | `POST` with a JSON body (`Content-Type: application/json`): `grant_type=authorization_code`, `client_id`, `client_secret`, `code`, `redirect_uri` (required when the authorization request carried one) and `code_verifier` |
+| Token response | `access_token` (a JWT whose `exp` claim is its expiry), `refresh_token`, `token_type` `Bearer`, `scope` (space-separated). `expires_in` is documented only for the legacy-token migration endpoint, which 3B does not use |
+| Refresh | `POST` JSON `grant_type=refresh_token`, `client_id`, `client_secret`, `refresh_token`. Refresh when under 5 minutes remain; after a `401 Unauthorized`, refresh and retry. "Each refresh returns a new refresh_token. Always store the latest refresh token and discard the old one." |
+| Revocation | `POST` JSON `token`, `client_id`, `client_secret`, `token_type_hint`; success is `{"success": true}` |
+
+**Open verification items** (continuing the list above; none is a contradiction, and none is guessed):
+
+5. The values of the callback's `status` parameter are not documented. 3B accepts an authorization response only when
+   it carries a code and no `error`; exchanging the code then proves the approval. 3G records the real value and adds
+   a positive check (3G).
+6. The metadata advertises the `iss` authorization-response parameter, but the callback documentation names only
+   `code`, `state` and `status`. 3B refuses a present `iss` that is not exactly `https://auth.monday.com` and accepts
+   its absence: with one fixed authorization server there is no second server for the mix-up attack `iss` prevents.
+   3G confirms, and makes `iss` mandatory if monday sends it (3G).
+7. The token endpoint's error codes, the access-token and refresh-token lifetimes and the treatment of a reused
+   refresh token are not documented. 3B decides by HTTP status alone and never reuses a refresh token (3G).
+8. Item 2 stays open: the only documented `Authorization` form is the raw personal token, and OAuth responses say
+   `token_type: Bearer`. The form stays in one place and is confirmed in 3G.
+
+### 3B Definition of Done
+
+1. The New monday OAuth 2.1 flow only.
+2. PKCE S256 and anti-CSRF, anti-replay state.
+3. Strong tenant, user and connection binding.
+4. Secure authorization-code exchange.
+5. An expiring access-token lifecycle.
+6. Safe refresh-token rotation.
+7. Durable concurrency protection.
+8. Fail-closed handling of ambiguous refresh persistence.
+9. Local disconnect and provider revocation.
+10. Access-time revocation enforcement.
+11. No secret in an ordinary database field, Core contract, log or event.
+12. Read-only scopes and policy; no Gate 3 write capability.
+13. No live monday account and no Azure needed by any test.
+14. Full test, security and mutation evidence.
+15. The frozen documents unchanged.
+16. The full suite and the repository verifiers green.
+17. No contradiction with Core or Premium P0.
+
+### 3B design
+
+**Where things live.** The dependency rules decide the split. Core holds the provider-neutral authorization port, its
+records and its errors; the port carries hashes, ids, times, scope names and an opaque material version, never a secret.
+Infrastructure implements the port over PostgreSQL through `ITenantScopedDatabase` only. The monday project holds
+everything that touches a secret or monday's protocol: options, the scope policy, PKCE and state, the OAuth client,
+the secret-storage port, the authorizer (start, callback, disconnect), the credential source that implements the 3A
+port, and an HTTP handler that never follows redirects. Nothing is registered in a host.
+
+**Persistence.** Two tenant-owned tables under forced row-level security; no tenant-less function is added.
+`connector_authorization_transactions` holds one row per started authorization: tenant, transaction id, canonical
+user, intended connection, source system, purpose (connect or reauthorize), the SHA-256 of the state secret, the
+SHA-256 of the redirect URI, the requested scope names, and the created, expiry and consumed times, stamped by the
+database clock; a check constraint caps the lifetime at 10 minutes. `connector_authorizations` holds one row per
+authorized connection: tenant, connection, canonical user, state (Active, ReauthorizationRequired, Revoked), monday
+user id and account id, generation, material version, access-token expiry, granted scope names, the refresh claim and
+its time, and lifecycle times. No column can hold a token, a secret or a verifier. Every foreign key includes the
+tenant, so neither table can name another tenant's user or connection. A connection's Gate 2 `connections` row is
+created Active when it is first authorized and set Disabled when it is disconnected; nothing re-enables it.
+
+**Secret storage.** `IMondaySecretStore` sets, gets and deletes one value by a `MondaySecretName` that only the
+connector can build: tenant, connection and material version for a token pair; tenant and transaction for a verifier;
+one fixed name for the client secret. It has no list or search, so there is no tenant-less secret query. A stored
+token pair carries its tenant, connection, version and monday identity, and is refused on read unless all of them
+match. Tests use in-memory storage; the deployed adapter (Key Vault) is a later owner decision.
+
+**State and PKCE.** The server generates everything from the operating system's CSPRNG: a transaction id, a 256-bit
+state secret and a 256-bit verifier (43 characters). The `state` sent to monday is the transaction id and the state
+secret; the database keeps only the secret's SHA-256. The verifier lives only in secret storage; the challenge is its
+S256. The redirect URI and the scopes come from server configuration, never from the browser.
+
+**Callback order**, each failure stopping before any exchange: the state parses; the transaction exists in the trusted
+tenant; it has not expired (database clock); it is bound to the calling canonical user; the state secret matches (in
+constant time); it has not been consumed, and is consumed atomically under a row lock, so a replay or a concurrent
+second callback loses; the response is approved (no `error`); an `iss`, when present, is monday's issuer; a code is
+present; the configured redirect URI still matches the transaction. A wrong user or a wrong state does not consume the
+transaction. Once the transaction is consumed, found expired or replayed, its verifier is deleted.
+
+**Exchange.** One attempt, never retried: JSON to the token endpoint with the code, the verifier, the redirect URI and
+the client credentials. The response must carry an access token, a refresh token, `token_type` Bearer and scopes. The
+expiry is the access token's JWT `exp`, which must be in the future and within a sanity bound; granted scopes must all
+be allowlisted read scopes and include the required ones. The identity is then verified by the read
+`me { id account { id } }`; for a reauthorization it must equal the connection's recorded monday user and account. The
+pair is stored under a new material version before any database row points at it. Any failure after tokens were issued
+revokes them, best effort, and fails closed.
+
+**Refresh: single-flight and crash-safe.** A credential with more than 5 minutes left is used as it is. Otherwise the
+caller claims the connection's refresh by a compare-and-swap on its generation, and only the winner calls monday. The
+new pair is written first, under the claim's id; then a compare-and-swap on generation and claim advances the
+generation and points the row at the new version; then the old version is deleted. A loser keeps using the current
+token while it is still valid, and otherwise waits briefly for the winner. A 429, or a request that provably never
+left, releases the claim as a transient failure. Any other rejection, an ambiguous outcome (a timeout after sending, a
+5xx, an unreadable success) or a failure to store the new pair moves the connection to ReauthorizationRequired: the
+old refresh token is never used again. A claim older than its timeout is resolved by the next caller: the claimant's
+new pair is adopted if it was stored, and otherwise the connection requires reauthorization. After a provider 401 the
+read client asks for one renewal and retries once.
+
+**Access-time checks.** Before every attempt the credential source rereads the row and fails closed, before anything
+is sent, when the connection is disabled or revoked, when reauthorization is required, when the delegating user is no
+longer active, when the row or the stored pair belongs to another tenant, connection or identity, or when the secret
+cannot be read.
+
+**Disconnect.** One database transaction first marks the authorization Revoked and the connection Disabled; only then
+are the refresh token and the access token revoked at monday, one attempt each, and every stored version deleted. A
+monday outage still leaves the connection unusable, and the revocation is recorded as unconfirmed. In 3B only the
+connection's canonical user may disconnect it; a tenant administrator's disconnect arrives with authorization
+hardening (Gate 7).
+
+**Scopes.** Server configuration chooses the requested scopes from an allowlist of monday's documented `:read`
+scopes; the default is `me:read boards:read`. No `:write` scope, `ai:consume` or unknown scope can be configured, and a
+grant that contains one is refused and revoked.
+
+**OAuth calls are not connector operations.** Exchange, refresh and revocation are the credential mechanism, like the
+3A credential port, not operations on monday work data. They carry no operation descriptor and never enter the action
+taxonomy, so the SEND/CHANGE approval policy does not apply to them; none is ever retried automatically. The identity
+probe is a work-data read and is declared like the other reads.
+
+**Not in 3B.** No webhook, normalization, reconciliation or initial-sync logic; no monday write; no host endpoint and
+no registration. The Web host has no authenticated user session yet, so the start and callback entry points arrive with
+the sub-gate that can authenticate the canonical user. No real monday app, account or secret; no Azure, Key Vault,
+RBAC, network or IaC change.
+
+### 3B contradiction audit (before code)
+
+Every element of the 3B design was compared with PRD v1, System Architecture v1, the 83 Architecture Invariants,
+Development Gates v1, the frozen Premium documents and the Gate 2 decisions.
+
+| Element | Canonical rule | Result |
+|---|---|---|
+| Delegated identity chain; never email; no invented user | D3B-1; invariants 19, 45, 46, 47; Premium D2 | Compatible: the identity is the monday user verified by `me`, bound to the authorizing canonical user |
+| Secrets only in secret storage; ordinary fields limited to the D3B-2 list | D3B-2; PRD v1 §17; invariants 53, 54 | Compatible: no token, secret or verifier column; hashes, ids, times, scope names and an opaque version only |
+| Tenant from trusted server context; forced row-level security; no tenant-less secret access | invariants 1, 44, 45; Gate 2 decision 1 | Compatible: both tables tenant-owned; no new tenant-less function; secret names derive from trusted ids |
+| Revocation at access time | invariant 58; Premium §20 constraint 7 | Compatible: the row is reread before every attempt |
+| Read and ingest only | Development Gates v1; invariant 37; Premium §20 constraint 5 | Compatible: read scopes only; the identity probe is a read query |
+| Credentials only in the connector layer | Premium §20 constraint 1 | Compatible: the Core port carries no secret |
+| Every provider call records its authority | Premium §20 constraint 2 | Compatible: every read result carries the verified delegated identity |
+| SEND/CHANGE need approval by policy | CLAUDE.md; PRD v1 approval rules | Compatible: OAuth protocol calls are the credential mechanism, not work actions; nothing changes monday data |
+| AI is never Source of Truth and never executes | invariants on AI | Compatible: no AI |
+| Webhooks and reconciliation stay separate and later | System Architecture v1 §2; invariant 17 | Compatible: none in 3B |
+| No Azure change | CLAUDE.md; D3B-2 | Compatible |
+
+**Result: no contradiction, no blocker.** The design needs no further product-owner decision before implementation.
+
+### 3B implementation record
+
+Implemented 2026-09-30 on top of `d06ed66`; approved by the product owner on 2026-09-30.
+
+**Core** (`src/App.Core/Connectors/`, provider-neutral and secret-free): `IConnectorAuthorizationStore`, eleven
+operations, each a compare-and-swap in the trusted tenant and none with a tenant parameter; the records
+`ConnectorAuthorizationTransaction`, `ConnectorAuthorizationGrant`, `ConnectorAuthorization`,
+`ConnectorTransactionConsumption` and `ConnectorDisconnection` with their states, purposes and outcomes;
+`ConnectorScopes`; 23 fixed `ConnectorAuthorizationErrors`; and `ConnectorErrors.ReauthorizationRequired` (18 connector
+errors).
+
+**Infrastructure:** the migration `20260930013407_ConnectorAuthorizations` adds the two tenant-owned tables under
+forced row-level security with the standard tenant policy, foreign keys that include the tenant (through two new
+unique constraints on `users` and `connections`), check constraints including the 10-minute lifetime, and runtime
+grants of read, insert and update; it adds no function. `ConnectorAuthorizationStore` implements the port through
+`ITenantScopedDatabase` only, with parameterized SQL and the database clock: a row lock for consuming and for
+disconnecting, and a CTE for the bounded close of expired transactions.
+
+**monday** (`src/App.Connectors.Monday/`): `MondayEndpoints` adds the issuer and the authorization, token and
+revocation endpoints; `MondayOAuthOptions` is server configuration without the client secret; `MondayScopePolicy`
+allows monday's 14 read scopes with the default `boards:read me:read`; `MondayPkce` and `MondayAuthorizationState`;
+`IMondaySecretStore`, `MondaySecretName`, `MondaySecretLookup` and stored values bound to tenant, connection, version
+and identity; `MondayOAuthClient` makes JSON token and revocation calls, one attempt each, bounded and never
+redirected, and reports Issued, Unusable, Rejected, Transient or Ambiguous; `MondayConnectionAuthorizer` starts,
+completes and disconnects; `MondayConnectionCredentialSource` implements the 3A port with access-time checks,
+single-flight crash-safe renewal and renewal after a rejection; `MondayHttp.CreateHandler()` follows no redirect and
+keeps no cookie. The 3A read client gains the single renewal and retry after a 401 and the identity read
+`monday.me.read`, and its bounded body read moved into a shared helper. Nothing is registered in a host, and nothing
+logs.
+
+**Refined during implementation** (no owner decision changed):
+
+- The stored-credential reference is the column `material_version`. A Gate 1D security test forbids the word
+  "secret" anywhere in a migration, and that guard was kept rather than weakened.
+- When the last compare-and-swap of a renewal fails with an unknown outcome and a fresh read shows the claim is still
+  the renewal's own, the compare-and-swap is tried once more; failing that, the new pair is kept for adoption rather
+  than destroyed.
+- The runtime role holds exactly SELECT, INSERT and UPDATE on both tables: the migration revokes every privilege,
+  DELETE included, and grants those three back (review item R3B-2). The unchanged global bootstrap re-grants DELETE
+  whenever it reruns; *3B owner review* records the rule for the Azure rollout. No store path deletes.
+- A verifier is deleted once its transaction is consumed, found expired or replayed. A wrong user or a wrong state
+  leaves the transaction and its verifier to their owner.
+- `ConnectorAuthorization.PermitsUse` was dropped as unused: the credential source reports each refusal separately.
+
+**Definition of Done evidence:**
+
+| # | Item | Evidence |
+|---|---|---|
+| 1 | New OAuth 2.1 flow only | Only the metadata's authorization, token and revocation endpoints; PKCE on every start; JSON bodies as documented; no legacy endpoint |
+| 2 | PKCE S256 and state | RFC 7636 vector; 43-character CSPRNG verifiers, unique over 50 starts; a 256-bit state secret stored as SHA-256 only; strict parsing |
+| 3 | Binding | The transaction is bound to the trusted tenant, the canonical user, the connection, the redirect hash and the scopes; foreign tenant, other user, wrong state, expiry and replay refused in the documented order |
+| 4 | Code exchange | Exactly one request, never retried (400, 401, 429, 5xx, redirect, network failure, timeout); verifier and client secret from secret storage only |
+| 5 | Expiring access | Expiry from the JWT `exp`, sane bounds, `expires_in` only shortens it; renewal inside the 5-minute margin |
+| 6 | Rotation | Each renewal presents the latest refresh token and stores the new pair before the row points at it; old versions destroyed |
+| 7 | Concurrency | Compare-and-swap claims: 8 concurrent claims yield one winner; 8 concurrent callbacks, one exchange; two instances, one refresh |
+| 8 | Ambiguous persistence | Rejected, ambiguous or unstorable outcomes require reauthorization; an abandoned claim's stored pair is adopted, otherwise reauthorization; the old refresh token is never used again |
+| 9 | Disconnect and revocation | Revoked and disabled in one transaction before any provider call; refresh and access tokens revoked, versions destroyed; an outage is recorded as unconfirmed |
+| 10 | Access-time revocation | Disabled, revoked, reauthorization required, inactive user, foreign tenant, and tampered stored pairs all refused before anything is sent |
+| 11 | No secret in ordinary fields, Core, logs or events | Pinned columns and Core members; a full database scan after the lifecycle finds no token, code, verifier, state or client secret, with a positive control; the connector references no logging |
+| 12 | Read-only scopes | The allowlist holds only read scopes; a write scope, `ai:consume` or an unknown scope is refused and revoked |
+| 13 | No live monday or Azure | Fake monday endpoints and in-memory secret storage only |
+| 14 | Test, security and mutation evidence | See below |
+| 15 | Frozen documents | Byte-identical to the recorded hashes |
+| 16 | Suite and verifiers | See below |
+| 17 | No contradiction | The pre-code audit holds after implementation |
+
+**Tests:** unit 568 (+178), security 129 (+11), architecture 23 (+5), integration 266 (+19): 986 in all, 986/986
+locally, the 9 Service Bus emulator tests included. The Gate 2 acceptance test that attacks every tenant-owned table
+now seeds and covers the two new tables.
+
+**Mutation and vacuity:** 59 new mutants over Core, the connector, the store and the migration, 14 of them run
+against real databases: the store's against the shared test database, the migration's (review item R3B-2) against
+fresh ones. All 59 were caught, after two tests were strengthened (the connection binding and the identity check of a
+stored pair) and two mutants were rewritten to compile. The 32 Gate 3A mutants, rerun on the refactored client, were
+all caught: 91/91. With row-level security disabled on the two new tables, 4 isolation tests failed; it was restored
+and verified. An empty database was migrated from zero (9 migrations), a re-run was a no-op, and it was dropped.
+
+**Verification:** `dotnet build --no-incremental` with 0 warnings and 0 errors; the full suite 986/986;
+`eng/verify-architecture.py` and `eng/verify-local-env.py` PASS; the six frozen documents byte-identical.
+
+**Security review:** no blocking finding. For later sub-gates: the authorization address carries the state, so the
+host that serves it must not log it (its string form is redacted); the deployed secret-store adapter needs its own
+timeouts (a store that hangs past the claim timeout ends in reauthorization, failing closed); abandoned verifiers are
+cleaned when the tenant next starts an authorization, and a scheduled sweep would need tenant discovery, a Gate 2
+decision 1 boundary; in 3B only the authorizing user can disconnect (a tenant administrator's disconnect comes with
+Gate 7); start requests are not rate-limited (Gate 7).
+
+**Still to decide before real monday use (3G and the owner):** the monday app (New OAuth Flow, read-only scopes since
+any write scope is refused, the redirect URL, the client id, and the client secret placed in the approved secret store
+as `wce-monday-client-secret`); the deployed secret store (a Key Vault adapter and access for the Web and Worker
+identities); the owner-operated DEV/TEST harness for real OAuth before Gate 7 (R3B-1), while production entry points
+for start and callback wait for the authenticated identity layer; the Azure rollout of the 3B migration under the
+bootstrap-rerun rule (R3B-2); how
+webhooks are registered in 3C, since `webhooks:write` is excluded; and verification items 2, 5 and 6.
+
+### 3B owner review (2026-09-30)
+
+The product owner reviewed 3B and ordered two items. Both were applied before the final 3B decision; nothing was
+committed.
+
+**R3B-1 — Real monday OAuth before Gate 7: approved boundary.**
+
+- Real monday OAuth testing before Gate 7 uses an owner-operated DEV/TEST harness.
+- The harness supplies the trusted chain itself: Tenant → canonical user → monday connection. It calls the same
+  `MondayConnectionAuthorizer` with a resolved tenant context and an authenticated principal for the owner's test user;
+  nothing of that chain is taken from a browser or a request.
+- No anonymous production OAuth-start endpoint may accept an arbitrary tenant or user.
+- Production, user-facing OAuth initiation waits for the appropriate authenticated identity layer.
+- The callback, state and PKCE binding stay unchanged: the transaction still binds the tenant, the canonical user, the
+  connection, the redirect address and the scopes, and the callback is validated in the same documented order.
+- Gate 7 authentication is not implemented, and 3B adds no harness and no endpoint. Building and running the harness
+  belongs to the owner-approved real-monday testing (3G) and needs its own approval.
+
+**R3B-2 — The runtime role's privileges on the 3B tables: applied.**
+
+- The migration revokes every privilege of `workcontinuity_app` on `connector_authorizations` and
+  `connector_authorization_transactions`, DELETE and TRUNCATE included, and grants back only SELECT, INSERT and UPDATE,
+  which is what the store uses. The global bootstrap mechanism is unchanged.
+- Evidence on fresh databases, bootstrapped and then migrated from zero in the rollout order
+  (`ConnectorAuthorizationFreshDatabaseTests`): the runtime role holds exactly INSERT, SELECT and UPDATE on both tables;
+  reading, inserting and updating work through the store (opening and consuming a transaction, activating, renewing,
+  reading, disconnecting); DELETE and TRUNCATE by the runtime role fail with permission denied (SQLSTATE 42501);
+  another tenant reads nothing, updates nothing and cannot insert rows labelled with the first tenant; and both tables
+  keep row-level security enabled and forced, with their tenant policy. Each database is created and dropped by its
+  exact name.
+- **Azure rollout rule.** The global bootstrap grants SELECT, INSERT, UPDATE and DELETE on every table each time it
+  runs. Run before the migration, as the rollout order requires (bootstrap, then migrate), it is overridden by the
+  migration. Rerun after it, it silently re-grants DELETE on both 3B tables, as a fresh-database test demonstrates.
+  During the Azure rollout, the bootstrap must therefore not be rerun after the 3B migration unless the same
+  owner-approved step immediately re-asserts the 3B privileges and verifies them; any result other than
+  `INSERT,SELECT,UPDATE` for both tables stops the rollout:
+
+  ```sql
+  REVOKE ALL PRIVILEGES ON connector_authorizations, connector_authorization_transactions FROM workcontinuity_app;
+  GRANT SELECT, INSERT, UPDATE ON connector_authorizations, connector_authorization_transactions TO workcontinuity_app;
+
+  SELECT t.table_name, string_agg(p.privilege, ',' ORDER BY p.privilege)
+  FROM (VALUES ('connector_authorizations'), ('connector_authorization_transactions')) AS t(table_name)
+  CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) AS p(privilege)
+  WHERE has_table_privilege('workcontinuity_app', 'public.' || t.table_name, p.privilege)
+  GROUP BY t.table_name;
+  ```
+
+  The same test proves that this re-assertion restores exactly read, insert and update. Making the bootstrap preserve
+  per-table revocations, or adding a restrictive no-delete policy so that a re-grant stays inert, would make the rule
+  durable; either is a separate owner decision.
+- On the shared local test database the suite reruns the bootstrap on every run, so that database shows DELETE on
+  these tables afterwards. That is the bootstrap's documented behaviour, not the migration's result; the fresh-database
+  tests are the evidence.
+
+### 3B closure (2026-09-30)
+
+The product owner gave 3B its final pass on 2026-09-30: **3B is PASS**. The owner decisions D3B-1 to D3B-3 and the two
+review decisions stay in force:
+
+- **R3B-1:** real monday OAuth before Gate 7 runs only through an owner-operated DEV/TEST harness that supplies the
+  trusted Tenant → canonical user → monday connection chain. No anonymous production OAuth-start endpoint may accept an
+  arbitrary tenant or user, production initiation waits for the authenticated identity layer, and the callback, state
+  and PKCE binding are unchanged.
+- **R3B-2:** the runtime role holds only SELECT, INSERT and UPDATE on the two OAuth tables, with DELETE and every other
+  privilege explicitly revoked. The unchanged global bootstrap must never be rerun after the 3B migration in Azure
+  without re-asserting and verifying those privileges in the same approved step.
+
+Before the closing commit, the clean build, the full suite (986/986) and both verifiers were repeated on the tree being
+committed. The mutation and vacuity evidence (91/91) stands, because only status documentation changed after it.
+**3C (webhook intake) is NEXT / NOT STARTED** and begins only on its own authorization. Gate 3 stays IN PROGRESS.

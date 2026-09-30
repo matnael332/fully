@@ -23,6 +23,8 @@ public sealed class PersistenceSecurityTests
         typeof(FieldOrderingStateRecord),
         typeof(SnapshotObjectRecord),
         typeof(SnapshotFieldRecord),
+        typeof(ConnectorAuthorizationRecord),
+        typeof(ConnectorAuthorizationTransactionRecord),
     ];
 
     [Fact]

@@ -15,8 +15,9 @@ namespace WorkContinuity.Connectors.Monday;
 /// <para>
 /// An implementation must fail closed: when the connection is disabled, when its credential was revoked, or when the
 /// state or the secret cannot be read, it returns a failure and never a credential. It returns only a credential that
-/// belongs to the requesting tenant and connection; the client checks that as well. Where the secret is stored, and how
-/// it is refreshed, belong to the OAuth 2.1 connection lifecycle (sub-gate 3B), which implements this port.
+/// belongs to the requesting tenant and connection; the client checks that as well. The OAuth 2.1 connection lifecycle
+/// (sub-gate 3B) implements this port in <see cref="MondayConnectionCredentialSource"/>, which keeps the secret in
+/// <see cref="IMondaySecretStore"/> and renews it single-flight.
 /// </para>
 /// </remarks>
 public interface IMondayCredentialSource
@@ -26,6 +27,20 @@ public interface IMondayCredentialSource
     /// <param name="cancellationToken">Cancels the acquisition.</param>
     /// <returns>The credential, or the reason none may be used.</returns>
     ValueTask<MondayCredentialResult> AcquireAsync(MondayRequestContext context, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Renews the credential after monday rejected it (401), as monday documents. The client asks at most once per call.
+    /// An implementation that cannot renew returns <see cref="MondayCredentialResult.NotRenewed"/>, and the same
+    /// access-time checks as <see cref="AcquireAsync"/> apply to whatever it returns.
+    /// </summary>
+    /// <param name="context">The call's tenant, connection and correlation.</param>
+    /// <param name="rejected">The credential monday rejected.</param>
+    /// <param name="cancellationToken">Cancels the renewal.</param>
+    /// <returns>A renewed credential for the next attempt, or the reason there is none.</returns>
+    ValueTask<MondayCredentialResult> RenewAfterRejectionAsync(
+        MondayRequestContext context,
+        MondayAccessCredential rejected,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>The outcome of acquiring a credential: the credential, or the fail-closed reason there is none.</summary>
@@ -62,6 +77,24 @@ public sealed class MondayCredentialResult
     /// <summary>The connection's state or secret could not be read, or no credential exists.</summary>
     public static MondayCredentialResult Unavailable() =>
         Refused(ConnectorFailureKind.CredentialUnavailable, ConnectorErrors.CredentialUnavailable);
+
+    /// <summary>The rejected credential could not be renewed; the provider's rejection stands.</summary>
+    public static MondayCredentialResult NotRenewed() =>
+        Refused(ConnectorFailureKind.AuthenticationFailed, ConnectorErrors.AuthenticationFailed);
+
+    /// <summary>The connection's credential can no longer be trusted or renewed; its user must authorize it again.</summary>
+    public static MondayCredentialResult ReauthorizationRequired() =>
+        Refused(ConnectorFailureKind.AuthenticationFailed, ConnectorErrors.ReauthorizationRequired);
+
+    /// <summary>The stored credential or its state belongs to another tenant, connection or identity.</summary>
+    public static MondayCredentialResult Mismatch() =>
+        Refused(ConnectorFailureKind.CredentialUnavailable, ConnectorErrors.CredentialMismatch);
+
+    /// <summary>A renewal failed transiently and changed nothing; a later call may succeed.</summary>
+    internal static MondayCredentialResult Deferred(ConnectorFailure failure) =>
+        failure.IsTransient
+            ? new MondayCredentialResult(credential: null, failure)
+            : throw new ArgumentException("A deferred renewal reports a transient failure.", nameof(failure));
 
     /// <summary>Identifies the outcome; a credential is never rendered.</summary>
     public override string ToString() => Credential is not null

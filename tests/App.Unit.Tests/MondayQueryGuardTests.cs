@@ -11,7 +11,7 @@ public sealed class MondayQueryGuardTests
     [Fact]
     public void Every_document_the_connector_sends_is_a_single_read_query()
     {
-        Assert.Equal(3, MondayQueries.All.Count);
+        Assert.Equal(4, MondayQueries.All.Count);
         Assert.All(MondayQueries.All, document => Assert.True(MondayQueryGuard.IsSingleReadQuery(document), document));
     }
 

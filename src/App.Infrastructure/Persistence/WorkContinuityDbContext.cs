@@ -47,6 +47,13 @@ public sealed class WorkContinuityDbContext(DbContextOptions<WorkContinuityDbCon
     /// <summary>Gets the Snapshot's current field facts and their provenance.</summary>
     public DbSet<SnapshotFieldRecord> SnapshotFields => Set<SnapshotFieldRecord>();
 
+    /// <summary>Gets the connections' delegated authorizations (Gate 3B). Written only by the authorization store.</summary>
+    public DbSet<ConnectorAuthorizationRecord> ConnectorAuthorizations => Set<ConnectorAuthorizationRecord>();
+
+    /// <summary>Gets the authorizations being started (Gate 3B). Written only by the authorization store.</summary>
+    public DbSet<ConnectorAuthorizationTransactionRecord> ConnectorAuthorizationTransactions =>
+        Set<ConnectorAuthorizationTransactionRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         WorkContinuityModel.Configure(modelBuilder);
 }

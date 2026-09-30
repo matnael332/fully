@@ -16,6 +16,8 @@ namespace WorkContinuity.Connectors.Monday;
 /// connection's credential from <see cref="IMondayCredentialSource"/>, so a disabled connection or a revoked token stops
 /// the very next attempt, and it refuses a credential that belongs to another tenant or connection, that changes
 /// identity between attempts, or that has expired. The result always records the identity whose authority was used.
+/// When monday rejects a credential (401), the client asks the source once for a renewal and retries once, as monday
+/// documents; a second rejection, or a renewal that fails, ends the call.
 /// </para>
 /// <para>
 /// Every request goes to the one fixed endpoint, carries the pinned <c>API-Version</c> header, and holds a single read
@@ -175,18 +177,29 @@ public sealed class MondayReadClient
         var body = request.ToUtf8Json();
         ConnectorIdentity? identity = null;
         var attempts = 0;
+        var renewed = false;
+        MondayAccessCredential? replacement = null;
 
         while (true)
         {
-            var acquired = await _credentials.AcquireAsync(context, cancellationToken).ConfigureAwait(false);
-            if (acquired.Credential is not { } credential)
+            // A renewed credential is the acquisition for the attempt that follows the renewal; every other attempt
+            // acquires afresh.
+            var credential = replacement;
+            replacement = null;
+            if (credential is null)
             {
-                return ConnectorCallResult<TValue>.Failed(
-                    operation,
-                    identity,
-                    attempts,
-                    acquired.Failure ?? new ConnectorFailure(
-                        ConnectorFailureKind.CredentialUnavailable, ConnectorErrors.CredentialUnavailable));
+                var acquired = await _credentials.AcquireAsync(context, cancellationToken).ConfigureAwait(false);
+                if (acquired.Credential is null)
+                {
+                    return ConnectorCallResult<TValue>.Failed(
+                        operation,
+                        identity,
+                        attempts,
+                        acquired.Failure ?? new ConnectorFailure(
+                            ConnectorFailureKind.CredentialUnavailable, ConnectorErrors.CredentialUnavailable));
+                }
+
+                credential = acquired.Credential;
             }
 
             if (!credential.Identity.Serves(context.Tenant, context.ConnectionId)
@@ -211,10 +224,24 @@ public sealed class MondayReadClient
             }
 
             attempts++;
-            var (value, failure) = await AttemptAsync(credential, operation, body, parse, cancellationToken).ConfigureAwait(false);
+            var (value, failure) = await AttemptAsync(credential.ApplyTo, operation, body, parse, cancellationToken).ConfigureAwait(false);
             if (failure is null)
             {
                 return ConnectorCallResult<TValue>.Succeeded(operation, identity, attempts, value!);
+            }
+
+            // monday: after a 401, renew the token and retry. At most once per call, so a rejected renewal cannot loop.
+            if (failure.Kind == ConnectorFailureKind.AuthenticationFailed && !renewed)
+            {
+                renewed = true;
+                var renewal = await _credentials.RenewAfterRejectionAsync(context, credential, cancellationToken).ConfigureAwait(false);
+                if (renewal.Credential is null)
+                {
+                    return ConnectorCallResult<TValue>.Failed(operation, identity, attempts, renewal.Failure ?? failure);
+                }
+
+                replacement = renewal.Credential;
+                continue;
             }
 
             var decision = operation.RetryPolicy.Decide(failure, attempts, NextJitter());
@@ -227,8 +254,34 @@ public sealed class MondayReadClient
         }
     }
 
+    /// <summary>
+    /// Reads the identity an access token acts for, once, while a connection is being authorized: the delegating monday
+    /// user and account. The token has no connection yet, so no credential source is involved; the same fixed endpoint,
+    /// version header, read-only guard, bounds and classification apply. Never retried and never renewed.
+    /// </summary>
+    internal async Task<(MondayAuthorizingIdentity? Identity, ConnectorFailure? Failure)> ReadAuthorizingIdentityAsync(
+        string accessToken,
+        CancellationToken cancellationToken)
+    {
+        var operation = MondayOperations.ReadAuthorizingIdentity;
+        var request = new MondayGraphQlRequest(MondayQueries.ReadAuthorizingIdentity);
+
+        if (!operation.IsReadOnly || !MondayQueryGuard.IsSingleReadQuery(request.Document) || !MondayIssuedTokens.IsToken(accessToken))
+        {
+            return (null, Failure(ConnectorFailureKind.OperationNotPermitted, ConnectorErrors.OperationNotPermitted));
+        }
+
+        return await AttemptAsync(
+                headers => MondayAccessCredential.Apply(headers, accessToken),
+                operation,
+                request.ToUtf8Json(),
+                MondayResponseParser.AuthorizingIdentity,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     private async Task<(TValue? Value, ConnectorFailure? Failure)> AttemptAsync<TValue>(
-        MondayAccessCredential credential,
+        Action<HttpRequestHeaders> authorize,
         ConnectorOperationDescriptor operation,
         byte[] body,
         Func<JsonElement, ParseOutcome<TValue>> parse,
@@ -242,7 +295,7 @@ public sealed class MondayReadClient
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.Add(MondayApiVersion.HeaderName, MondayApiVersion.Pinned);
-        credential.ApplyTo(request.Headers);
+        authorize(request.Headers);
 
         try
         {
@@ -257,13 +310,13 @@ public sealed class MondayReadClient
             }
 
             var headerWait = MondayResponseClassifier.WaitFromHeaders(response.Headers, _clock.UtcNow);
-            var content = await ReadBoundedAsync(response.Content, attemptLimit.Token).ConfigureAwait(false);
+            var content = await MondayHttpContent.ReadBoundedAsync(response.Content, MaxResponseBytes, attemptLimit.Token).ConfigureAwait(false);
             if (content is null)
             {
                 return (default, Failure(ConnectorFailureKind.UnsupportedResponse, ConnectorErrors.UnsupportedResponse));
             }
 
-            return Interpret((int)response.StatusCode, IsJson(response.Content), content, headerWait, parse);
+            return Interpret((int)response.StatusCode, MondayHttpContent.IsJson(response.Content), content, headerWait, parse);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -329,38 +382,6 @@ public sealed class MondayReadClient
             document?.Dispose();
         }
     }
-
-    private static async Task<byte[]?> ReadBoundedAsync(HttpContent content, CancellationToken cancellationToken)
-    {
-        if (content.Headers.ContentLength is > MaxResponseBytes)
-        {
-            return null;
-        }
-
-        var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        await using (stream.ConfigureAwait(false))
-        {
-            using var buffer = new MemoryStream();
-            var chunk = new byte[81920];
-            int read;
-            while ((read = await stream.ReadAsync(chunk, cancellationToken).ConfigureAwait(false)) > 0)
-            {
-                if (buffer.Length + read > MaxResponseBytes)
-                {
-                    return null;
-                }
-
-                buffer.Write(chunk, 0, read);
-            }
-
-            return buffer.ToArray();
-        }
-    }
-
-    private static bool IsJson(HttpContent content) =>
-        content.Headers.ContentType?.MediaType is { } mediaType
-        && (mediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase)
-            || mediaType.EndsWith("+json", StringComparison.OrdinalIgnoreCase));
 
     private static ConnectorFailure Failure(ConnectorFailureKind kind, Error error) => new(kind, error);
 

@@ -246,7 +246,7 @@ public sealed class ConnectorSecurityTests
     [Fact]
     public void Every_connector_operation_is_a_declared_low_risk_read_with_a_single_read_query()
     {
-        Assert.Equal(3, MondayOperations.All.Count);
+        Assert.Equal(4, MondayOperations.All.Count);
         Assert.All(MondayOperations.All, operation =>
         {
             Assert.True(operation.IsReadOnly, operation.Name);
@@ -311,6 +311,12 @@ public sealed class ConnectorSecurityTests
 
         public ValueTask<MondayCredentialResult> AcquireAsync(MondayRequestContext context, CancellationToken cancellationToken) =>
             ValueTask.FromResult(Answer(context));
+
+        public ValueTask<MondayCredentialResult> RenewAfterRejectionAsync(
+            MondayRequestContext context,
+            MondayAccessCredential rejected,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(MondayCredentialResult.NotRenewed());
     }
 
     private sealed class FixedClock : IClock

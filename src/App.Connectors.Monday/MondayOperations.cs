@@ -44,9 +44,26 @@ public static class MondayOperations
         "monday.items-page.v1",
         "monday.board");
 
+    /// <summary>
+    /// Reads the monday user and account a newly issued token acts for, so the connection's delegated identity is
+    /// verified rather than assumed (Gate 3B). One attempt: it runs inside an authorization that is never retried.
+    /// </summary>
+    public static ConnectorOperationDescriptor ReadAuthorizingIdentity { get; } = new(
+        "monday.me.read",
+        "Read the monday user and account an authorizing token acts for.",
+        "monday.none.v1",
+        "monday.me.v1",
+        ConnectorActionType.Read,
+        ConnectorRiskLevel.Low,
+        "monday.me",
+        ConnectorSideEffect.None,
+        ConnectorRecovery.NotRequired,
+        ReadTimeout,
+        ConnectorRetryPolicy.None);
+
     /// <summary>Every operation of the connector.</summary>
     public static IReadOnlyList<ConnectorOperationDescriptor> All { get; } =
-        [ReadItemsById, ReadBoardItemsPage, ReadNextItemsPage];
+        [ReadItemsById, ReadBoardItemsPage, ReadNextItemsPage, ReadAuthorizingIdentity];
 
     private static ConnectorOperationDescriptor Read(
         string name,
@@ -95,6 +112,10 @@ public static class MondayQueries
         "query ReadNextItemsPage($cursor: String!, $limit: Int!) { next_items_page(cursor: $cursor, limit: $limit) { cursor items { "
         + ItemFields + " } } }";
 
+    /// <summary>The delegating user and account of a token: their numeric ids only, never an email address or a name.</summary>
+    public const string ReadAuthorizingIdentity = "query ReadAuthorizingIdentity { me { id account { id } } }";
+
     /// <summary>Every document the connector sends.</summary>
-    public static IReadOnlyList<string> All { get; } = [ReadItemsById, ReadBoardItemsPage, ReadNextItemsPage];
+    public static IReadOnlyList<string> All { get; } =
+        [ReadItemsById, ReadBoardItemsPage, ReadNextItemsPage, ReadAuthorizingIdentity];
 }

@@ -207,13 +207,16 @@ Gate passes. P0 is a planning prerequisite to Core Gate 3, not a technical depen
 planned and NOT STARTED.
 
 ### Gate 3 — monday Connector
-Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B NEXT / NOT STARTED; 3C–3G not started; later Gates not started**
+Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B PASS (approved 2026-09-30); 3C NEXT / NOT STARTED; 3D–3G not started; later Gates not started**
 
 Gate 3 builds real monday authentication, webhooks, source mapping, API reconciliation and initial sync on top of
 the Gate 2 Event Backbone, reading and ingesting only. Scope, the verified monday platform baseline, sub-gates 3A to
 3G, the Definition of Done, the Premium architecture §20 constraints and the Gate 2 items it must resolve:
 `docs/gates/gate-3-scope.md`. 3A delivered the provider-neutral connector contract in Core and the read-only monday
 client foundation (773 tests locally, 32/32 mutants caught); nothing runs against a real monday account or in Azure.
+3B delivered the monday OAuth 2.1 connection lifecycle under owner decisions D3B-1 to D3B-3 and review decisions R3B-1
+and R3B-2 (986 tests locally, 91/91 mutation and vacuity checks) and is PASS, approved on 2026-09-30; nothing runs
+against a real monday account or in Azure.
 
 ## Verified evidence for Gate 1A / 1B
 
@@ -377,8 +380,8 @@ post-Gate-1 hardening follow-ups.
 Gate 1 (Foundation) and Gate 2 (Event Backbone) are closed: Gates 1A through 1G and 2A through 2G are PASS (Gate 2
 evidence: `docs/gates/gate-2-report.md`). Premium Gate P0 (Architecture Freeze) is PASS: the Premium architecture is
 frozen (closed 2026-09-29; `docs/premium/`, `docs/gates/gate-P0-report.md`). Gate 3 (monday Connector) is in
-progress: 3A is PASS and 3B is next and not started (`docs/gates/gate-3-scope.md`). Do not start 3B or any later
-sub-gate, or
+progress: 3A and 3B are PASS, and 3C is next and not started (`docs/gates/gate-3-scope.md`). Do not start 3C or
+any later sub-gate, or
 any Premium Gate P1 to P11, without the product owner's explicit authorization, do not start the bootstrap or
 migration jobs (each has exactly one execution), and do not deploy,
 dispatch `CD Dev` with `deploy: true`, or change Azure resources, without explicit product-owner

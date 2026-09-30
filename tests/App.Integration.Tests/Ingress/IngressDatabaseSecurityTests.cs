@@ -256,6 +256,8 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
             [
                 "connections.ingress_resolution_connections",
                 "connections.tenant_isolation_connections",
+                "connector_authorization_transactions.tenant_isolation_connector_authorization_transactions",
+                "connector_authorizations.tenant_isolation_connector_authorizations",
                 "event_ledger.append_only_event_ledger_delete",
                 "event_ledger.append_only_event_ledger_update",
                 "event_ledger.tenant_isolation_event_ledger",

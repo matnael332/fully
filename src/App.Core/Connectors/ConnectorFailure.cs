@@ -136,6 +136,10 @@ public static class ConnectorErrors
     public static Error CredentialExpired { get; } =
         Error.Unauthorized("connector.credential.expired", "The connection's credential has expired.");
 
+    /// <summary>The connection's credential can no longer be trusted or renewed; its user must authorize it again.</summary>
+    public static Error ReauthorizationRequired { get; } =
+        Error.Unauthorized("connector.credential.reauthorization_required", "The connection must be authorized again.");
+
     /// <summary>The provider rejected the credential.</summary>
     public static Error AuthenticationFailed { get; } =
         Error.Unauthorized("connector.provider.authentication_failed", "The provider rejected the credential.");
@@ -180,8 +184,8 @@ public static class ConnectorErrors
     public static IReadOnlyList<Error> All { get; } =
     [
         InvalidRequest, OperationNotPermitted, ConnectionDisabled, CredentialUnavailable, CredentialMismatch,
-        CredentialRevoked, CredentialExpired, AuthenticationFailed, AuthorizationFailed, ProviderValidation,
-        ApiVersionRejected, ResourceNotFound, RateLimited, ProviderUnavailable, NetworkFailure, Timeout,
+        CredentialRevoked, CredentialExpired, ReauthorizationRequired, AuthenticationFailed, AuthorizationFailed,
+        ProviderValidation, ApiVersionRejected, ResourceNotFound, RateLimited, ProviderUnavailable, NetworkFailure, Timeout,
         UnsupportedResponse,
     ];
 }

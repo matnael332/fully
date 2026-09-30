@@ -107,7 +107,12 @@ internal sealed class ScriptedCredentialSource : IMondayCredentialSource
 
     internal Func<MondayRequestContext, MondayCredentialResult> Fallback { get; set; }
 
+    /// <summary>Answers a renewal after a rejection; not renewed unless a test says otherwise.</summary>
+    internal Func<MondayAccessCredential, MondayCredentialResult> Renewal { get; set; } = _ => MondayCredentialResult.NotRenewed();
+
     internal int Calls { get; private set; }
+
+    internal List<MondayAccessCredential> Rejected { get; } = [];
 
     internal ScriptedCredentialSource Then(Func<MondayRequestContext, MondayCredentialResult> answer)
     {
@@ -120,6 +125,15 @@ internal sealed class ScriptedCredentialSource : IMondayCredentialSource
         Calls++;
         var answer = _script.TryDequeue(out var next) ? next : Fallback;
         return ValueTask.FromResult(answer(context));
+    }
+
+    public ValueTask<MondayCredentialResult> RenewAfterRejectionAsync(
+        MondayRequestContext context,
+        MondayAccessCredential rejected,
+        CancellationToken cancellationToken)
+    {
+        Rejected.Add(rejected);
+        return ValueTask.FromResult(Renewal(rejected));
     }
 }
 

@@ -62,15 +62,27 @@ public sealed class MondayAccessCredential
     /// <summary>Gets when the credential expires, when known.</summary>
     public DateTimeOffset? ExpiresAt { get; }
 
+    /// <summary>
+    /// Gets the generation of the connection's authorization this credential belongs to, so a renewal after a rejection
+    /// can tell whether another caller already renewed it; 0 when unknown.
+    /// </summary>
+    internal long Generation { get; init; }
+
     /// <summary>Whether the credential has expired at the given instant.</summary>
     public bool HasExpiredAt(DateTimeOffset instant) => ExpiresAt is { } expiry && expiry <= instant;
 
     /// <summary>Identifies the credential by its identity; the token is never rendered.</summary>
     public override string ToString() => $"MondayAccessCredential({Identity.Kind}, connection {Identity.ConnectionId:D}, token redacted)";
 
-    /// <summary>Places the token in the request's Authorization header, in the form monday documents.</summary>
-    internal void ApplyTo(HttpRequestHeaders headers) =>
-        headers.TryAddWithoutValidation("Authorization", _accessToken);
+    /// <summary>
+    /// Places a token in a request's Authorization header, in the form monday documents. The one place that form is
+    /// written (open verification item 2).
+    /// </summary>
+    internal static void Apply(HttpRequestHeaders headers, string accessToken) =>
+        headers.TryAddWithoutValidation("Authorization", accessToken);
+
+    /// <summary>Places the token in the request's Authorization header.</summary>
+    internal void ApplyTo(HttpRequestHeaders headers) => Apply(headers, _accessToken);
 }
 
 /// <summary>Refuses to serialize or deserialize a credential, so a token can never be written by accident.</summary>

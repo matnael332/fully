@@ -69,6 +69,28 @@ internal static class MondayResponseParser
             ? Page(page, limit)
             : ParseOutcome<MondayItemsPage>.Unsupported;
 
+    /// <summary>
+    /// The delegating user and account of <c>me { id account { id } }</c>: both must be monday's numeric ids, so no
+    /// email address or display name can become an identity.
+    /// </summary>
+    internal static ParseOutcome<MondayAuthorizingIdentity> AuthorizingIdentity(JsonElement data)
+    {
+        if (!data.TryGetProperty("me", out var me)
+            || me.ValueKind != JsonValueKind.Object
+            || NumericId(me, "id") is not { } userId
+            || !me.TryGetProperty("account", out var account)
+            || account.ValueKind != JsonValueKind.Object
+            || NumericId(account, "id") is not { } accountId)
+        {
+            return ParseOutcome<MondayAuthorizingIdentity>.Unsupported;
+        }
+
+        return ParseOutcome<MondayAuthorizingIdentity>.Parsed(new MondayAuthorizingIdentity(userId, accountId));
+    }
+
+    private static string? NumericId(JsonElement parent, string name) =>
+        Identifier(parent, name) is { Length: <= 20 } id && id.All(char.IsAsciiDigit) ? id : null;
+
     private static ParseOutcome<MondayItemsPage> Page(JsonElement page, int limit)
     {
         if (page.ValueKind != JsonValueKind.Object

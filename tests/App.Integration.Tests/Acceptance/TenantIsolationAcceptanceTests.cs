@@ -11,6 +11,7 @@ using WorkContinuity.Core.Transport;
 using WorkContinuity.Infrastructure.Observability;
 using WorkContinuity.Infrastructure.Persistence;
 using WorkContinuity.Infrastructure.Persistence.Entities;
+using WorkContinuity.Integration.Tests.Connectors;
 using WorkContinuity.Integration.Tests.Database;
 using WorkContinuity.Integration.Tests.Ingress;
 using WorkContinuity.Integration.Tests.Observability;
@@ -99,6 +100,9 @@ public sealed class TenantIsolationAcceptanceTests(DatabaseFixture fixture)
         {
             var (tenant, connection) = await IngressData.NewConnectionAsync(fixture, Token);
             await SeedUserAsync(tenant);
+
+            // Gate 3B: an authorization and a started authorization of the tenant, through the real store.
+            await ConnectorAuthorizationData.SeedAuthorizationRowsAsync(fixture, tenant, Token);
             foreach (var stated in Shared(label))
             {
                 await path.SubmitAcceptedAsync(connection, stated);

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using WorkContinuity.Core.Connectors;
 using WorkContinuity.Core.Correlation;
 using WorkContinuity.Core.Events;
 using WorkContinuity.Core.Identity;
@@ -29,7 +30,8 @@ public static class WorkContinuityModel
     public static IReadOnlyList<string> TenantOwnedTables { get; } =
         [
             "tenants", "users", "raw_receipts", "outbox_messages", "connections", "event_ledger", "event_ledger_fields",
-            "field_ordering_states", "snapshot_objects", "snapshot_fields",
+            "field_ordering_states", "snapshot_objects", "snapshot_fields", "connector_authorizations",
+            "connector_authorization_transactions",
         ];
 
     /// <summary>Applies the schema to a model builder.</summary>
@@ -107,6 +109,10 @@ public static class WorkContinuityModel
                     record => new { record.TenantId, record.Provider, record.ProviderSubject })
                 .HasDatabaseName("ux_users_tenant_provider_subject")
                 .IsUnique();
+
+            // The key tenant-consistent foreign keys point at (Gate 3B): a reference to a user can never cross a tenant.
+            entity.HasAlternateKey(record => new { record.TenantId, record.UserId })
+                .HasName("ak_users_tenant_user");
         });
 
         modelBuilder.Entity<RawReceiptRecord>(entity =>
@@ -253,10 +259,131 @@ public static class WorkContinuityModel
             // Supports listing a tenant's connections under its own row-level security scope.
             entity.HasIndex(record => record.TenantId)
                 .HasDatabaseName("ix_connections_tenant_id");
+
+            // The key tenant-consistent foreign keys point at (Gate 3B): a reference to a connection can never cross a
+            // tenant.
+            entity.HasAlternateKey(record => new { record.TenantId, record.ConnectionId })
+                .HasName("ak_connections_tenant_connection");
         });
 
         ConfigureEventLedger(modelBuilder, tenantIdConverter, correlationIdConverter);
         ConfigureSnapshot(modelBuilder, tenantIdConverter);
+        ConfigureConnectorAuthorizations(modelBuilder, tenantIdConverter, userIdConverter);
+    }
+
+    // The Gate 3B authorization lifecycle: delegation metadata only. No column can hold a token, a client secret or a
+    // PKCE verifier (decision D3B-2); hashes, ids, times, scope names, states and an opaque material version only. Every
+    // foreign key includes the tenant, so neither table can name another tenant's user or connection.
+    private static void ConfigureConnectorAuthorizations(
+        ModelBuilder modelBuilder,
+        ValueConverter<TenantId, Guid> tenantIdConverter,
+        ValueConverter<UserId, Guid> userIdConverter)
+    {
+        modelBuilder.Entity<ConnectorAuthorizationRecord>(entity =>
+        {
+            entity.ToTable("connector_authorizations", table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_connector_authorizations_state",
+                    "state IN ('Active', 'ReauthorizationRequired', 'Revoked')");
+                table.HasCheckConstraint("ck_connector_authorizations_generation", "generation >= 1");
+                table.HasCheckConstraint(
+                    "ck_connector_authorizations_identifiers",
+                    "provider_subject <> '' AND provider_account <> '' AND granted_scopes <> ''");
+                table.HasCheckConstraint(
+                    "ck_connector_authorizations_claim",
+                    "(refresh_claim_id IS NULL) = (refresh_claimed_at_utc IS NULL)");
+                table.HasCheckConstraint(
+                    "ck_connector_authorizations_revoked",
+                    "(state = 'Revoked') = (revoked_at_utc IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_connector_authorizations_reauthorization",
+                    "state <> 'ReauthorizationRequired' OR reauthorization_required_at_utc IS NOT NULL");
+                table.HasCheckConstraint(
+                    "ck_connector_authorizations_revocation_confirmed",
+                    "provider_revocation_confirmed IS NULL OR state = 'Revoked'");
+            });
+            entity.HasKey(record => record.ConnectionId);
+            entity.Property(record => record.ConnectionId).HasColumnName("connection_id").ValueGeneratedNever();
+            entity.Property(record => record.TenantId).HasColumnName("tenant_id").HasConversion(tenantIdConverter).IsRequired();
+            entity.Property(record => record.CanonicalUserId).HasColumnName("canonical_user_id").HasConversion(userIdConverter).IsRequired();
+            entity.Property(record => record.State).HasColumnName("state").HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(record => record.ProviderSubject).HasColumnName("provider_subject").HasMaxLength(ConnectorAuthorizationRecord.MaxProviderIdentifierLength).IsRequired();
+            entity.Property(record => record.ProviderAccount).HasColumnName("provider_account").HasMaxLength(ConnectorAuthorizationRecord.MaxProviderIdentifierLength).IsRequired();
+            entity.Property(record => record.Generation).HasColumnName("generation").IsRequired();
+            entity.Property(record => record.MaterialVersion).HasColumnName("material_version").IsRequired();
+            entity.Property(record => record.AccessExpiresAtUtc).HasColumnName("access_expires_at_utc").HasColumnType("timestamptz").IsRequired();
+            entity.Property(record => record.GrantedScopes).HasColumnName("granted_scopes").HasMaxLength(ConnectorScopes.MaxLength).IsRequired();
+            entity.Property(record => record.RefreshClaimId).HasColumnName("refresh_claim_id");
+            entity.Property(record => record.RefreshClaimedAtUtc).HasColumnName("refresh_claimed_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.AuthorizedAtUtc).HasColumnName("authorized_at_utc").HasColumnType("timestamptz").IsRequired();
+            entity.Property(record => record.RefreshedAtUtc).HasColumnName("refreshed_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.ReauthorizationRequiredAtUtc).HasColumnName("reauthorization_required_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.RevokedAtUtc).HasColumnName("revoked_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.ProviderRevocationConfirmed).HasColumnName("provider_revocation_confirmed");
+            entity.HasOne<ConnectionRecord>()
+                .WithMany()
+                .HasForeignKey(record => new { record.TenantId, record.ConnectionId })
+                .HasPrincipalKey(connection => new { connection.TenantId, connection.ConnectionId })
+                .HasConstraintName("fk_connector_authorizations_connection")
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<UserRecord>()
+                .WithMany()
+                .HasForeignKey(record => new { record.TenantId, record.CanonicalUserId })
+                .HasPrincipalKey(user => new { user.TenantId, user.UserId })
+                .HasConstraintName("fk_connector_authorizations_user")
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(record => new { record.TenantId, record.ConnectionId })
+                .HasDatabaseName("ix_connector_authorizations_tenant_connection");
+            entity.HasIndex(record => new { record.TenantId, record.CanonicalUserId })
+                .HasDatabaseName("ix_connector_authorizations_tenant_user");
+        });
+
+        modelBuilder.Entity<ConnectorAuthorizationTransactionRecord>(entity =>
+        {
+            entity.ToTable("connector_authorization_transactions", table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_connector_authorization_transactions_purpose",
+                    "purpose IN ('Connect', 'Reauthorize')");
+                table.HasCheckConstraint(
+                    "ck_connector_authorization_transactions_hashes",
+                    "octet_length(state_hash) = 32 AND octet_length(redirect_hash) = 32");
+                table.HasCheckConstraint(
+                    "ck_connector_authorization_transactions_lifetime",
+                    "expires_at_utc > created_at_utc AND expires_at_utc <= created_at_utc + interval '10 minutes'");
+                table.HasCheckConstraint(
+                    "ck_connector_authorization_transactions_consumed",
+                    "consumed_at_utc IS NULL OR consumed_at_utc >= created_at_utc");
+                table.HasCheckConstraint("ck_connector_authorization_transactions_scopes", "requested_scopes <> ''");
+            });
+            entity.HasKey(record => record.TransactionId);
+            entity.Property(record => record.TransactionId).HasColumnName("transaction_id").ValueGeneratedNever();
+            entity.Property(record => record.TenantId).HasColumnName("tenant_id").HasConversion(tenantIdConverter).IsRequired();
+            entity.Property(record => record.CanonicalUserId).HasColumnName("canonical_user_id").HasConversion(userIdConverter).IsRequired();
+            entity.Property(record => record.ConnectionId).HasColumnName("connection_id").IsRequired();
+            entity.Property(record => record.SourceSystem).HasColumnName("source_system").HasMaxLength(64).IsRequired();
+            entity.Property(record => record.Purpose).HasColumnName("purpose").HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(record => record.StateHash).HasColumnName("state_hash").IsRequired();
+            entity.Property(record => record.RedirectHash).HasColumnName("redirect_hash").IsRequired();
+            entity.Property(record => record.RequestedScopes).HasColumnName("requested_scopes").HasMaxLength(ConnectorScopes.MaxLength).IsRequired();
+            entity.Property(record => record.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamptz").IsRequired();
+            entity.Property(record => record.ExpiresAtUtc).HasColumnName("expires_at_utc").HasColumnType("timestamptz").IsRequired();
+            entity.Property(record => record.ConsumedAtUtc).HasColumnName("consumed_at_utc").HasColumnType("timestamptz");
+            entity.HasOne<UserRecord>()
+                .WithMany()
+                .HasForeignKey(record => new { record.TenantId, record.CanonicalUserId })
+                .HasPrincipalKey(user => new { user.TenantId, user.UserId })
+                .HasConstraintName("fk_connector_authorization_transactions_user")
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(record => new { record.TenantId, record.CanonicalUserId })
+                .HasDatabaseName("ix_connector_authorization_transactions_tenant_user");
+
+            // Finds a tenant's expired, still-open transactions for closing.
+            entity.HasIndex(record => new { record.TenantId, record.ExpiresAtUtc })
+                .HasDatabaseName("ix_connector_authorization_transactions_open")
+                .HasFilter("consumed_at_utc IS NULL");
+        });
     }
 
     // The Gate 2D ledger: identity, provenance, ordering and deduplication metadata only. No column can hold a
