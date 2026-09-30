@@ -57,7 +57,7 @@ public sealed class ConnectorAuthorizationSecurityTests
 
         // Secret-storage names are built only by the connector; an adapter receives them and cannot forge one.
         Assert.Empty(typeof(MondaySecretName).GetConstructors(BindingFlags.Public | BindingFlags.Instance));
-        Assert.Equal(["ClientSecret", "Value"], PublicProperties<MondaySecretName>(BindingFlags.Static | BindingFlags.Instance));
+        Assert.Equal(["ClientSecret", "SigningSecret", "Value"], PublicProperties<MondaySecretName>(BindingFlags.Static | BindingFlags.Instance));
     }
 
     [Fact]

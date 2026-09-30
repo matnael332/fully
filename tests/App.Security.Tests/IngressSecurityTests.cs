@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.RegularExpressions;
+using WorkContinuity.Connectors.Monday;
 using WorkContinuity.Core.Correlation;
 using WorkContinuity.Core.Ingress;
 using WorkContinuity.Core.Tenancy;
@@ -9,13 +10,16 @@ namespace WorkContinuity.Security.Tests;
 
 /// <summary>
 /// Gate 2B ingress properties that must hold by construction: a delivery cannot name its tenant, the
-/// tenant-less database path is one internal method calling one approved function, and no production
-/// source verifier exists yet, so every real source fails closed.
+/// tenant-less database path is one internal method calling one approved function, and every source without
+/// a verifier fails closed. Gate 3C adds the production monday verifier as the only one, the verifier
+/// contract's post-tenant confirmation, and a connection check that reveals a status only.
 /// </summary>
 public sealed class IngressSecurityTests
 {
     private const string ResolverFile = "src/App.Infrastructure/Ingress/IngressConnectionResolver.cs";
     private const string IngressFile = "src/App.Infrastructure/Ingress/EventIngressService.cs";
+    private const string MondayVerifierFile = "src/App.Connectors.Monday/MondayWebhookVerifier.cs";
+    private const string WebRegistrationFile = "src/App.Web/Connectors/MondayWebhookRegistration.cs";
     private const string MigrationFile =
         "src/App.Infrastructure/Persistence/Migrations/20260928101033_DurableIngressConnections.cs";
     private const string RelayMigrationFile =
@@ -151,23 +155,92 @@ public sealed class IngressSecurityTests
     }
 
     [Fact]
-    public void No_production_source_verifier_exists_yet_and_no_production_code_reads_the_proof()
+    public void The_monday_webhook_verifier_is_the_only_production_source_verifier_and_the_only_proof_reader()
     {
-        // Gate 2 registers no source verifier, so every real source fails closed. The connector Gate
-        // that adds one updates this list deliberately.
+        // Gate 2 registered no source verifier, so every real source failed closed. Gate 3C adds the monday webhook
+        // verifier, registered by the Web host's webhook composition; any other must be added here deliberately.
         var verifierMentions = RepositoryLayout.ProductionSourceFiles
             .Where(file => File.ReadAllText(file.FullName).Contains("ISourceVerifier", StringComparison.Ordinal))
             .Select(RepositoryLayout.RelativePath)
             .Order(StringComparer.Ordinal)
             .ToArray();
-        Assert.Equal(["src/App.Core/Ingress/IEventIngress.cs", IngressFile], verifierMentions);
+        Assert.Equal([MondayVerifierFile, "src/App.Core/Ingress/IEventIngress.cs", IngressFile, WebRegistrationFile], verifierMentions);
 
-        // Only a verifier may read the proof; production code never persists or logs it.
+        var implementations = new[] { typeof(IngressRegistration).Assembly, typeof(MondayWebhookVerifier).Assembly, typeof(ISourceVerifier).Assembly }
+            .SelectMany(assembly => assembly.GetTypes())
+            .Where(type => typeof(ISourceVerifier).IsAssignableFrom(type) && type.IsClass)
+            .ToArray();
+        Assert.Equal([typeof(MondayWebhookVerifier)], implementations);
+
+        // Only a verifier may read the proof, and the monday verifier neither stores nor logs it.
         var proofReaders = RepositoryLayout.ProductionSourceFiles
             .Where(file => File.ReadAllText(file.FullName).Contains(".Proof", StringComparison.Ordinal))
             .Select(RepositoryLayout.RelativePath)
             .ToArray();
-        Assert.Empty(proofReaders);
+        Assert.Equal([MondayVerifierFile], proofReaders);
+        Assert.DoesNotContain("ILogger", Read(MondayVerifierFile), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_verifier_contract_is_verify_before_the_tenant_then_a_mandatory_confirmation_after_it()
+    {
+        // Gate 3C's provider-neutral extension: exactly these members, all abstract, so no verifier can omit the
+        // confirmation, and a confirmation of any value but Confirmed stores nothing.
+        var members = typeof(ISourceVerifier).GetMembers(BindingFlags.Public | BindingFlags.Instance)
+            .Where(member => member is not MethodInfo { IsSpecialName: true })
+            .Select(member => member.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(["ConfirmAsync", "SourceSystem", "VerifyAsync"], members);
+        Assert.All(typeof(ISourceVerifier).GetMethods(), method => Assert.True(method.IsAbstract, method.Name));
+
+        var confirm = typeof(ISourceVerifier).GetMethod(nameof(ISourceVerifier.ConfirmAsync))!;
+        Assert.Equal(typeof(ValueTask<SourceConfirmation>), confirm.ReturnType);
+        Assert.Equal([typeof(IngressSubmission), typeof(CancellationToken)], confirm.GetParameters().Select(parameter => parameter.ParameterType));
+        Assert.Equal(
+            ["Unspecified", "Confirmed", "Refused", "Unavailable"],
+            Enum.GetValues<SourceConfirmation>().Select(value => value.ToString()));
+        Assert.Equal(0, (int)SourceConfirmation.Unspecified);
+    }
+
+    [Fact]
+    public void Ingress_verifies_before_setting_the_tenant_and_confirms_after_it_but_before_any_write()
+    {
+        var ingress = Read(IngressFile);
+
+        var verify = ingress.IndexOf("await IsAuthenticAsync(verifier, submission", StringComparison.Ordinal);
+        var setTenant = ingress.IndexOf("tenantContextAccessor.SetResolved(", StringComparison.Ordinal);
+        var confirm = ingress.IndexOf("await ConfirmAsync(verifier, submission", StringComparison.Ordinal);
+        var write = ingress.IndexOf("await database.ExecuteAsync(", StringComparison.Ordinal);
+
+        Assert.True(verify > 0 && verify < setTenant && setTenant < confirm && confirm < write, $"{verify} {setTenant} {confirm} {write}");
+        Assert.Equal(1, Occurrences(ingress, "tenantContextAccessor.SetResolved("));
+        Assert.Equal(1, Occurrences(ingress, "await ConfirmAsync(verifier, submission"));
+        Assert.Equal(1, Occurrences(ingress, "if (confirmation != SourceConfirmation.Confirmed)"));
+    }
+
+    [Fact]
+    public void The_connection_check_takes_a_connection_and_a_source_and_reveals_a_status_only()
+    {
+        var method = Assert.Single(typeof(IIngressConnectionCheck).GetMethods());
+        Assert.Equal(nameof(IIngressConnectionCheck.CheckAsync), method.Name);
+        Assert.Equal(typeof(Task<IngressConnectionStatus>), method.ReturnType);
+        Assert.Equal([typeof(Guid), typeof(string), typeof(CancellationToken)], method.GetParameters().Select(parameter => parameter.ParameterType));
+        Assert.Equal(
+            ["Unspecified", "Active", "Unknown", "Unavailable"],
+            Enum.GetValues<IngressConnectionStatus>().Select(value => value.ToString()));
+
+        var check = typeof(IngressRegistration).Assembly.GetType("WorkContinuity.Infrastructure.Ingress.IngressConnectionCheck", throwOnError: true)!;
+        Assert.False(check.IsPublic);
+        Assert.True(check.IsSealed);
+
+        // It goes through the approved resolver and nothing else: no SQL, no database context, no tenant.
+        var source = Read("src/App.Infrastructure/Ingress/IngressConnectionCheck.cs");
+        Assert.Contains("connectionResolver.ResolveAsync(connectionId, cancellationToken)", source, StringComparison.Ordinal);
+        foreach (var forbidden in new[] { "SELECT", "resolve_ingress_connection(", "DbContext", "SetResolved", "ITenantContextAccessor" })
+        {
+            Assert.DoesNotContain(forbidden, source, StringComparison.Ordinal);
+        }
     }
 
     private static string Read(string relativePath) =>

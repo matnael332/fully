@@ -3,10 +3,12 @@ using System.Text.RegularExpressions;
 namespace WorkContinuity.Architecture.Tests;
 
 /// <summary>
-/// Gate 3A and 3B source rules for the connector: the monday API version and hosts are each written in exactly one
+/// Gate 3A, 3B and 3C source rules for the connector: the monday API version and hosts are each written in exactly one
 /// place, only the OAuth client calls the token and revocation endpoints, the Core contract and the authorization
 /// store stay provider-neutral, the connector's source names no GraphQL write except in the guard that refuses one,
-/// neither Core nor the connector takes a package, and no later sub-gate's webhook or normalization code has arrived.
+/// neither Core nor the connector takes a package, and the connector does not log. Webhook intake (3C) stays in its own
+/// files, its route is written once, it reaches storage only through the Gate 2 ports, no webhook subscription is created
+/// or deleted, the Web host runs nothing else of the Event Backbone, and no normalization code (3D) has arrived.
 /// </summary>
 public sealed class ConnectorBoundaryTests
 {
@@ -16,6 +18,21 @@ public sealed class ConnectorBoundaryTests
     private const string OAuthClientFile = "src/App.Connectors.Monday/MondayOAuthClient.cs";
     private const string AuthorizerFile = "src/App.Connectors.Monday/MondayConnectionAuthorizer.cs";
     private const string ScopePolicyFile = "src/App.Connectors.Monday/MondayScopePolicy.cs";
+    private const string SecretStoreFile = "src/App.Connectors.Monday/IMondaySecretStore.cs";
+    private const string WebhooksFile = "src/App.Connectors.Monday/MondayWebhooks.cs";
+    private const string VerifierFile = "src/App.Connectors.Monday/MondayWebhookVerifier.cs";
+    private const string WebEndpointFile = "src/App.Web/Connectors/MondayWebhookEndpoint.cs";
+    private const string WebRegistrationFile = "src/App.Web/Connectors/MondayWebhookRegistration.cs";
+
+    private static readonly string[] WebhookFiles =
+    [
+        WebhooksFile,
+        VerifierFile,
+        "src/App.Connectors.Monday/MondayWebhookAuthenticator.cs",
+        "src/App.Connectors.Monday/MondayWebhookBody.cs",
+        "src/App.Connectors.Monday/MondayWebhookOptions.cs",
+        "src/App.Connectors.Monday/MondayWebhookToken.cs",
+    ];
 
     [Fact]
     public void The_monday_api_version_and_its_header_are_written_in_exactly_one_place()
@@ -117,20 +134,127 @@ public sealed class ConnectorBoundaryTests
     }
 
     [Fact]
-    public void No_webhook_or_normalization_code_precedes_its_sub_gate()
+    public void Webhook_intake_stays_in_its_own_files_and_no_normalization_code_precedes_its_sub_gate()
     {
-        // Gate 3B is the connection lifecycle only; webhook intake is 3C and normalization 3D. The only mention of a
-        // webhook is the name of monday's read scope in the allowlist.
+        // Gate 3C brought webhook intake; normalization is 3D. Every connector file that mentions a webhook is an intake
+        // file, the scope allowlist (monday's read scope names one) or the secret-name catalogue (the Signing Secret).
         var webhook = MondaySources()
             .Where(file => File.ReadAllText(file.FullName).Contains("webhook", StringComparison.OrdinalIgnoreCase))
             .Select(RepositoryLayout.RelativePath)
+            .Order(StringComparer.Ordinal)
             .ToList();
-        Assert.Equal(new[] { ScopePolicyFile }, webhook);
+        Assert.Equal(WebhookFiles.Concat([ScopePolicyFile, SecretStoreFile]).Order(StringComparer.Ordinal), webhook);
 
-        foreach (var port in new[] { "ISourceVerifier", "ISourceEventNormalizer", "IEventIngress", "NormalizedSourceEvent" })
+        // The connector supplies the source verifier and builds submissions. It never calls ingress or the connection
+        // check itself, and no normalizer exists before 3D.
+        var verifiers = MondaySources()
+            .Where(file => File.ReadAllText(file.FullName).Contains("ISourceVerifier", StringComparison.Ordinal))
+            .Select(RepositoryLayout.RelativePath)
+            .ToList();
+        Assert.Equal(new[] { VerifierFile }, verifiers);
+
+        foreach (var port in new[] { "ISourceEventNormalizer", "IEventIngress", "IIngressConnectionCheck", "NormalizedSourceEvent" })
         {
             Assert.DoesNotContain(MondaySources(), file => File.ReadAllText(file.FullName).Contains(port, StringComparison.Ordinal));
         }
+    }
+
+    [Fact]
+    public void The_webhook_route_is_written_in_exactly_one_place()
+    {
+        // The address the host serves and the audience a connection's tokens carry come from this one constant.
+        Assert.Equal(new[] { WebhooksFile }, Holders("/api/connectors/monday/webhooks"));
+    }
+
+    [Fact]
+    public void No_webhook_subscription_is_created_or_deleted_and_no_webhook_write_scope_exists()
+    {
+        // Decision D3C-1: intake only. Creating or deleting a real webhook needs webhooks:write, an owner boundary.
+        Assert.Empty(Holders("create_webhook"));
+        Assert.Empty(Holders("delete_webhook"));
+        Assert.Empty(Holders("webhooks:write"));
+    }
+
+    [Fact]
+    public void The_connector_does_not_log()
+    {
+        foreach (var file in MondaySources())
+        {
+            var text = File.ReadAllText(file.FullName);
+            foreach (var logging in new[] { "ILogger", "Microsoft.Extensions.Logging", "Console.", "Debug.Write", "Trace.Write" })
+            {
+                Assert.DoesNotContain(logging, text, StringComparison.Ordinal);
+            }
+        }
+    }
+
+    [Fact]
+    public void The_web_endpoint_reaches_storage_only_through_the_gate_2_ingress_ports()
+    {
+        var files = WebSources()
+            .Where(file => file.FullName.Replace('\\', '/').Contains("/src/App.Web/Connectors/", StringComparison.Ordinal))
+            .Select(RepositoryLayout.RelativePath)
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        Assert.Equal(new[] { WebEndpointFile, WebRegistrationFile }, files);
+
+        foreach (var file in files)
+        {
+            var text = Read(file);
+            foreach (var forbidden in new[]
+                     {
+                         "DbContext", "ITenantScopedDatabase", "RawReceipt", "OutboxMessage", "raw_receipts", "outbox_messages",
+                         "Npgsql", "resolve_ingress_connection", "SetResolved", "TenantId", "TenantContext.Resolved",
+                     })
+            {
+                Assert.DoesNotContain(forbidden, text, StringComparison.Ordinal);
+            }
+        }
+
+        var endpoint = Read(WebEndpointFile);
+        Assert.Contains("GetRequiredService<IEventIngress>()", endpoint, StringComparison.Ordinal);
+        Assert.Contains("GetRequiredService<IIngressConnectionCheck>()", endpoint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_web_host_composes_webhook_intake_and_runs_nothing_else_of_the_event_backbone()
+    {
+        var program = Read("src/App.Web/Program.cs");
+        Assert.Contains("builder.Services.AddMondayWebhookIntake(builder.Configuration);", program, StringComparison.Ordinal);
+        Assert.Contains("app.MapMondayWebhooks();", program, StringComparison.Ordinal);
+
+        // The in-process ingress is all of the Event Backbone the Web host may run: no transport, relay, consumer,
+        // processing, purge or migration, and no background service at all.
+        foreach (var file in WebSources())
+        {
+            var text = File.ReadAllText(file.FullName);
+            foreach (var runtime in new[]
+                     {
+                         "AddEventTransport", "AddServiceBusEventTransport", "AddEventProcessing", "AddRawContentRetention",
+                         "AddDatabaseMigrator", "AddHostedService", "BackgroundService", "IHostedService",
+                     })
+            {
+                Assert.DoesNotContain(runtime, text, StringComparison.Ordinal);
+            }
+        }
+    }
+
+    [Fact]
+    public void The_core_ingress_contract_names_no_provider_or_token_format()
+    {
+        var ingress = RepositoryLayout.CoreSourceFiles
+            .Where(file => RepositoryLayout.RelativePath(file).StartsWith("src/App.Core/Ingress/", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.NotEmpty(ingress);
+        Assert.All(ingress, file =>
+        {
+            var text = File.ReadAllText(file.FullName);
+            foreach (var specific in new[] { "Monday", "Jwt", "JWT", "HS256", "Signing", "accountId", "triggerUuid", "Bearer" })
+            {
+                Assert.DoesNotContain(specific, text, StringComparison.Ordinal);
+            }
+        });
     }
 
     private static List<string> Holders(string text) =>
@@ -143,6 +267,14 @@ public sealed class ConnectorBoundaryTests
         new DirectoryInfo(Path.Combine(RepositoryLayout.Root.FullName, "src"))
             .EnumerateFiles("*.cs", SearchOption.AllDirectories)
             .Where(file => !IsBuildOutput(file));
+
+    private static IEnumerable<FileInfo> WebSources() =>
+        new DirectoryInfo(Path.Combine(RepositoryLayout.Root.FullName, "src", "App.Web"))
+            .EnumerateFiles("*.cs", SearchOption.AllDirectories)
+            .Where(file => !IsBuildOutput(file));
+
+    private static string Read(string relativePath) =>
+        File.ReadAllText(Path.Combine(RepositoryLayout.Root.FullName, relativePath));
 
     private static IEnumerable<FileInfo> MondaySources() =>
         new DirectoryInfo(Path.Combine(RepositoryLayout.Root.FullName, "src", "App.Connectors.Monday"))

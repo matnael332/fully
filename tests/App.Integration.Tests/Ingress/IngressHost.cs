@@ -55,7 +55,10 @@ internal static class SyntheticSource
             proof ?? Sign(connectionId, payload));
 }
 
-/// <summary>Verifies the synthetic source's HMAC proof in constant time.</summary>
+/// <summary>
+/// Verifies the synthetic source's HMAC proof in constant time. The proof already binds the connection and the payload,
+/// and the synthetic source records nothing more about a connection, so there is nothing further to confirm.
+/// </summary>
 internal sealed class SyntheticSourceVerifier : ISourceVerifier
 {
     public string SourceSystem => SyntheticSource.System;
@@ -71,15 +74,21 @@ internal sealed class SyntheticSourceVerifier : ISourceVerifier
         var presented = Encoding.ASCII.GetBytes(submission.Proof);
         return ValueTask.FromResult(CryptographicOperations.FixedTimeEquals(expected, presented));
     }
+
+    public ValueTask<SourceConfirmation> ConfirmAsync(IngressSubmission submission, CancellationToken cancellationToken) =>
+        ValueTask.FromResult(SourceConfirmation.Confirmed);
 }
 
-/// <summary>A verifier that accepts everything for its source system, to isolate other checks.</summary>
+/// <summary>A verifier that accepts and confirms everything for its source system, to isolate other checks.</summary>
 internal sealed class AcceptingVerifier(string sourceSystem) : ISourceVerifier
 {
     public string SourceSystem { get; } = sourceSystem;
 
     public ValueTask<bool> VerifyAsync(IngressSubmission submission, CancellationToken cancellationToken) =>
         ValueTask.FromResult(true);
+
+    public ValueTask<SourceConfirmation> ConfirmAsync(IngressSubmission submission, CancellationToken cancellationToken) =>
+        ValueTask.FromResult(SourceConfirmation.Confirmed);
 }
 
 /// <summary>A verifier that fails with a message quoting the proof, as a careless one might.</summary>
@@ -89,6 +98,9 @@ internal sealed class ThrowingVerifier : ISourceVerifier
 
     public ValueTask<bool> VerifyAsync(IngressSubmission submission, CancellationToken cancellationToken) =>
         throw new InvalidOperationException("The verifier could not check proof " + submission.Proof);
+
+    public ValueTask<SourceConfirmation> ConfirmAsync(IngressSubmission submission, CancellationToken cancellationToken) =>
+        throw new InvalidOperationException("The verifier could not confirm proof " + submission.Proof);
 }
 
 /// <summary>A clock frozen at one instant.</summary>
@@ -153,11 +165,16 @@ internal sealed class IngressHost : IAsyncDisposable
     private readonly ServiceProvider _provider;
 
     public IngressHost(DatabaseFixture fixture, params ISourceVerifier[] verifiers)
+        : this(fixture.ApplicationConnectionString, verifiers)
+    {
+    }
+
+    private IngressHost(string connectionString, ISourceVerifier[] verifiers)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:Postgres"] = fixture.ApplicationConnectionString,
+                ["ConnectionStrings:Postgres"] = connectionString,
             })
             .Build();
 
@@ -187,12 +204,24 @@ internal sealed class IngressHost : IAsyncDisposable
     public ITenantContextAccessor TenantContextAccessor =>
         _provider.GetRequiredService<ITenantContextAccessor>();
 
+    /// <summary>The real ingress composed over a database that cannot be reached.</summary>
+    public static IngressHost Unreachable(params ISourceVerifier[] verifiers) =>
+        new("Host=127.0.0.1;Port=1;Database=unused;Username=unused;Timeout=2", verifiers);
+
     /// <summary>Submits one delivery in its own dependency-injection scope, as one request would.</summary>
     public async Task<IngressOutcome> SubmitAsync(IngressSubmission submission)
     {
         await using var scope = _provider.CreateAsyncScope();
         var ingress = scope.ServiceProvider.GetRequiredService<IEventIngress>();
         return await ingress.SubmitAsync(submission, TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>Checks a connection in its own dependency-injection scope, as one challenge request would (Gate 3C).</summary>
+    public async Task<IngressConnectionStatus> CheckAsync(Guid connectionId, string sourceSystem)
+    {
+        await using var scope = _provider.CreateAsyncScope();
+        var check = scope.ServiceProvider.GetRequiredService<IIngressConnectionCheck>();
+        return await check.CheckAsync(connectionId, sourceSystem, TestContext.Current.CancellationToken);
     }
 
     public ValueTask DisposeAsync() => _provider.DisposeAsync();

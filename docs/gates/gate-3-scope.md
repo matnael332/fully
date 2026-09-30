@@ -7,8 +7,9 @@
 | Gate 3 — monday Connector | **AUTHORIZED 2026-09-29, IN PROGRESS** |
 | 3A — Connector contract and monday client foundation | **PASS** — approved by the product owner on 2026-09-30 |
 | 3B — OAuth 2.1 connection lifecycle | **PASS** — approved by the product owner on 2026-09-30 |
-| 3C — Webhook intake | **NEXT / NOT STARTED**; needs its own product-owner authorization |
-| 3D to 3G | Not started; each needs its own product-owner authorization |
+| 3C — Webhook intake | **PASS** — approved by the product owner on 2026-09-30 |
+| 3D — Source mapping and normalization | **NEXT / NOT STARTED**; needs its own product-owner authorization |
+| 3E to 3G | Not started; each needs its own product-owner authorization |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -610,3 +611,356 @@ review decisions stay in force:
 Before the closing commit, the clean build, the full suite (986/986) and both verifiers were repeated on the tree being
 committed. The mutation and vacuity evidence (91/91) stands, because only status documentation changed after it.
 **3C (webhook intake) is NEXT / NOT STARTED** and begins only on its own authorization. Gate 3 stays IN PROGRESS.
+
+## 3C — Webhook intake
+
+Authorized by the product owner on 2026-09-30 in SAFE AUTO MODE. Baseline: `main` == `origin/main` == `869e1c7` (the
+Gate 3B commit), working tree clean, the frozen Core and Premium documents byte-identical to their recorded hashes.
+3C stops at its owner boundary: no commit, no push, no 3D.
+
+### 3C owner decision (2026-09-30)
+
+- **D3C-1 — Intake only.** 3C implements webhook intake: the receiving endpoint, the verification challenge, JWT
+  verification, tenant and connection resolution, durable Gate 2 ingress, and duplicate and retry safety. It creates and
+  deletes no real monday webhook subscription and does not add `webhooks:write` to the 3B scope policy: monday's
+  `create_webhook` and `delete_webhook` need that scope, and that connector control-plane setup is authorized
+  separately, when the real monday app and a real workspace are exercised. Real webhook creation and registration stay
+  an owner boundary, and 3C introduces no monday business-data mutation.
+
+### monday webhooks, reverified (2026-09-30)
+
+Reverified against monday's own documentation only: the
+[webhooks reference](https://developer.monday.com/api-reference/reference/webhooks) and the
+[integration authorization](https://developer.monday.com/apps/docs/integration-authorization) page. Nothing contradicts
+the 3C authorization: board webhook requests are verified with the app's Signing Secret, and only app lifecycle
+webhooks use the Client Secret.
+
+| Topic | Verified fact |
+|---|---|
+| Verification challenge | When a webhook is created, monday POSTs JSON `{"challenge": "…"}` to its URL; the endpoint must answer HTTP 200 with the same JSON. The documentation does not say that this request carries a JWT |
+| Authentication | "Some webhook requests contain a JWT in the Authorization header": those of webhooks created with an integration app token. It is verified with the app's **Signing Secret**. The integration authorization page makes the split explicit: board webhooks use the Signing Secret, app lifecycle webhooks the Client Secret |
+| JWT claims | `accountId`, `userId`, `aud` ("your app's endpoint URL"), `exp`, `iat` and `shortLivedToken`, an API token valid for five minutes |
+| Payload | `{"event": {…}}` with, among others, `userId`, `originalTriggerUuid` (null or text), `boardId`, `pulseId`, `pulseName`, `groupId`, `columnId`, `columnType`, `value`, `previousValue`, `changedAt` (epoch seconds, fractional), `isTopGroup`, `app`, `type`, `triggerTime` (ISO 8601), `subscriptionId` and `triggerUuid` (hexadecimal text) |
+| Delivery | Failed deliveries are retried once a minute for 30 minutes. Ordering, duplicate delivery and idempotency are not documented |
+| Management | `create_webhook` and `delete_webhook` need `webhooks:write`. Twenty-one event types cover items, subitems, column values, names, group moves, columns and updates |
+
+**Open verification items** (continuing the numbering above; none is a contradiction, and none is guessed). Item 3 is
+partly resolved: the claims are documented as listed.
+
+9. **HS256 — 3C compatibility assumption, which must be confirmed against a real monday board webhook in 3G.** The
+   board-webhook documentation verifies that the token is signed with the app's Signing Secret and carried in the
+   `Authorization` header, that `aud` must match the endpoint and that `exp` must be valid; it does not name the JOSE
+   algorithm. 3C verifies HS256 only, because the credential is a symmetric secret and monday's related examples sign
+   with it as a standard JWT. The algorithm allowlist is exactly `HS256`: `none`, every asymmetric algorithm (RS, PS,
+   ES, EdDSA) and every other HMAC are refused. HS256 is not recorded as a documented monday fact.
+10. **Raw token or `Bearer` — 3C compatibility decision, to be confirmed in 3G.** The documentation does not say
+    whether the `Authorization` value is always the bare JWT or `Bearer <JWT>`. 3C accepts exactly those two forms,
+    with a strict parser: the value is exactly the token, or exactly `Bearer`, one space and the token, in that case.
+    Any other scheme or case, extra whitespace, a list of values or a header given more than once is refused.
+11. `aud` is described only as "your app's endpoint URL". 3C requires it to equal, character for character, the
+    address it would register for the connection: the configured public base address followed by
+    `/api/connectors/monday/webhooks/{connectionId}`. 3G confirms the real form; a different one is an owner decision,
+    never a silent relaxation.
+12. The challenge request's `Authorization` header is not documented; the challenge path neither requires nor reads
+    it.
+13. The token's lifetime is not documented. 3C enforces `exp` with a 30-second clock tolerance, refuses a token that is
+    not yet valid by `nbf` or issued in the future by `iat`, and invents no maximum (3G records the real lifetime).
+14. Whether a webhook created with a connection's OAuth 2.1 token counts as created "with an app token", and so
+    carries the JWT, stays open until real registration (3G). A delivery without a valid JWT is always refused.
+15. Which responses monday treats as failures, whether a retry carries a fresh JWT, and whether monday disables a
+    failing webhook are not documented. 3C answers every delivery it has not durably stored with a non-2xx status, and
+    reconciliation (3E) repairs whatever never arrives (invariant 17).
+
+### 3C Definition of Done
+
+Recorded before coding, exactly as the product owner set it. 3C is READY FOR OWNER REVIEW only when:
+
+1. Public monday webhook endpoint exists locally.
+2. URL challenge works without entering Event Backbone.
+3. Event requests require valid monday board-webhook authentication.
+4. Signing Secret stays only inside the secret boundary.
+5. JWT signature, expiry and audience are verified.
+6. Verified monday account is bound to the 3B connection.
+7. Tenant is resolved only server-side.
+8. Real Gate 2 durable ingress is reused.
+9. Success is returned only after durable ingress commit.
+10. Duplicate/retry behavior is safe.
+11. Unauthenticated/malformed input persists nothing.
+12. No webhook arrival ordering is trusted.
+13. triggerUuid is used only when actually supplied.
+14. Provider text remains untrusted.
+15. No secret/payload leakage in logs.
+16. No webhooks:write, registration mutation or business write exists.
+17. No 3D normalization/reconciliation/sync exists.
+18. Full security/integration/mutation evidence is green.
+19. Frozen documents remain unchanged.
+20. No Azure or real monday account is required.
+21. No contradiction with Core or Premium P0.
+
+### 3C design
+
+**Where things live.** monday's protocol stays in the connector: reading a webhook body, the challenge, the JWT check,
+the Signing Secret lookup, a connection's audience and the production monday `ISourceVerifier`, none of which logs. The Web host owns HTTP only: the route, the size, media-type and encoding limits, the status codes, the logs and
+the composition. Storage is reached only through Gate 2 ports: `IEventIngress` for events, and a new provider-neutral
+connection check for the challenge. Nothing monday-specific enters Core, and no monday or Web code touches a table.
+
+**Endpoint.** `POST /api/connectors/monday/webhooks/{connectionId}`. The connection id is the only request input that
+selects anything, and only in its canonical lowercase form; the tenant never comes from the route, the query, the body,
+the JWT or a header. A request is refused before its body is read when it is not `application/json` in UTF-8, is
+compressed, or declares more than 256 KiB. The body is read to at most 256 KiB, never decompressed and never truncated:
+a larger one is refused and nothing is stored. It must be well-formed UTF-8 JSON without a byte-order mark or duplicate
+keys, nested at most 64 levels. A challenge and an event are told apart by the body's shape alone and take separate
+code paths; a body that is both, or neither, is malformed.
+
+**Challenge.** A challenge is a JSON object with exactly one property, `challenge`, holding 1 to 256 visible ASCII
+characters; anything else, an extra field included, is malformed and refused. The connection id must name an active
+monday connection. A new provider-neutral port, `IIngressConnectionCheck`, answers that through the approved Gate 2
+resolver `resolve_ingress_connection`: it returns only active, unknown or unavailable, never the tenant or any other
+data, and adds no database function or query. The response is `{"challenge": …}`, serialized from the parsed value. A
+challenge is never stored and never reaches the ingress, the outbox or the Snapshot. Because monday does not document a
+JWT on the challenge, the challenge path neither requires nor reads `Authorization` (item 12).
+
+**Event authentication.** An event requires exactly one `Authorization` header of at most 8 KiB holding a JWT, as the
+exact bare token or exactly `Bearer` and the token (a 3C compatibility decision, item 10). The token must be three
+canonical base64url segments without padding. Its header must be a JSON object whose `alg` is on the one-entry
+allowlist, `HS256` (a 3C compatibility assumption, item 9), with no `crit`, and whose `typ`, when present, is `JWT`. The
+signature is recomputed with HMAC-SHA256 over the first two segments, keyed by the Signing Secret, and compared in
+constant time; no claim is read before it matches. Then `exp` is required and must not have passed (30-second tolerance); `nbf` and
+`iat`, when present, must not lie in the future; `aud`, a string or an array of strings, must contain exactly the
+connection's audience; and `accountId`, a number or a string of digits, is required. `userId` is provider actor
+information and is never read as an identity. `shortLivedToken` is credential material: it is never read, stored,
+logged or passed on.
+
+**Signing Secret.** It is read through `IMondaySecretStore` under the fixed name `wce-monday-signing-secret`, which the
+product owner fills, at most once per request, and is used only as the HMAC key. It is never in configuration, Core, a
+database field, a log, an error, telemetry, an event or the Snapshot, and a caller can never supply it. It must be 1 to
+1,024 visible ASCII characters. When it is missing, malformed or unreadable, or the public base address is not
+configured, no delivery can be verified, and the event is refused with a retryable 503. The deployed secret store is
+still an owner decision (3B), so the Web host registers a store that refuses every read unless an approved one is
+registered: as composed today, the endpoint answers challenges and refuses every event, failing closed.
+
+**Account, connection and tenant binding.** The owner's flow validates the monday account before the delivery reaches
+ingress. But the account a connection was authorized for is tenant-owned data under forced row-level security,
+recorded by 3B in `connector_authorizations`, so it can be read only after the tenant is resolved; reading it earlier
+would need a tenant-less query, which 3C may not create. The binding therefore runs inside ingress, after server-side
+tenant resolution and before anything is stored, as the smallest provider-neutral extension of the Gate 2 verifier
+contract:
+
+1. The Web endpoint verifies the JWT before calling ingress, so an unauthenticated request never reaches the database:
+   an invalid token is refused with 401, and an unreadable secret with 503.
+2. Ingress runs its unchanged Gate 2 order: shape, the approved resolver, the source match, then
+   `ISourceVerifier.VerifyAsync`. The monday verifier verifies the proof again against the named connection's own
+   audience, which binds the proof to that connection, before any tenant is set.
+3. Ingress sets the tenant from the connection, server-side, and then calls the new member
+   `ISourceVerifier.ConfirmAsync`. The monday verifier verifies the JWT once more and reads the connection's
+   authorization through the tenant-scoped 3B store. It confirms only when that authorization exists in the trusted
+   tenant for this connection and source; it is Active, its connection enabled and its authorizing user active (the 3B
+   access-time rule); and the token's `accountId` equals the recorded monday account. Any other answer is a permanent
+   `SourceNotVerified` rejection, except a store that cannot be read, which fails the delivery retryably.
+4. Only then does ingress write the raw receipt and its outbox marker, in one transaction with the tenant-status check,
+   exactly as in Gate 2.
+
+`ConfirmAsync` is mandatory, so no source can skip the binding by omission: every verifier states what it confirms. Its
+answer is `Confirmed`, `Refused` or `Unavailable`; an exception counts as a refusal and is logged by type only, as for
+verification. A verifier whose proof already binds everything, such as the synthetic Gate 2 source, confirms. The step
+reads only the tenant's own data and writes nothing, so a refused delivery still leaves nothing behind (Gate 2 owner
+decision 6). A delivery while the connection requires reauthorization is therefore refused; reconciliation (3E)
+repairs that gap, and the product owner may decide otherwise.
+
+**Submission.** An authenticated event becomes one `IngressSubmission`: the connection id; source `monday`; schema
+version `monday.webhook.v1`; as the raw payload, the body exactly as received; the request's correlation id; and the
+token as the proof, which ingress never stores or logs. `event.triggerUuid` becomes the provider event id only when
+monday supplies it as text that is a valid identifier. When it is absent or null there is none and none is
+synthesized, so the Gate 2 fingerprint and duplicate-candidate path applies; any other `triggerUuid` is malformed and
+refused. `originalTriggerUuid`, `changedAt` and `triggerTime` stay in the raw payload for 3D and decide nothing in 3C.
+No order is inferred from arrival or from any UUID, and the ordering engine is unchanged.
+
+**Acknowledgement.** The response follows the ingress outcome and is sent only after it:
+
+| Outcome | Status |
+|---|---|
+| Challenge answered | 200 with `{"challenge": …}` |
+| Event stored now, or already stored by an earlier delivery with the same `triggerUuid` | 200, empty |
+| Not JSON in UTF-8, or compressed | 415 |
+| Body over 256 KiB | 413 |
+| Malformed body, challenge, event or `triggerUuid`; a payload ingress cannot store | 400 |
+| Missing, malformed or invalid token; wrong signature or audience; expired; account or authorization mismatch | 401 |
+| Connection id malformed, unknown, inactive or of another source; its tenant not active | 404 |
+| Signing Secret or base address unavailable; ingress failed; database unavailable | 503 |
+
+A 404 does not say whether a tenant exists. Error bodies carry only a fixed code, a fixed message and the correlation
+id, never provider content. Every non-2xx answer leaves nothing stored, so monday's once-a-minute retries are safe, and
+a delivery with a `triggerUuid` converges on one durable receipt however often it arrives.
+
+**Logs.** The endpoint logs connection ids, correlation ids, fixed reason codes and outcome statuses only: never the
+body, a header, the token, a claim, the Signing Secret or provider text. The connector does not log.
+
+**Web host.** It registers only what intake needs: the Gate 2 ingress and the connection check, the 3B authorization
+store for the binding, the webhook options (the public base address, from configuration key
+`Connectors:Monday:WebhookBaseAddress`), the connector's authenticator and verifier, and the fail-closed secret store.
+It activates no relay, consumer, processing, purge, reconciliation or initial sync, and changes nothing in Azure.
+
+**Not in 3C.** No webhook registration or deletion, no `webhooks:write`, no monday write, no normalizer (3D), no
+reconciliation (3E), no initial sync (3F); no real monday app, secret, JWT or account; no Key Vault adapter; and no
+Azure, RBAC, network, IaC or workflow change.
+
+### 3C contradiction audit (before code)
+
+Every element of the 3C design was compared with PRD v1, System Architecture v1, the 83 Architecture Invariants,
+Development Gates v1, the frozen Premium documents and the Gate 2 decisions.
+
+| Element | Canonical rule | Result |
+|---|---|---|
+| Durable receipt before acknowledgement; the challenge is no work event | System Architecture v1 §3 ("ACK occurs only after durable receipt") | Compatible: 200 only for an acknowledged ingress outcome; a challenge stores nothing |
+| Verification before tenant resolution; the tenant resolved server-side | System Architecture v1 §3 lifecycle; invariants 1, 44, 45; Gate 2 decisions 1 and 6 | Compatible: the proof is verified twice before any tenant is set, and the tenant comes only from the connection. The account binding adds a tenant-scoped check after resolution and before the receipt, like the Gate 2 tenant-status check; nothing is stored or acknowledged unless every check passes |
+| No new tenant-less query | Gate 2 decision 1 | Compatible: the challenge and ingress reuse the approved resolver only; the new check returns a status, never a tenant |
+| Webhooks give speed; reconciliation gives correctness | Invariant 17 | Compatible: nothing about ordering or completeness is inferred; missed and refused deliveries are left to reconciliation (3E) |
+| Dedupe by a stable provider event id, otherwise fingerprint candidates | System Architecture v1 §3 (deduplication) | Compatible: `triggerUuid` only when supplied; none synthesized |
+| No blind receipt order | System Architecture v1 §3 (ordering) | Compatible: arrival order and UUIDs decide nothing; provider times stay in the payload for 3D |
+| Secrets only in the connector's secret storage | PRD v1 §17; invariants 53, 54; D3B-2; Premium §20 constraint 1 | Compatible: the Signing Secret is read only through `IMondaySecretStore` |
+| External content is data | Invariant 25; Premium §20 constraint 6 | Compatible: the body is parsed only to tell a challenge from an event and to read `triggerUuid`; nothing in it selects a tenant, a user or a policy |
+| A provider actor is no identity; no guessed employee | Invariants 19, 45, 46, 47; D3B-1 | Compatible: `userId` is never read as an identity |
+| Revocation at access time | Invariant 58; Premium §20 constraint 7 | Compatible: a disabled connection, or a revoked, reauthorization-required or ownerless authorization, is refused on every delivery |
+| Read and ingest only | Development Gates v1; invariant 37; Premium §20 constraint 5; D3C-1 | Compatible: no `webhooks:write`, no mutation, no registration |
+| Payloads, tokens and secrets out of logs | PRD v1 §17; System Architecture v1 §10 | Compatible: ids and fixed codes only |
+| No AI, no Premium | Development Gates v1; P0 closure | Compatible |
+| No Azure change | CLAUDE.md; D3C-1 | Compatible |
+
+**Result: no contradiction, no blocker.** One point is reported for the owner's review rather than decided silently:
+the owner's flow validates the monday account before ingress, which is impossible without a tenant-less read, so the
+binding runs inside ingress after server-side tenant resolution and before the durable receipt (see *Account,
+connection and tenant binding*). The order and guarantees are otherwise the owner's.
+
+### 3C owner clarification (2026-09-30): HS256 and the `Authorization` form
+
+Before the JWT implementation was final, the product owner clarified that neither the JOSE algorithm nor the
+`Authorization` form is a documented monday fact. Applied as follows, without weakening any signature, audience,
+expiry or account-binding test:
+
+- HS256 is used as a **3C compatibility assumption, which must be confirmed against a real monday board webhook in
+  3G** (item 9). The algorithm allowlist is exactly `HS256`; `none`, the asymmetric families (RS, PS, ES, EdDSA),
+  other HMACs, other spellings and an empty value are refused, and tests pin each.
+- Accepting the bare token and `Bearer <JWT>` is a **3C compatibility decision, to be confirmed in 3G** (item 10). The
+  parser was tightened to the exact forms: the scheme must be `Bearer` in that case, followed by one space and the
+  token. Lowercase or uppercase schemes, extra whitespace, lists and repeated headers are refused.
+
+### 3C implementation record
+
+Implemented on `869e1c7`, uncommitted. No schema change, migration, package, workflow, IaC, Key Vault or Azure change.
+
+**Core, provider-neutral** (`src/App.Core/Ingress/`): `ISourceVerifier.ConfirmAsync` with `SourceConfirmation`
+(`Confirmed`, `Refused`, `Unavailable`; `Unspecified` counts as a refusal), the mandatory post-tenant confirmation;
+`IIngressConnectionCheck` with `IngressConnectionStatus` (`Active`, `Unknown`, `Unavailable`), the status-only check a
+challenge needs. Neither names a provider or a token format.
+
+**Infrastructure** (`src/App.Infrastructure/Ingress/`): `EventIngressService` calls the verifier's `ConfirmAsync` after
+`SetResolved` and before the write transaction; `Unavailable` fails the delivery retryably, anything but `Confirmed` is
+a `SourceNotVerified` rejection, and an exception is a refusal logged by type only. Nothing else in the Gate 2 order
+changed. `IngressConnectionCheck` (internal) reduces the approved resolver's answer to a status, reports another
+source's connection as unknown, and never exposes the tenant; `AddEventIngress` registers it.
+
+**Connector** (`src/App.Connectors.Monday/`): `MondayWebhooks` (the route, written once; the limits; the schema version;
+the canonical connection-id parse), `MondayWebhookOptions` (the configured public base address and each connection's
+audience), `MondayWebhookBody` (the strict reader, the challenge answer and the ingress submission),
+`MondayWebhookToken` (the JWT check, internal), `MondayWebhookAuthenticator` (the Signing Secret through
+`IMondaySecretStore`, at most once per request; the exact header forms) and `MondayWebhookVerifier` (the production
+`ISourceVerifier`: verification against the connection's audience, then confirmation against the 3B authorization).
+`MondaySecretName.SigningSecret` is `wce-monday-signing-secret`. The connector does not log.
+
+**Web** (`src/App.Web/`): `Connectors/MondayWebhookEndpoint.cs` (HTTP only: limits, the two paths, the answers, the
+logs), `Connectors/MondayWebhookRegistration.cs` (`AddMondayWebhookIntake`, and `UnconfiguredMondaySecretStore`, the
+fail-closed default), and `Program.cs`, which composes intake and maps the endpoint.
+
+**Tests:** unit 692 (+124), security 138 (+9), architecture 29 (+6), integration 308 (+42): 1,167 in all,
+1,167/1,167 locally, the 9 Service Bus emulator tests included. The end-to-end tests run the real endpoint in a
+real Kestrel server on a loopback port against the local PostgreSQL through the runtime role, with fake tokens and a
+fake Signing Secret, and capture every log record of every category at Trace. Three existing pins were updated
+deliberately, each still pinning an exact set: the 3B rule that no webhook code may precede 3C became the 3C file rule;
+the Gate 2 rule that no production verifier exists became "the monday webhook verifier is the only one and the only
+proof reader"; and the 3B pin of fixed secret names gained `SigningSecret`. The three Gate 2 test verifiers implement
+`ConfirmAsync` (the throwing one throws), so every Gate 2 test runs unchanged.
+
+**Mutation and vacuity:** 45 mutants, C01 to C45 (`mutate-3c.py`), cover every guard the owner named: the JWT signature and its algorithm
+allowlist, expiry, not-before and issued-at, the audience, the account binding and the access-time state, the
+post-tenant confirmation in ingress, the connection check, durable-before-acknowledgement, the size, media-type and
+encoding limits, `triggerUuid` handling, and the exact `Bearer` form. **All 45 were caught.**
+
+- *First run.* Started in the background, it was stopped by Claude Code at C07 because the machine ran low on
+  memory. C01 to C06 had been caught. The kill skipped C07's restore: the one removed line was put back and the file
+  verified against the pre-run hash manifest of all 15 changed production files, and the clean build and the full
+  suite were repeated.
+- *Completion.* On the product owner's go, C07 to C45 ran in the foreground in five batches, each mutant restored and
+  hash-checked by the driver, and all 29 changed production and test files hash-checked after every batch.
+- *One real test gap, closed test-only.* C37, which lets the endpoint read four times its bound, first survived:
+  under Kestrel, the server's per-request body limit, which the endpoint also sets, refused the oversized body first,
+  so the endpoint's own bound, the only guard where that server feature is absent or read-only, was never
+  exercised. A test-host option now serves requests as a server without that feature, and an end-to-end test proves
+  that a chunked body one byte over the bound is refused whole with 413 and stores nothing, while a body at the bound
+  is stored whole. C37 was then caught. No production code changed; C38 and C39, the neighbouring limits caught by
+  the same test class, were rerun and caught again.
+- *Final verification.* Every production file matches the original pre-mutation manifest, except `Program.cs`, whose
+  only difference is a comment-only correction made after the restore, proven by reversal; the clean build, the full
+  suite, both verifiers and the frozen-document hashes were repeated afterwards.
+
+**Vacuity controls:** the log-leakage test proves the capture includes ASP.NET Core hosting and routing, Entity
+Framework Core commands and the ingress; the database-wide scan finds the delivered body in `raw_receipts.payload` as a
+positive control while no token, short-lived credential or Signing Secret appears in any table; the "unauthenticated
+requests never reach the database" test relies on the same Entity Framework Core categories that the leakage test
+proves are captured.
+
+**Local endpoint:** the real Web host, composed by `Program.cs` exactly as shipped, was run locally in Development, which
+validates its dependency graph on build, against the local PostgreSQL as the runtime role. A challenge for an active
+monday connection was answered 200 with the echo; an unknown connection 404; an event without a token 401; an event
+with a token 503, because no approved secret store is registered; `text/plain` 415; and a GET 405. Its console held
+connection ids, correlation ids and fixed codes only.
+
+**Security review** (`fully-security-review` checklist; no finding requires a change before review):
+
+1. *The token authenticates the sender, not the body.* monday's JWT carries no digest of the body, so body integrity
+   rests on TLS: a token captured in transit or from a log could be replayed with a different body to the same
+   connection until `exp` plus 30 seconds. The audience binds it to one connection and the account binding to one
+   monday account. 3D and 3E should treat webhook content as a hint that authoritative reread confirms before it can
+   change the Snapshot (invariant 17).
+2. *No rate limiting on the public endpoint.* Unauthenticated events never reach the database, but a challenge performs
+   one approved tenant-less lookup per request, because monday does not sign challenges. Rate limiting or a WAF in
+   front of the endpoint is an owner decision (infrastructure or Gate 7).
+3. *The challenge reveals whether an id names an active monday connection* (200 or 404), never the tenant. Connection
+   ids are version 7 GUIDs with 74 random bits, so enumeration is infeasible.
+4. *Deliveries while a connection requires reauthorization are refused* (401); monday retries for 30 minutes, and
+   reconciliation (3E) repairs anything after that. Accepting them instead is an owner decision.
+5. *When `CD Dev` next deploys the Web image* (an owner approval), the endpoint becomes reachable in Azure Dev. It fails
+   closed there: no approved secret store and no base address, so every event is 503; and without the Gate 2B to 2F
+   migrations, the challenge's lookup fails, so every challenge is 503 too, logged with the connection id only.
+
+**Still to decide before real webhook registration (3G and the owner):** the monday app and its Signing Secret, placed
+in the approved secret store as `wce-monday-signing-secret`; the deployed secret store (a Key Vault adapter and access
+for the Web identity); the public base address (`Connectors:Monday:WebhookBaseAddress`) and how monday reaches it; how
+webhooks are created and deleted (`create_webhook` and `delete_webhook` need `webhooks:write`, which D3C-1 defers), on
+which boards and events, and their removal on disconnect; the Azure rollout of the Gate 2B to 2F and 3B migrations
+(with the R3B-2 rule); rate limiting for the public endpoint; and verification items 9 to 15.
+
+### 3C owner review and closure (2026-09-30)
+
+The product owner reviewed 3C and gave it the final pass on 2026-09-30: **3C is PASS**. Decision D3C-1 stays in force
+(intake only: no real webhook registration, no `webhooks:write`, no monday write), and the review approved:
+
+1. **Account binding placement.** The monday account is bound in this order: server-side connection resolution →
+   trusted tenant context → `ISourceVerifier.ConfirmAsync` → account and connection validation → durable receipt. The
+   binding must stay before any durable write of a webhook payload.
+2. **HS256** remains a 3C compatibility assumption, not a documented monday fact, and must be confirmed against a real
+   monday board webhook in 3G.
+3. **`Authorization` parsing** supports only the exact raw JWT and the exact `Bearer <JWT>`; confirming it is a 3G
+   compatibility-verification item.
+4. **Security follow-ups.** The recorded findings (body integrity beyond TLS, rate limiting for the public endpoint,
+   the challenge revealing whether a connection id is active, refusing deliveries while reauthorization is required,
+   and the fail-closed behaviour after a future Azure Dev deployment) are accepted as later-Gate work and do not block
+   3C.
+
+**Final evidence:** 45/45 mutation checks caught, C37 having exposed a real test gap that was closed test-only;
+1,167/1,167 local tests (unit 692, security 138, architecture 29, integration 308); build 0 warnings and 0 errors; both
+repository verifiers PASS; the frozen Core and Premium documents byte-identical. Before the closing commit, the clean
+build, the full suite, both verifiers, the frozen-document hashes and `git diff --check` were repeated on the tree
+being committed. The mutation evidence stands, because only status documentation changed after it.
+
+**3D (source mapping and normalization) is NEXT / NOT STARTED** and begins only on its own authorization. Gate 3
+stays IN PROGRESS.

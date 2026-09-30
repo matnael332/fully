@@ -64,6 +64,12 @@ public sealed class MondaySecretName : IEquatable<MondaySecretName>
     /// <summary>Gets the monday app's client secret, which the product owner places in storage.</summary>
     public static MondaySecretName ClientSecret { get; } = new("wce-monday-client-secret");
 
+    /// <summary>
+    /// Gets the monday app's Signing Secret, which verifies webhook tokens (Gate 3C); the product owner places it in
+    /// storage.
+    /// </summary>
+    public static MondaySecretName SigningSecret { get; } = new("wce-monday-signing-secret");
+
     /// <summary>Gets the name as storage keys it.</summary>
     public string Value { get; }
 

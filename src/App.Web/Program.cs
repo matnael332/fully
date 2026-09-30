@@ -10,6 +10,7 @@ using WorkContinuity.Core.Time;
 using WorkContinuity.Infrastructure.Health;
 using WorkContinuity.Infrastructure.Observability;
 using WorkContinuity.Infrastructure.Persistence;
+using WorkContinuity.Web.Connectors;
 using WorkContinuity.Web.Platform;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -29,6 +30,13 @@ builder.Services.AddDependencyProbe(builder.Configuration, ServiceBusReadinessMo
 // Tenant-scoped persistence only. The administrative connection used for migrations is deliberately
 // not registered here, so request handling cannot resolve an elevated database connection.
 builder.Services.AddPersistence(builder.Configuration);
+
+// monday webhook intake (Gate 3C, decision D3C-1: intake only). It registers the Gate 2 durable ingress and its
+// connection check, and the production monday source verifier with what it needs: the 3B authorization store, the
+// token authenticator, the webhook options and a fail-closed secret store. No relay, consumer, processing, purge,
+// reconciliation or sync runs here. Until an approved secret store is registered, every event is refused with a
+// retryable status, because its token cannot be verified.
+builder.Services.AddMondayWebhookIntake(builder.Configuration);
 
 // OpenTelemetry baseline (Gate 1G): requests, dependencies (HTTP, PostgreSQL, Azure SDK), logs and
 // runtime metrics to Application Insights. Enabled only when Azure supplies the connection string
@@ -54,7 +62,8 @@ app.UseMiddleware<PlatformExceptionMiddleware>();
 // No middleware resolves a tenant. ITenantContextAccessor.Current therefore stays
 // TenantContext.Unresolved for every request: a tenant id supplied in a query string, header,
 // route or body is never promoted into the security context. Server-side tenant resolution from a
-// validated authenticated principal arrives with authentication in a later Gate.
+// validated authenticated principal arrives with authentication in a later Gate. The monday webhook
+// endpoint's deliveries get their tenant from their connection inside the ingress, never from the request.
 
 app.MapGet("/", () => Results.Ok(new
 {
@@ -78,5 +87,8 @@ app.MapGet("/health/ready", async (DependencyProbe probe, CancellationToken canc
         ? Results.Ok(report)
         : Results.Json(report, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
+
+// The monday webhook endpoint (POST on MondayWebhooks.RouteTemplate): the challenge and durable event intake.
+app.MapMondayWebhooks();
 
 app.Run();

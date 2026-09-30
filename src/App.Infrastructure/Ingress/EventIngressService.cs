@@ -22,8 +22,9 @@ namespace WorkContinuity.Infrastructure.Ingress;
 /// <para>
 /// Order matters. The delivery's shape is checked first, then its connection is identified through the
 /// single approved tenant-less function, then the source is matched and verified. Only then is the
-/// tenant set, server-side and from the connection alone, and only then is anything written: the raw
-/// receipt and its outbox marker in one transaction. A delivery refused before that point leaves no
+/// tenant set, server-side and from the connection alone; then the same verifier confirms the delivery
+/// against the connection's own records in that tenant (Gate 3C), and only then is anything written: the
+/// raw receipt and its outbox marker in one transaction. A delivery refused before that point leaves no
 /// payload anywhere (Gate 2 owner decision 6).
 /// </para>
 /// <para>
@@ -124,13 +125,31 @@ internal sealed class EventIngressService(
             return Reject(IngressErrors.SourceMismatch, submission.ConnectionId, correlationId);
         }
 
-        if (!await IsAuthenticAsync(submission, correlationId, cancellationToken))
+        var verifier = VerifierFor(submission.SourceSystem);
+        if (verifier is null || !await IsAuthenticAsync(verifier, submission, correlationId, cancellationToken))
         {
             return Reject(IngressErrors.SourceNotVerified, submission.ConnectionId, correlationId);
         }
 
         tenantContextAccessor.SetResolved(
             TenantContext.Resolved(connection.TenantId, TenantResolutionSource.TrustedServiceIdentity));
+
+        // The tenant is now the connection's own, so the verifier can bind the verified proof to what that tenant
+        // recorded for the connection. Nothing has been written yet, and nothing will be unless this confirms.
+        var confirmation = await ConfirmAsync(verifier, submission, correlationId, cancellationToken);
+        if (confirmation == SourceConfirmation.Unavailable)
+        {
+            logger.LogError(
+                "Ingress could not confirm the delivery on connection {ConnectionId} against the connection's records; it was not stored or acknowledged (correlation {CorrelationId}).",
+                submission.ConnectionId,
+                correlationId);
+            return IngressOutcome.Failed(correlationId);
+        }
+
+        if (confirmation != SourceConfirmation.Confirmed)
+        {
+            return Reject(IngressErrors.SourceNotVerified, submission.ConnectionId, correlationId);
+        }
 
         var receiptId = Guid.CreateVersion7();
         var queuedAt = clock.UtcNow;
@@ -263,24 +282,25 @@ internal sealed class EventIngressService(
         return IngressOutcome.Duplicate(stored.ReceiptId, correlationId);
     }
 
+    private ISourceVerifier? VerifierFor(string sourceSystem)
+    {
+        var candidates = Array.FindAll(
+            _verifiers,
+            verifier => string.Equals(verifier.SourceSystem, sourceSystem, StringComparison.Ordinal));
+
+        // No verifier, or an ambiguous pair of them, never verifies anything: fail closed.
+        return candidates.Length == 1 ? candidates[0] : null;
+    }
+
     private async Task<bool> IsAuthenticAsync(
+        ISourceVerifier verifier,
         IngressSubmission submission,
         CorrelationId correlationId,
         CancellationToken cancellationToken)
     {
-        var candidates = Array.FindAll(
-            _verifiers,
-            verifier => string.Equals(verifier.SourceSystem, submission.SourceSystem, StringComparison.Ordinal));
-
-        // No verifier, or an ambiguous pair of them, never verifies anything: fail closed.
-        if (candidates.Length != 1)
-        {
-            return false;
-        }
-
         try
         {
-            return await candidates[0].VerifyAsync(submission, cancellationToken);
+            return await verifier.VerifyAsync(submission, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -291,6 +311,28 @@ internal sealed class EventIngressService(
                 submission.ConnectionId,
                 correlationId);
             return false;
+        }
+    }
+
+    private async Task<SourceConfirmation> ConfirmAsync(
+        ISourceVerifier verifier,
+        IngressSubmission submission,
+        CorrelationId correlationId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await verifier.ConfirmAsync(submission, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // As for verification, only the exception type is logged, and the delivery is refused.
+            logger.LogWarning(
+                "The source verifier's confirmation failed with {ExceptionType}; the delivery on connection {ConnectionId} is treated as not confirmed (correlation {CorrelationId}).",
+                exception.GetType().Name,
+                submission.ConnectionId,
+                correlationId);
+            return SourceConfirmation.Refused;
         }
     }
 

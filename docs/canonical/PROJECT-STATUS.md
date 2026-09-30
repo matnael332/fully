@@ -207,7 +207,7 @@ Gate passes. P0 is a planning prerequisite to Core Gate 3, not a technical depen
 planned and NOT STARTED.
 
 ### Gate 3 — monday Connector
-Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B PASS (approved 2026-09-30); 3C NEXT / NOT STARTED; 3D–3G not started; later Gates not started**
+Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B PASS (approved 2026-09-30); 3C PASS (approved 2026-09-30); 3D NEXT / NOT STARTED; 3E–3G not started; later Gates not started**
 
 Gate 3 builds real monday authentication, webhooks, source mapping, API reconciliation and initial sync on top of
 the Gate 2 Event Backbone, reading and ingesting only. Scope, the verified monday platform baseline, sub-gates 3A to
@@ -216,7 +216,10 @@ the Gate 2 Event Backbone, reading and ingesting only. Scope, the verified monda
 client foundation (773 tests locally, 32/32 mutants caught); nothing runs against a real monday account or in Azure.
 3B delivered the monday OAuth 2.1 connection lifecycle under owner decisions D3B-1 to D3B-3 and review decisions R3B-1
 and R3B-2 (986 tests locally, 91/91 mutation and vacuity checks) and is PASS, approved on 2026-09-30; nothing runs
-against a real monday account or in Azure.
+against a real monday account or in Azure. 3C delivered monday webhook intake under owner decision
+D3C-1 (intake only: no real webhook registration, no `webhooks:write`, no monday write) and is PASS, approved on
+2026-09-30 (1,167 tests locally, 45/45 mutation checks); nothing runs against a real monday account or in Azure.
+3D (source mapping and normalization) is next and not started.
 
 ## Verified evidence for Gate 1A / 1B
 
@@ -380,8 +383,8 @@ post-Gate-1 hardening follow-ups.
 Gate 1 (Foundation) and Gate 2 (Event Backbone) are closed: Gates 1A through 1G and 2A through 2G are PASS (Gate 2
 evidence: `docs/gates/gate-2-report.md`). Premium Gate P0 (Architecture Freeze) is PASS: the Premium architecture is
 frozen (closed 2026-09-29; `docs/premium/`, `docs/gates/gate-P0-report.md`). Gate 3 (monday Connector) is in
-progress: 3A and 3B are PASS, and 3C is next and not started (`docs/gates/gate-3-scope.md`). Do not start 3C or
-any later sub-gate, or
+progress: 3A, 3B and 3C are PASS, and 3D (source mapping and normalization) is next and not started
+(`docs/gates/gate-3-scope.md`). Do not start 3D or any later sub-gate, or
 any Premium Gate P1 to P11, without the product owner's explicit authorization, do not start the bootstrap or
 migration jobs (each has exactly one execution), and do not deploy,
 dispatch `CD Dev` with `deploy: true`, or change Azure resources, without explicit product-owner
