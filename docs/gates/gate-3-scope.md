@@ -8,8 +8,9 @@
 | 3A — Connector contract and monday client foundation | **PASS** — approved by the product owner on 2026-09-30 |
 | 3B — OAuth 2.1 connection lifecycle | **PASS** — approved by the product owner on 2026-09-30 |
 | 3C — Webhook intake | **PASS** — approved by the product owner on 2026-09-30 |
-| 3D — Source mapping and normalization | **NEXT / NOT STARTED**; needs its own product-owner authorization |
-| 3E to 3G | Not started; each needs its own product-owner authorization |
+| 3D — Source mapping and normalization | **PASS** — approved by the product owner on 2026-10-01 |
+| 3E — API reconciliation and authoritative reread | **NEXT / NOT STARTED** — needs its own product-owner authorization |
+| 3F to 3G | Not started; each needs its own product-owner authorization |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -964,3 +965,333 @@ being committed. The mutation evidence stands, because only status documentation
 
 **3D (source mapping and normalization) is NEXT / NOT STARTED** and begins only on its own authorization. Gate 3
 stays IN PROGRESS.
+
+## 3D — Source mapping and normalization
+
+Authorized by the product owner on 2026-09-30 in SAFE AUTO MODE. Baseline: `main` == `origin/main` == remote `main` ==
+`60ded62` (the Gate 3C commit), working tree clean, the frozen Core and Premium documents byte-identical to their
+recorded hashes. 3D stops at its owner boundary: no commit, no push, no 3E.
+
+### 3D owner decisions (2026-09-30)
+
+- **D3D-1 — A webhook is a change signal, not authoritative state.** The monday JWT authenticates the sender, not each
+  work-data field of the body, so a webhook payload alone never becomes authoritative Snapshot state. From a webhook,
+  3D may take the object and field that appear to have changed, the event type, the provider actor id, the provider
+  timestamps, the provider event id and provenance, and previous and current values as untrusted change hints. A value
+  that would become Snapshot truth must be confirmed by the authoritative reread of 3E, so 3D routes the state-changing
+  result to `ReconciliationRequired`; it implements no reread and does not start 3E. If the contract cannot express
+  this safely without a material Core architecture change, 3D stops and reports the blocker.
+- **D3D-2 — Canonical ids, not display labels.** monday's item (pulse) id identifies the source object, the board id
+  its board context, the column id the field, the parent item id (where monday supplies it) the parent relationship,
+  and `triggerUuid` the provider event id as 3C preserved it. Item names, column titles, group names, user names and
+  emails are untrusted display data and never keys, and no id is derived from text.
+- **D3D-3 — Actor identity.** monday's `userId` is a provider actor id: kept as provenance and left unresolved. No
+  mapping by email or name, no assumption that the connection's OAuth user acted, and no new identity-mapping system.
+- **D3D-4 — Ordering evidence.** monday items have no revision, and none is fabricated. `changedAt`, where present and
+  valid, is source-update-time evidence; `triggerTime` is occurrence evidence; receipt time is never provider order.
+  Nothing is manufactured from receipt time or clamped to "now", and conflicting or malformed timestamps follow the
+  existing Gate 2 paths.
+- **D3D-5 — Value length.** `EventText.MaxValueLength` stays 1,024 characters and is not widened without owner
+  approval. monday data is never truncated or cut, the raw receipt is never replaced, and a value beyond the bound gets
+  the existing explicit outcome.
+
+### monday webhook payloads, reverified (2026-09-30)
+
+Reverified against monday's own [webhooks reference](https://developer.monday.com/api-reference/reference/webhooks)
+only: the legacy documentation host no longer resolves, and the changelog entries carry no payloads. Nothing
+contradicts a material point of the 3D authorization.
+
+| Topic | Verified fact |
+|---|---|
+| Event types | 21 subscription events: `change_column_value`, `change_status_column_value`, `change_subitem_column_value`, `change_specific_column_value`, `change_name`, `create_item`, `item_archived`, `item_deleted`, `item_moved_to_any_group`, `item_moved_to_specific_group`, `item_restored`, `create_subitem`, `change_subitem_name`, `move_subitem`, `subitem_archived`, `subitem_deleted`, `create_column`, `create_update`, `edit_update`, `delete_update`, `create_subitem_update` |
+| Documented payloads | Five only: `create_item` and `create_subitem` (payload `type` `create_pulse`), `change_column_value` and `change_status_column_value` (payload `type` `update_column_value`), and `create_update` (payload `type` `create_update`). A payload's `type` is not its subscription name |
+| Column change | `userId`, `originalTriggerUuid`, `boardId`, `groupId`, `pulseId`, `pulseName`, `columnId`, `columnType`, `columnTitle`, `value`, `previousValue`, `changedAt`, `isTopGroup`, `app`, `type`, `triggerTime`, `subscriptionId`, `triggerUuid`. A status column is `columnType` `color` with `value` `{"label": {"index", "text", "style"}, "post_id"}`; a date column is `date` with `{"date", "icon", "time"}` |
+| Subitem creation | Adds `itemId` (equal to `pulseId`), `parentItemId` and `parentItemBoardId` (both strings), `groupName`, `groupColor` and `columnValues`; `boardId` is the subitems board |
+| Update creation | `body` (HTML), `textBody`, `updateId` and `replyId`; no column and no value |
+| Types and times | `userId`, `boardId`, `pulseId` and `subscriptionId` are JSON numbers. `changedAt` is epoch seconds with a fraction (`1633943701.9457765`); `triggerTime` is ISO 8601 UTC with milliseconds (`2021-10-11T09:15:03.429Z`). No item revision or version field exists |
+| Specific column | `change_specific_column_value` takes `{"columnId": …}` and does not support subitem columns |
+
+**Open verification items** (continuing the numbering above; none is a contradiction, and none is guessed):
+
+16. The payloads of the other 16 event types are not documented. 3D infers none of them, and 3G records real samples
+    before any of them is registered.
+17. Whether a subitem column change carries `parentItemId`, and whether its `pulseId` is the subitem's own id, is not
+    documented (3G).
+18. The status column type appears in webhooks only as `color`. A real payload with another type string is refused
+    until it is confirmed (3G).
+19. Whether `userId` can take special values, for example for automations, is not documented. Anything but a positive
+    numeric id is refused (3G).
+20. Status label limits are not documented. A label that is not a valid canonical value is refused, never cut (3G).
+21. `changedAt` precision: 3D accepts up to seven decimal places, the resolution a timestamp holds, and refuses more
+    rather than rounding (3G).
+
+### 3D event support matrix
+
+The three classes:
+
+- `SUPPORTED_CANONICAL`: normalized to an existing canonical event with canonical field semantics; its values are
+  carried only as untrusted hints and the event is held for reconciliation (D3D-1).
+- `SUPPORTED_RECONCILIATION_HINT`: normalized to a reconciliation signal without canonical field values. **This class
+  is empty in 3D.** A canonical event must change at least one canonical field (Gate 2), and "this object changed,
+  reread it" without one would be a new canonical concept, which 3D does not invent.
+- `EXPLICITLY_UNSUPPORTED_IN_GATE_3`: refused by the normalizer with a fixed, content-free code, then quarantined by
+  processing with its raw receipt kept until its retention purge. Never guessed, never silently dropped, and nothing
+  reaches the Snapshot. Missed changes are left to 3E's reconciliation.
+
+Payloads are classified by their documented shape (`type`, `columnType` and the members present), never by a
+subscription name.
+
+**Supported (`SUPPORTED_CANONICAL`)**
+
+| Event | Required provider ids | Canonical object | Canonical field and meaning | Actor | Timestamp evidence | Webhook values | 3E reread |
+|---|---|---|---|---|---|---|---|
+| `change_status_column_value`, and `change_column_value` or `change_specific_column_value` on a status column: payload `update_column_value`, `columnType` `color`, no subitem parent fields | `pulseId`, `boardId`, `columnId`; `triggerUuid` as 3C stored it, when present | Object type `item`, id = the monday item id, homed at the receipt's connection | Field = the column id; data type `TaskStatus`; after = the label text of `value` (null when `value` is null: cleared); before = the label text of `previousValue` (null when null or absent: not reported) | `userId` as an unresolved source actor; none when absent or null; never mapped | `changedAt` = source update time; `triggerTime` = occurrence time; each only when present and valid; no revision; receipt time never | Untrusted hints only; the event declares its values unconfirmed | Required: held as `ReconciliationRequired`, reason `processing.source.unconfirmed` |
+
+**Explicitly unsupported in Gate 3 (`EXPLICITLY_UNSUPPORTED_IN_GATE_3`)**
+
+| Event | Documented payload | Why it is not mapped |
+|---|---|---|
+| `change_column_value`, `change_specific_column_value` on any other column (date, text, numbers, people, …) | Yes (a date column is shown) | No PRD §5 data type fits. Treating a date column as a `Deadline` would be a guess; under D3D-8, date columns stay unsupported until a later owner-approved mapping exists |
+| `change_subitem_column_value` | No | Shape undocumented (item 17). A payload with `parentItemId` or `parentItemBoardId` is refused. One indistinguishable from an item column change is handled as that change of its own `pulseId`, which cannot collapse into the parent. Not to be registered in 3G before a real sample is verified |
+| `change_name`, `change_subitem_name` | No | Item names are display data; no canonical concept |
+| `create_item`, `create_subitem` | Yes (`create_pulse`) | No canonical creation or lifecycle concept, and `columnValues` beyond `{}` is undocumented. A subitem's own id and its parent's id are distinct and never collapse |
+| `item_archived`, `item_deleted`, `item_restored`, `subitem_archived`, `subitem_deleted` | No | No canonical lifecycle concept. Archive and delete are not collapsed into one outcome: both are refused explicitly |
+| `item_moved_to_any_group`, `item_moved_to_specific_group`, `move_subitem` | No | Groups are board context; no canonical concept |
+| `create_column` | No | A board-schema change, not work-object state |
+| `create_update`, `edit_update`, `delete_update`, `create_subitem_update` | `create_update` only | No canonical update or comment concept. The body (HTML) is never logged, never sent to AI and never copied |
+
+Any other payload `type`, and any shape the matrix does not name, is refused as unsupported; 3G may register only the
+supported row.
+
+### 3D Definition of Done
+
+Recorded before coding, exactly as the product owner set it. Gate 3D is READY FOR OWNER REVIEW only when:
+
+1. Production monday `ISourceEventNormalizer` exists.
+2. Core remains provider-neutral.
+3. An explicit webhook event support matrix exists.
+4. Stable provider IDs, not display text, drive source mapping.
+5. Actors are never guessed.
+6. monday item revision is not fabricated.
+7. `changedAt` / `triggerTime` have correct distinct semantics.
+8. Arrival/receipt order is not provider order.
+9. Unknown/malformed events are explicit, never guessed or silently dropped.
+10. Item/subitem identities cannot collapse.
+11. Provider content remains untrusted data.
+12. No silent value truncation occurs.
+13. The 1,024-character Core bound is not widened without owner approval.
+14. Webhook-only values cannot become authoritative Snapshot state.
+15. Reconciliation-required events preserve sufficient bounded identifiers for 3E.
+16. No raw-data shadow store is introduced.
+17. No API reconciliation is implemented.
+18. No initial sync is implemented.
+19. No monday write capability is introduced.
+20. Full unit/security/architecture/integration evidence is green.
+21. Critical mutation/vacuity guards are proven.
+22. Gate 2 and 3C regressions remain green.
+23. All six frozen documents remain byte-identical.
+24. No Azure or real monday account is required.
+25. No contradiction exists with Core or Premium P0.
+
+### 3D design
+
+**The smallest provider-neutral extension (D3D-1).** Gate 2's normalizer contract cannot say that a value is
+unconfirmed: processing projects an evidenced first change straight into the Snapshot. Its only route to
+`ReconciliationRequired` for such an event would be to drop the event's timestamps, which D3D-4 forbids and which would
+record a false reason. 3D therefore adds one provider-neutral member to `NormalizedSourceEvent`: `ValueConfirmation`,
+either `Confirmed` (the values are the source's state as read from it) or `Unconfirmed` (a change signal whose values
+are untrusted hints).
+
+- It is a required constructor argument, so no normalizer can omit it, and `Unspecified` counts as unconfirmed.
+- Processing keeps its authority and impossibility checks unchanged. After them, and before any ordering state is read
+  or written, it records every unconfirmed event as `ReconciliationRequired` with reason code
+  `processing.source.unconfirmed` and every field `Withheld`. Nothing advances and nothing is projected.
+- No outcome, stage, table, column or migration is added: the ledger's reason code is free text, and the ledger
+  already keeps each event's object, ordering evidence and field names, without values.
+- Invariant 13 ("untrusted events do not reach Snapshot") and invariant 17 ask for exactly this. The Gate 2 synthetic
+  normalizer declares `Confirmed`, so every Gate 2 behaviour stays as it was.
+
+**Where things live.** The normalizer, `MondayWebhookNormalizer`, and its parsing are in `App.Connectors.Monday`, which
+references Core only. It calls no API, reads no credential, writes nothing, does not log and invokes no AI. Core gains
+only the provider-neutral member and its reason code.
+
+**Parsing.** The stored body is parsed again as hostile input:
+
+- strict JSON, without comments, trailing commas or duplicate properties, nested at most 64 levels;
+- a root object with an `event` object and no `challenge`;
+- ids read from the JSON token's raw text, never as floating-point numbers: `pulseId`, `boardId` and `userId` must be
+  JSON integers of 1 to 20 digits with no sign, fraction or exponent, and `columnId` must be a canonical token;
+- the provider event id the receipt carries must equal the body's `triggerUuid`, or both must be absent. The
+  normalizer checks it and never regenerates it;
+- `originalTriggerUuid`, `pulseName`, `columnTitle`, `groupId` and a label's index and style are never read as
+  identity, order or value;
+- numbers and times are parsed culture-invariantly, by exact formats.
+
+**Mapping.** Only the supported row of the matrix is mapped:
+
+- the object is an `item` whose id is the monday item id, homed at the receipt's connection;
+- the field token is the column id, and the data type `TaskStatus`;
+- after is the label text of `value`, or null when `value` is null (cleared); before is the label text of
+  `previousValue`, or null when it is null or absent (not reported);
+- the board id is kept, with the item id, in the event's source reference (`board/{boardId}/item/{pulseId}`), which
+  expires with the content; the item id alone suffices for the 3E reread;
+- the actor is `userId` as an unresolved source actor, or none when it is absent or null;
+- `changedAt` becomes the source update time and `triggerTime` the occurrence time, each only when present, well
+  formed and in range. There is no revision, and receipt time is not read;
+- the event declares `Unconfirmed`.
+
+**Timestamps in conflict.** Malformed timestamps are refused. Impossible ones (a source time after the receipt, or an
+occurrence after the update, beyond the tolerated clock skew) are quarantined by Gate 2's unchanged impossibility
+check. Every other supported event is held for reconciliation, so no timestamp can make a webhook value current.
+
+**Refusals.** Everything else is refused with one of four fixed, content-free codes, and processing quarantines the
+receipt as bad schema:
+
+- `monday.webhook.malformed`: not the documented shape, such as bad JSON, a missing or mistyped member, an invalid id
+  or timestamp, or a provider event id that does not match;
+- `monday.webhook.unsupported_event`: a payload type or shape the matrix does not support;
+- `monday.webhook.unsupported_column`: a column type without a canonical mapping;
+- `monday.webhook.unsupported_value`: a status label that is not a valid canonical value, for example longer than 1,024
+  characters, multi-line or empty.
+
+**Reconciliation handoff.** For every held event the ledger keeps the tenant (trusted), the connection, the source
+system, the provider event id, the object type and monday item id, the field tokens (column ids) and data types, the
+source update and occurrence times, and the reason code. No value, text or credential is copied anywhere: the raw
+receipt stays the only copy of the body.
+
+**Not in 3D.** No API reread (3E), no initial sync (3F), no monday write or scope, no widened value limit, no host
+registration of the normalizer (running processing in any host is an owner boundary), no AI, and no Azure change.
+
+### 3D contradiction audit (before code)
+
+Every element of the 3D design was compared with PRD v1, System Architecture v1, the 83 Architecture Invariants,
+Development Gates v1, the frozen Premium documents and the Gate 2 decisions.
+
+| Element | Canonical rule | Result |
+|---|---|---|
+| Webhook values never become Snapshot state; held for reconciliation | Invariants 13, 14 and 17; System Architecture v1 §2 ("webhooks are fast path; provider API reconciliation is correctness path") and §3 ("if ambiguous, do not overwrite; reconcile") | Compatible: nothing of an unconfirmed event advances or is projected |
+| The `ValueConfirmation` extension of the Gate 2 normalizer contract | System Architecture v1 §3 lifecycle; Gate 2 decisions | Compatible: one provider-neutral member and one reason for the existing `ReconciliationRequired` outcome; no new stage, outcome, table or migration, and every Gate 2 behaviour unchanged |
+| Only the existing canonical type and PRD §5 data types | PRD v1 §5; `CanonicalEventSchemas`; `FactDataType` | Compatible: status columns map to `TaskStatus`; no event type, data type or concept is added |
+| Stable provider ids, never display text | D3D-2; invariant 47 | Compatible |
+| Actor left unresolved | Invariants 19 and 47; D3D-3 | Compatible |
+| No fabricated revision; `changedAt` as update time, `triggerTime` as occurrence, receipt time never | System Architecture v1 §3 (ordering); invariants 12 and 18 | Compatible |
+| 1,024-character bound, no truncation | Gate 2 decision on `EventText`; D3D-5 | Compatible: a value beyond it is refused, never cut |
+| Provider content is data | Invariant 25; Premium §20 constraint 6 | Compatible |
+| No shadow store; raw content expires | PRD v1 §12; Gate 2 decision 5 | Compatible: the ledger keeps ids, field tokens and evidence only |
+| Read and ingest only | Development Gates v1; invariant 37; D3C-1 | Compatible |
+| No AI, no Premium, no Azure | Development Gates v1; P0 closure; CLAUDE.md | Compatible |
+
+**Result: no contradiction, no blocker.** One point is reported for the owner's review rather than decided silently:
+D3D-1 cannot be met within the Gate 2 normalizer contract without stripping ordering evidence. The smallest
+provider-neutral extension above is used instead. It is judged not to be a material architecture change: it adds one
+reason to an existing outcome and enforces invariant 13.
+
+### 3D implementation record
+
+Implemented on `60ded62`, uncommitted. No schema change, migration, package, workflow, IaC, Key Vault or Azure change,
+and no host registration.
+
+**Core, provider-neutral** (`src/App.Core/Processing/`): `SourceValueConfirmation` and
+`NormalizedSourceEvent.ValueConfirmation`, a required constructor argument; `ProcessingErrors.UnconfirmedSourceValues`
+(`processing.source.unconfirmed`). Neither names a provider.
+
+**Infrastructure** (`EventProcessor`): after the unchanged authority and impossibility checks, every event not declared
+`Confirmed` is recorded `ReconciliationRequired` with the new reason and every field `Withheld`, before any ordering
+state is read or written. No other Gate 2 behaviour changed.
+
+**Connector** (`src/App.Connectors.Monday/MondayWebhookNormalizer.cs`): `MondayWebhookNormalizer`, the production
+`ISourceEventNormalizer` for schema `monday.webhook.v1`, and `MondayWebhookNormalizationErrors`, its four fixed codes,
+as designed above. It is registered in no host.
+
+**Tests:** unit 797 (+105), security 144 (+6), architecture 30 (+1), integration 320 (+12): 1,291 in all, 1,291/1,291
+locally, the 9 Service Bus emulator tests included.
+
+- The unit tests are built on monday's documented payloads.
+- The provider-neutral processing tests drive the Gate 2 pipeline with the synthetic source.
+- The monday end-to-end tests deliver a signed webhook through the real 3C endpoint, then run the real processor with the
+  monday normalizer against its durable receipt.
+- Four existing pins were updated deliberately, each still exact. Gate 2's "no production normalizer yet" became "the
+  monday webhook normalizer is the only production normalizer"; the pinned members of `NormalizedSourceEvent` gained
+  `ValueConfirmation`; the processing error count went from 13 to 14, with the new code named; and the 3C rule that no
+  normalization code precedes 3D became the rule that normalization lives only in the normalizer file.
+- The Gate 2 synthetic normalizer declares `Confirmed`, unless a new provider-neutral test asks otherwise.
+
+**Mutation and vacuity:** 24 mutants, D01 to D24 (`mutate-3d.py`), all caught. They ran in the foreground, a few at a
+time, in seven short runs. After every mutant the driver restores the file and checks its hash, and all eleven changed
+code files still match the hashes taken before the first run. D11 was first written with a syntax error, which the
+driver reports as invalid, never as caught; corrected, it was caught. The mutants cover:
+
+- the object id (D01), and the column id against the column title (D02, D03);
+- the unresolved actor (D04, D05);
+- the meanings of `changedAt` and `triggerTime` (D06, D07, D09, D10), and the absence of a revision (D08);
+- truncation (D11), and previous and cleared values (D12, D13);
+- unsupported events and columns, and malformed input (D14 to D20);
+- subitem separation (D21);
+- D3D-1 on both sides: the normalizer's declaration (D22) and processing's hold (D23, D24).
+
+D22 and D23 made the end-to-end tests fail because a webhook value reached the Snapshot, which also proves those
+Snapshot assertions are not vacuous. Two further vacuity controls: the log test proves processing's own records are
+captured, and the database-wide scan finds the delivered label in `raw_receipts.payload`, its positive control, and
+nowhere else.
+
+**Verification:** clean non-incremental build with 0 warnings and 0 errors; full suite 1,291/1,291; both repository
+verifiers PASS; the six frozen documents byte-identical; `git diff --check` clean.
+
+**Security review** (no finding needs a change before review):
+
+1. *monday documents few payloads.* Only status changes are mapped. Every other shape is refused and quarantined with
+   its receipt kept, so a real payload that differs from the documented one fails closed until 3G confirms it.
+2. *The ledger does not say why a normalizer refused.* Every normalizer refusal is recorded under Gate 2's single code,
+   `processing.normalizer.rejected`; the connector's four codes are visible to its tests but not in the ledger.
+   Recording them would need a small Gate 2 change, an owner decision.
+3. *Held events wait for 3E.* Until the reread exists, no monday webhook changes the Snapshot at all; that is D3D-1's
+   intent.
+4. *Status labels are provider text.* They are carried as hints in memory only: never persisted outside the raw
+   receipt, never logged and never interpreted.
+
+**Deferred to 3E and 3G, and decisions for the owner:**
+
+- 3E: the authoritative reread of each held object, whose item and status columns the ledger names; reconciliation
+  sweeps for quarantined and missed events; and object lifecycle (archive, delete, restore), which Core cannot yet
+  represent.
+- 3G: real payloads for the 16 undocumented event types and for subitem column changes (items 16 and 17); the status
+  column type string (18); special user ids (19); status label limits (20); `changedAt` precision (21); and which
+  webhook events to register, the supported row only.
+- The owner: whether a date column may be treated as a deadline, and which one; whether the ledger should record the
+  connector's refusal codes; and whether "this object changed, reread it" should become a canonical concept, which
+  `SUPPORTED_RECONCILIATION_HINT` would need.
+
+### 3D owner review and closure (2026-10-01)
+
+The product owner reviewed 3D and gave it the final pass on 2026-10-01: **3D is PASS**. Decisions D3D-1 to D3D-5 stay
+in force. The owner explicitly accepted the provider-neutral Core extension `SourceValueConfirmation` (`Unspecified`,
+`Confirmed`, `Unconfirmed`) and its processing rule: an `Unspecified` or `Unconfirmed` event is recorded
+`ReconciliationRequired`, and no normalized field of it reaches the Snapshot. It is an approved Core implementation
+change and needs no change to a frozen document. The review also recorded three decisions, which settle the three
+questions the implementation record left to the owner:
+
+- **D3D-6 — Normalizer refusal codes.** The Gate 2 processing ledger is not changed in 3D merely to persist monday's
+  four provider-specific refusal codes. The provider-neutral `processing.normalizer.rejected` remains sufficient for
+  3D, and the raw durable receipt remains available, under its retention, for investigation. A richer structured
+  observability mechanism may be proposed later if needed.
+- **D3D-7 — No new canonical "reread object" concept.** No canonical event or outcome is added merely to mean "reread
+  this provider object". The handoff to 3E is the existing `ReconciliationRequired` outcome with the trusted tenant
+  and connection context, the provider object id, the board (resource) id, and the field id and change provenance. A
+  new Core concept is proposed only if implementing 3E proves the existing contract insufficient.
+- **D3D-8 — Date columns.** A monday date column is not mapped automatically to the canonical `Deadline`: no approved
+  semantic rule says that every monday date is a deadline. Date-column events stay unsupported / reconciliation-only
+  until a later owner-approved mapping exists, and no such mapping is added in 3D. The closure message labels this
+  decision D3D-5, a number the 3D authorization already gave the value-length decision; it is recorded as D3D-8 so
+  that each number names one decision.
+
+**Final evidence:** the production monday `ISourceEventNormalizer` and its explicit event support matrix; only
+status-column changes on items are mapped; every monday webhook value is declared `Unconfirmed`; unconfirmed and
+unspecified events are recorded `ReconciliationRequired` before any ordering or Snapshot state changes; 24/24 mutation
+checks caught; 1,291/1,291 local tests (unit 797, security 144, architecture 30, integration 320); build 0 warnings
+and 0 errors; both repository verifiers PASS; the frozen Core and Premium documents byte-identical; no Azure and no
+real monday activity. Before the closing commit, the clean build, the full suite, both verifiers, the frozen-document
+hashes and `git diff --check` were repeated on the tree being committed. The mutation evidence stands, because only
+status documentation changed after it.
+
+**3E (API reconciliation and authoritative reread) is NEXT / NOT STARTED** and begins only on its own authorization.
+Gate 3 stays IN PROGRESS.

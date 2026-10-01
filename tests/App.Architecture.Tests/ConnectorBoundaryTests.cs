@@ -8,7 +8,8 @@ namespace WorkContinuity.Architecture.Tests;
 /// store stay provider-neutral, the connector's source names no GraphQL write except in the guard that refuses one,
 /// neither Core nor the connector takes a package, and the connector does not log. Webhook intake (3C) stays in its own
 /// files, its route is written once, it reaches storage only through the Gate 2 ports, no webhook subscription is created
-/// or deleted, the Web host runs nothing else of the Event Backbone, and no normalization code (3D) has arrived.
+/// or deleted, and the Web host runs nothing else of the Event Backbone. Normalization (3D) lives only in the monday
+/// normalizer, and Core's processing contract names no provider.
 /// </summary>
 public sealed class ConnectorBoundaryTests
 {
@@ -21,6 +22,7 @@ public sealed class ConnectorBoundaryTests
     private const string SecretStoreFile = "src/App.Connectors.Monday/IMondaySecretStore.cs";
     private const string WebhooksFile = "src/App.Connectors.Monday/MondayWebhooks.cs";
     private const string VerifierFile = "src/App.Connectors.Monday/MondayWebhookVerifier.cs";
+    private const string NormalizerFile = "src/App.Connectors.Monday/MondayWebhookNormalizer.cs";
     private const string WebEndpointFile = "src/App.Web/Connectors/MondayWebhookEndpoint.cs";
     private const string WebRegistrationFile = "src/App.Web/Connectors/MondayWebhookRegistration.cs";
 
@@ -32,6 +34,7 @@ public sealed class ConnectorBoundaryTests
         "src/App.Connectors.Monday/MondayWebhookBody.cs",
         "src/App.Connectors.Monday/MondayWebhookOptions.cs",
         "src/App.Connectors.Monday/MondayWebhookToken.cs",
+        NormalizerFile,
     ];
 
     [Fact]
@@ -134,10 +137,10 @@ public sealed class ConnectorBoundaryTests
     }
 
     [Fact]
-    public void Webhook_intake_stays_in_its_own_files_and_no_normalization_code_precedes_its_sub_gate()
+    public void Webhook_code_stays_in_its_own_files_and_normalization_lives_only_in_the_normalizer()
     {
-        // Gate 3C brought webhook intake; normalization is 3D. Every connector file that mentions a webhook is an intake
-        // file, the scope allowlist (monday's read scope names one) or the secret-name catalogue (the Signing Secret).
+        // Gate 3C brought webhook intake and 3D its normalization. Every connector file that mentions a webhook is an
+        // intake or normalization file, the scope allowlist (monday's read scope names one) or the secret-name catalogue.
         var webhook = MondaySources()
             .Where(file => File.ReadAllText(file.FullName).Contains("webhook", StringComparison.OrdinalIgnoreCase))
             .Select(RepositoryLayout.RelativePath)
@@ -145,18 +148,35 @@ public sealed class ConnectorBoundaryTests
             .ToList();
         Assert.Equal(WebhookFiles.Concat([ScopePolicyFile, SecretStoreFile]).Order(StringComparer.Ordinal), webhook);
 
-        // The connector supplies the source verifier and builds submissions. It never calls ingress or the connection
-        // check itself, and no normalizer exists before 3D.
-        var verifiers = MondaySources()
-            .Where(file => File.ReadAllText(file.FullName).Contains("ISourceVerifier", StringComparison.Ordinal))
-            .Select(RepositoryLayout.RelativePath)
-            .ToList();
-        Assert.Equal(new[] { VerifierFile }, verifiers);
+        // The connector supplies the source verifier and the normalizer, each in its own file, and builds submissions.
+        // It never calls ingress or the connection check itself.
+        Assert.Equal(new[] { VerifierFile }, MondayHolders("ISourceVerifier"));
+        Assert.Equal(new[] { NormalizerFile }, MondayHolders("ISourceEventNormalizer"));
+        Assert.Equal(new[] { NormalizerFile }, MondayHolders("NormalizedSourceEvent"));
+        Assert.Equal(new[] { NormalizerFile }, MondayHolders("SourcePayload"));
 
-        foreach (var port in new[] { "ISourceEventNormalizer", "IEventIngress", "IIngressConnectionCheck", "NormalizedSourceEvent" })
+        foreach (var port in new[] { "IEventIngress", "IIngressConnectionCheck", "IEventProcessor", "EventProcessingResult", "ProjectionHandoff", "SnapshotProjection", "SnapshotField", "SnapshotObject" })
         {
             Assert.DoesNotContain(MondaySources(), file => File.ReadAllText(file.FullName).Contains(port, StringComparison.Ordinal));
         }
+    }
+
+    [Fact]
+    public void The_core_processing_contract_names_no_provider_or_provider_field()
+    {
+        var processing = RepositoryLayout.CoreSourceFiles
+            .Where(file => RepositoryLayout.RelativePath(file).StartsWith("src/App.Core/Processing/", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.NotEmpty(processing);
+        Assert.All(processing, file =>
+        {
+            var text = File.ReadAllText(file.FullName);
+            foreach (var specific in new[] { "Monday", "pulse", "columnId", "triggerUuid", "changedAt", "triggerTime", "Jwt", "HS256", "label" })
+            {
+                Assert.DoesNotContain(specific, text, StringComparison.Ordinal);
+            }
+        });
     }
 
     [Fact]
@@ -267,6 +287,12 @@ public sealed class ConnectorBoundaryTests
         new DirectoryInfo(Path.Combine(RepositoryLayout.Root.FullName, "src"))
             .EnumerateFiles("*.cs", SearchOption.AllDirectories)
             .Where(file => !IsBuildOutput(file));
+
+    private static List<string> MondayHolders(string text) =>
+        MondaySources()
+            .Where(file => File.ReadAllText(file.FullName).Contains(text, StringComparison.Ordinal))
+            .Select(RepositoryLayout.RelativePath)
+            .ToList();
 
     private static IEnumerable<FileInfo> WebSources() =>
         new DirectoryInfo(Path.Combine(RepositoryLayout.Root.FullName, "src", "App.Web"))

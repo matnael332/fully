@@ -53,12 +53,34 @@ public sealed class SourcePayload
     public override string ToString() => $"SourcePayload({SourceSystem}, schema {SchemaVersion})";
 }
 
+/// <summary>Whether a normalized event's values are the source's state or only a signal that it changed.</summary>
+/// <remarks>
+/// Some deliveries prove who sent them but not the values they carry: a webhook body, for example, whose signature
+/// covers the sender and not each field. Such an event tells that an object's fields changed, and its values are only
+/// hints until an authoritative read of the source confirms them (Gate 3D). Only confirmed values are ever ordered or
+/// projected; anything else holds the object for reconciliation (invariants 13 and 17).
+/// </remarks>
+public enum SourceValueConfirmation
+{
+    /// <summary>Unspecified. Never valid; treated as unconfirmed.</summary>
+    Unspecified = 0,
+
+    /// <summary>The values are the source's state as read from it, and may advance the Snapshot.</summary>
+    Confirmed = 1,
+
+    /// <summary>
+    /// A change signal: the values are untrusted hints, nothing advances, and the object is held until an authoritative
+    /// read of the source confirms its state.
+    /// </summary>
+    Unconfirmed = 2,
+}
+
 /// <summary>The source-derived parts of a canonical event, as a normalizer extracted them.</summary>
 /// <remarks>
 /// Only what the source itself states: the canonical type and schema version, the work object, the provider's
-/// revision and source times, and the content. The tenant, the event source, the provider event id, the
-/// receipt time, the correlation and the causation are absent: the pipeline sets them from the receipt and
-/// the envelope, so a normalizer cannot assert any of them.
+/// revision and source times, the content, and whether those values are confirmed. The tenant, the event source, the
+/// provider event id, the receipt time, the correlation and the causation are absent: the pipeline sets them from the
+/// receipt and the envelope, so a normalizer cannot assert any of them.
 /// </remarks>
 public sealed class NormalizedSourceEvent
 {
@@ -71,7 +93,8 @@ public sealed class NormalizedSourceEvent
         long? sourceRevision,
         DateTimeOffset? occurredAt,
         DateTimeOffset? sourceUpdatedAt,
-        CanonicalEventContent content)
+        CanonicalEventContent content,
+        SourceValueConfirmation valueConfirmation)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(schemaVersion);
@@ -85,6 +108,7 @@ public sealed class NormalizedSourceEvent
         OccurredAt = occurredAt;
         SourceUpdatedAt = sourceUpdatedAt;
         Content = content;
+        ValueConfirmation = valueConfirmation;
     }
 
     /// <summary>Gets the canonical event type.</summary>
@@ -108,6 +132,12 @@ public sealed class NormalizedSourceEvent
     /// <summary>Gets the expiring work content: the changes, the actor and the reference.</summary>
     public CanonicalEventContent Content { get; }
 
+    /// <summary>
+    /// Gets whether the values are the source's confirmed state. Anything but <see cref="SourceValueConfirmation.Confirmed"/>
+    /// is held for reconciliation and never reaches the Snapshot.
+    /// </summary>
+    public SourceValueConfirmation ValueConfirmation { get; }
+
     /// <summary>Identifies the event without its content.</summary>
     public override string ToString() => $"NormalizedSourceEvent({Type})";
 }
@@ -124,8 +154,9 @@ public sealed class NormalizedSourceEvent
 /// </para>
 /// <para>
 /// One normalizer serves one source system. Gate 2 registers none in production: the monday normalizer
-/// belongs to its connector Gate, and until one exists every receipt of a source is quarantined as an unknown
-/// schema version.
+/// belongs to its connector Gate (3D), and until one is registered every receipt of a source is quarantined as an
+/// unknown schema version. A normalizer states whether its values are confirmed; one whose source delivers only change
+/// signals declares them unconfirmed, and processing then holds the object for reconciliation.
 /// </para>
 /// </remarks>
 public interface ISourceEventNormalizer

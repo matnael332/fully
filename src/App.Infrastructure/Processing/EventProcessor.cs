@@ -312,6 +312,19 @@ internal sealed class EventProcessor : IEventProcessor
             return QuarantineEvent(dbContext, receipt, canonical, QuarantineReason.ImpossibleOrdering, impossible, Withheld(canonical, incoming));
         }
 
+        // A change signal whose values the source has not confirmed never advances anything and never reaches the
+        // Snapshot (invariant 13): the object is held for reconciliation, which reads the source's authoritative state
+        // (invariant 17). Only an event that declares confirmed values is ordered at all (Gate 3D).
+        if (parts.ValueConfirmation != SourceValueConfirmation.Confirmed)
+        {
+            return Record(
+                dbContext,
+                receipt,
+                canonical,
+                EventProcessingResult.ReconciliationRequired(canonical, receipt.ReceiptId, ProcessingErrors.UnconfirmedSourceValues.Code, Withheld(canonical, incoming), candidateOf),
+                candidateOf);
+        }
+
         if (!incoming.HasOrderingSignal)
         {
             return Record(

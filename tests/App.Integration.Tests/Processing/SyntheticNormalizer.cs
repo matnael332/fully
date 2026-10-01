@@ -41,6 +41,9 @@ internal sealed record SyntheticEvent
 
     public IReadOnlyList<SyntheticChange> Changes { get; init; } = [new("status", "TaskStatus", "working", "done")];
 
+    /// <summary>Gets what the payload says about its values; null means confirmed, as every Gate 2 test assumes.</summary>
+    public string? ValueConfirmation { get; init; }
+
     public string ToPayload()
     {
         var root = new JsonObject
@@ -91,6 +94,11 @@ internal sealed record SyntheticEvent
         if (ClaimedSource is not null)
         {
             root["claimedSource"] = ClaimedSource;
+        }
+
+        if (ValueConfirmation is not null)
+        {
+            root["valueConfirmation"] = ValueConfirmation;
         }
 
         return root.ToJsonString();
@@ -149,7 +157,10 @@ internal sealed class SyntheticNormalizer : ISourceEventNormalizer
                 new CanonicalEventContent(
                     fieldChanges,
                     (string?)root["actor"] is { } actor ? EventActor.Unresolved(actor) : null,
-                    (string?)root["reference"])));
+                    (string?)root["reference"]),
+                (string?)root["valueConfirmation"] is { } confirmation
+                    ? Enum.Parse<SourceValueConfirmation>(confirmation)
+                    : SourceValueConfirmation.Confirmed));
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException)
         {

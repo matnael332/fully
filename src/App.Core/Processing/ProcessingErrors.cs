@@ -52,6 +52,13 @@ public static class ProcessingErrors
     public static Error OrderingAmbiguous { get; } =
         Error.Conflict("processing.ordering.ambiguous", "The event's order relative to the accepted state cannot be decided.");
 
+    /// <summary>
+    /// The event signals a change whose values the source has not confirmed: an authoritative read of the source must
+    /// confirm them before anything is applied (Gate 3D).
+    /// </summary>
+    public static Error UnconfirmedSourceValues { get; } =
+        Error.Conflict("processing.source.unconfirmed", "The change must be confirmed by an authoritative read of the source before it is applied.");
+
     /// <summary>The event carries no revision, source update time or occurrence time.</summary>
     public static Error NoOrderingEvidence { get; } =
         Error.Conflict("processing.ordering.no_evidence", "The event carries no revision, source update time or occurrence time.");
