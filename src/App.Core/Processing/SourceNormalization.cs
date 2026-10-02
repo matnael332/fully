@@ -78,14 +78,27 @@ public enum SourceValueConfirmation
 /// <summary>The source-derived parts of a canonical event, as a normalizer extracted them.</summary>
 /// <remarks>
 /// Only what the source itself states: the canonical type and schema version, the work object, the provider's
-/// revision and source times, the content, and whether those values are confirmed. The tenant, the event source, the
-/// provider event id, the receipt time, the correlation and the causation are absent: the pipeline sets them from the
-/// receipt and the envelope, so a normalizer cannot assert any of them.
+/// revision and source times, the content, the source scope of its fields, and whether those values are confirmed.
+/// The tenant, the event source, the provider event id, the receipt time, the correlation and the causation are absent:
+/// the pipeline sets them from the receipt and the envelope, so a normalizer cannot assert any of them.
 /// </remarks>
 public sealed class NormalizedSourceEvent
 {
     /// <summary>Initializes a new instance of the <see cref="NormalizedSourceEvent"/> class.</summary>
+    /// <param name="type">The canonical event type.</param>
+    /// <param name="schemaVersion">The canonical schema version of the type.</param>
+    /// <param name="workObject">The work object the change is about.</param>
+    /// <param name="sourceRevision">The provider's revision for the object, if any.</param>
+    /// <param name="occurredAt">When the change occurred, if the source said.</param>
+    /// <param name="sourceUpdatedAt">The source's update time for the object, if the source said.</param>
+    /// <param name="content">The changes, the actor and the reference.</param>
+    /// <param name="sourceScope">
+    /// The stable identifier of the source resource the object's field identities are scoped by, or null when the source
+    /// has none. Every normalizer states it, so a source whose fields need one cannot omit it by accident.
+    /// </param>
+    /// <param name="valueConfirmation">Whether the values are the source's confirmed state.</param>
     /// <exception cref="ArgumentNullException">A required component is null.</exception>
+    /// <exception cref="ArgumentException">The source scope is not a bounded, opaque identifier.</exception>
     public NormalizedSourceEvent(
         string type,
         string schemaVersion,
@@ -94,12 +107,17 @@ public sealed class NormalizedSourceEvent
         DateTimeOffset? occurredAt,
         DateTimeOffset? sourceUpdatedAt,
         CanonicalEventContent content,
+        string? sourceScope,
         SourceValueConfirmation valueConfirmation)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(schemaVersion);
         ArgumentNullException.ThrowIfNull(workObject);
         ArgumentNullException.ThrowIfNull(content);
+        if (sourceScope is not null && !EventText.IsIdentifier(sourceScope))
+        {
+            throw new ArgumentException("A source scope is a bounded, opaque identifier.", nameof(sourceScope));
+        }
 
         Type = type;
         SchemaVersion = schemaVersion;
@@ -108,6 +126,7 @@ public sealed class NormalizedSourceEvent
         OccurredAt = occurredAt;
         SourceUpdatedAt = sourceUpdatedAt;
         Content = content;
+        SourceScope = sourceScope;
         ValueConfirmation = valueConfirmation;
     }
 
@@ -131,6 +150,16 @@ public sealed class NormalizedSourceEvent
 
     /// <summary>Gets the expiring work content: the changes, the actor and the reference.</summary>
     public CanonicalEventContent Content { get; }
+
+    /// <summary>
+    /// Gets the stable, opaque identifier of the source resource that scopes the object's field identities, or null when
+    /// the source has none.
+    /// </summary>
+    /// <remarks>
+    /// Core never interprets it: it is what an authoritative reread must find the object in before a field id means the
+    /// same field (Gate 3E). It is never parsed from text and never names anything a person reads.
+    /// </remarks>
+    public string? SourceScope { get; }
 
     /// <summary>
     /// Gets whether the values are the source's confirmed state. Anything but <see cref="SourceValueConfirmation.Confirmed"/>

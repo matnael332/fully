@@ -44,6 +44,9 @@ internal sealed record SyntheticEvent
     /// <summary>Gets what the payload says about its values; null means confirmed, as every Gate 2 test assumes.</summary>
     public string? ValueConfirmation { get; init; }
 
+    /// <summary>Gets the source scope of the event's fields; null, as for every Gate 2 test, means the source has none.</summary>
+    public string? SourceScope { get; init; }
+
     public string ToPayload()
     {
         var root = new JsonObject
@@ -99,6 +102,11 @@ internal sealed record SyntheticEvent
         if (ValueConfirmation is not null)
         {
             root["valueConfirmation"] = ValueConfirmation;
+        }
+
+        if (SourceScope is not null)
+        {
+            root["sourceScope"] = SourceScope;
         }
 
         return root.ToJsonString();
@@ -158,6 +166,7 @@ internal sealed class SyntheticNormalizer : ISourceEventNormalizer
                     fieldChanges,
                     (string?)root["actor"] is { } actor ? EventActor.Unresolved(actor) : null,
                     (string?)root["reference"]),
+                (string?)root["sourceScope"],
                 (string?)root["valueConfirmation"] is { } confirmation
                     ? Enum.Parse<SourceValueConfirmation>(confirmation)
                     : SourceValueConfirmation.Confirmed));

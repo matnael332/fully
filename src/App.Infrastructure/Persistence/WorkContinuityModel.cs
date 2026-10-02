@@ -31,7 +31,7 @@ public static class WorkContinuityModel
         [
             "tenants", "users", "raw_receipts", "outbox_messages", "connections", "event_ledger", "event_ledger_fields",
             "field_ordering_states", "snapshot_objects", "snapshot_fields", "connector_authorizations",
-            "connector_authorization_transactions",
+            "connector_authorization_transactions", "reconciliation_targets",
         ];
 
     /// <summary>Applies the schema to a model builder.</summary>
@@ -269,6 +269,93 @@ public static class WorkContinuityModel
         ConfigureEventLedger(modelBuilder, tenantIdConverter, correlationIdConverter);
         ConfigureSnapshot(modelBuilder, tenantIdConverter);
         ConfigureConnectorAuthorizations(modelBuilder, tenantIdConverter, userIdConverter);
+        ConfigureReconciliation(modelBuilder, tenantIdConverter);
+    }
+
+    // The Gate 3E reconciliation targets (decision D3E-11): identifiers, the source scope and the lifecycle only. No column
+    // can hold a value, a label, a provider response, a credential or display text; every foreign key includes the tenant.
+    private static void ConfigureReconciliation(ModelBuilder modelBuilder, ValueConverter<TenantId, Guid> tenantIdConverter)
+    {
+        modelBuilder.Entity<ReconciliationTargetRecord>(entity =>
+        {
+            entity.ToTable("reconciliation_targets", table =>
+            {
+                table.HasCheckConstraint("ck_reconciliation_targets_state", "state IN ('Pending', 'Resolved', 'Held')");
+                table.HasCheckConstraint("ck_reconciliation_targets_request_kind", "request_kind IN ('Event', 'Sweep')");
+                table.HasCheckConstraint(
+                    "ck_reconciliation_targets_requester",
+                    "(request_kind = 'Sweep') = (requested_by_event_id IS NULL)");
+                table.HasCheckConstraint(
+                    "ck_reconciliation_targets_generation",
+                    "generation >= 1 AND (resolved_generation IS NULL OR resolved_generation BETWEEN 1 AND generation)");
+                table.HasCheckConstraint(
+                    "ck_reconciliation_targets_resolved",
+                    "state <> 'Resolved' OR resolved_generation = generation");
+                table.HasCheckConstraint(
+                    "ck_reconciliation_targets_claim",
+                    "(claim_id IS NULL) = (claimed_generation IS NULL) AND (claim_id IS NULL) = (claimed_until_utc IS NULL) "
+                    + "AND (claimed_generation IS NULL OR claimed_generation BETWEEN 1 AND generation)");
+                table.HasCheckConstraint("ck_reconciliation_targets_attempts", "attempts >= 0");
+                table.HasCheckConstraint("ck_reconciliation_targets_scope", "source_scope IS NULL OR source_scope <> ''");
+                table.HasCheckConstraint("ck_reconciliation_targets_data_type", $"data_type IN ({DefinedNames<FactDataType>()})");
+            });
+            entity.HasKey(record => new
+            {
+                record.TenantId,
+                record.ObjectSystem,
+                record.ObjectConnection,
+                record.ObjectType,
+                record.ObjectId,
+                record.Field,
+            });
+            entity.Property(record => record.TenantId).HasColumnName("tenant_id").HasConversion(tenantIdConverter);
+            entity.Property(record => record.ObjectSystem).HasColumnName("object_system").HasMaxLength(64);
+            entity.Property(record => record.ObjectConnection).HasColumnName("object_connection").HasMaxLength(EventLedgerRecord.MaxTextLength);
+            entity.Property(record => record.ObjectType).HasColumnName("object_type").HasMaxLength(64);
+            entity.Property(record => record.ObjectId).HasColumnName("object_id").HasMaxLength(EventLedgerRecord.MaxTextLength);
+            entity.Property(record => record.Field).HasColumnName("field").HasMaxLength(64);
+            entity.Property(record => record.DataType).HasColumnName("data_type").HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(record => record.SourceScope).HasColumnName("source_scope").HasMaxLength(EventText.MaxIdentifierLength);
+            entity.Property(record => record.State).HasColumnName("state").HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(record => record.Generation).HasColumnName("generation").IsRequired();
+            entity.Property(record => record.ResolvedGeneration).HasColumnName("resolved_generation");
+            entity.Property(record => record.RequestKind).HasColumnName("request_kind").HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(record => record.RequestedAtUtc).HasColumnName("requested_at_utc").HasColumnType("timestamptz").IsRequired();
+            entity.Property(record => record.RequestedByEventId).HasColumnName("requested_by_event_id");
+            entity.Property(record => record.ClaimId).HasColumnName("claim_id");
+            entity.Property(record => record.ClaimedGeneration).HasColumnName("claimed_generation");
+            entity.Property(record => record.ClaimedUntilUtc).HasColumnName("claimed_until_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.Attempts).HasColumnName("attempts").IsRequired();
+            entity.Property(record => record.NextAttemptAtUtc).HasColumnName("next_attempt_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.LastAttemptedAtUtc).HasColumnName("last_attempted_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.LastOutcome).HasColumnName("last_outcome").HasMaxLength(ReconciliationTargetRecord.MaxOutcomeLength);
+            entity.Property(record => record.ResolvedAtUtc).HasColumnName("resolved_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.ResolvedByEventId).HasColumnName("resolved_by_event_id");
+            entity.Property(record => record.VerifiedAtUtc).HasColumnName("verified_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamptz").IsRequired();
+            entity.HasOne<EventLedgerRecord>()
+                .WithMany()
+                .HasForeignKey(record => new { record.TenantId, record.RequestedByEventId })
+                .HasPrincipalKey(ledger => new { ledger.TenantId, ledger.EventId })
+                .HasConstraintName("fk_reconciliation_targets_requested_by_event")
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<EventLedgerRecord>()
+                .WithMany()
+                .HasForeignKey(record => new { record.TenantId, record.ResolvedByEventId })
+                .HasPrincipalKey(ledger => new { ledger.TenantId, ledger.EventId })
+                .HasConstraintName("fk_reconciliation_targets_resolved_by_event")
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Claiming finds a connection's due targets; a sweep finds its least recently verified resolved ones.
+            entity.HasIndex(record => new { record.TenantId, record.ObjectSystem, record.ObjectConnection, record.State, record.NextAttemptAtUtc })
+                .HasDatabaseName("ix_reconciliation_targets_due");
+            entity.HasIndex(record => new { record.TenantId, record.ObjectSystem, record.ObjectConnection, record.State, record.VerifiedAtUtc })
+                .HasDatabaseName("ix_reconciliation_targets_verified");
+            entity.HasIndex(record => new { record.TenantId, record.RequestedByEventId })
+                .HasDatabaseName("ix_reconciliation_targets_tenant_requested_by");
+            entity.HasIndex(record => new { record.TenantId, record.ResolvedByEventId })
+                .HasDatabaseName("ix_reconciliation_targets_tenant_resolved_by");
+        });
     }
 
     // The Gate 3B authorization lifecycle: delegation metadata only. No column can hold a token, a client secret or a

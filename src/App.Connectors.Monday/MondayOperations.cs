@@ -18,6 +18,9 @@ public static class MondayOperations
     /// <summary>The largest page of a board's items (monday's documented maximum).</summary>
     public const int MaxPageSize = 500;
 
+    /// <summary>The largest number of distinct columns one status reread may address.</summary>
+    public const int MaxColumnsPerRead = 100;
+
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>Rereads the current authoritative state of up to 100 items by id.</summary>
@@ -26,6 +29,17 @@ public static class MondayOperations
         "Reread the current authoritative state of up to 100 monday items by id.",
         "monday.item-ids.v1",
         "monday.items.v1",
+        "monday.item");
+
+    /// <summary>
+    /// Rereads the current status values of up to 100 items by id, with each item's state and board (Gate 3E): the typed
+    /// <c>StatusValue</c> fields of the named columns only.
+    /// </summary>
+    public static ConnectorOperationDescriptor ReadItemStatusesById { get; } = Read(
+        "monday.items.read-status-by-id",
+        "Reread the current status values of up to 100 monday items by id, with each item's state and board.",
+        "monday.item-status-read.v1",
+        "monday.item-statuses.v1",
         "monday.item");
 
     /// <summary>Reads the first page of one board's items.</summary>
@@ -63,7 +77,7 @@ public static class MondayOperations
 
     /// <summary>Every operation of the connector.</summary>
     public static IReadOnlyList<ConnectorOperationDescriptor> All { get; } =
-        [ReadItemsById, ReadBoardItemsPage, ReadNextItemsPage, ReadAuthorizingIdentity];
+        [ReadItemsById, ReadItemStatusesById, ReadBoardItemsPage, ReadNextItemsPage, ReadAuthorizingIdentity];
 
     private static ConnectorOperationDescriptor Read(
         string name,
@@ -102,6 +116,16 @@ public static class MondayQueries
     public const string ReadItemsById =
         "query ReadItemsById($ids: [ID!]!, $limit: Int!) { items(ids: $ids, limit: $limit) { " + ItemFields + " } }";
 
+    /// <summary>
+    /// The per-item status reread (Gate 3E): each item's id, state and board, and only the named columns, each with its id,
+    /// its type and, when it is a status, the typed <c>StatusValue</c> label, index and update time. Archived and deleted
+    /// items are read with their state; a column monday does not return, such as a rollup status it omits by default, is
+    /// simply absent. <c>limit</c> is always the number of ids.
+    /// </summary>
+    public const string ReadItemStatusesById =
+        "query ReadItemStatusesById($ids: [ID!]!, $limit: Int!, $columns: [String!]!) { items(ids: $ids, limit: $limit) { "
+        + "id state board { id } column_values(ids: $columns) { id type ... on StatusValue { label index updated_at } } } }";
+
     /// <summary>The first page of one board's items.</summary>
     public const string ReadBoardItemsPage =
         "query ReadBoardItemsPage($boardId: ID!, $limit: Int!) { boards(ids: [$boardId]) { items_page(limit: $limit) { cursor items { "
@@ -117,5 +141,5 @@ public static class MondayQueries
 
     /// <summary>Every document the connector sends.</summary>
     public static IReadOnlyList<string> All { get; } =
-        [ReadItemsById, ReadBoardItemsPage, ReadNextItemsPage, ReadAuthorizingIdentity];
+        [ReadItemsById, ReadItemStatusesById, ReadBoardItemsPage, ReadNextItemsPage, ReadAuthorizingIdentity];
 }

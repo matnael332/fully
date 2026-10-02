@@ -54,6 +54,9 @@ public sealed class WorkContinuityDbContext(DbContextOptions<WorkContinuityDbCon
     public DbSet<ConnectorAuthorizationTransactionRecord> ConnectorAuthorizationTransactions =>
         Set<ConnectorAuthorizationTransactionRecord>();
 
+    /// <summary>Gets the reconciliation targets (Gate 3E): identifiers, scope and lifecycle, never a value.</summary>
+    public DbSet<ReconciliationTargetRecord> ReconciliationTargets => Set<ReconciliationTargetRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         WorkContinuityModel.Configure(modelBuilder);
 }

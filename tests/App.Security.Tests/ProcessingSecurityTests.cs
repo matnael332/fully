@@ -90,12 +90,15 @@ public sealed class ProcessingSecurityTests
             Assert.DoesNotContain(members, member => member.Name.Contains("tenant", StringComparison.OrdinalIgnoreCase));
         }
 
-        // A normalized event carries the object's home and the source's own statements, never trusted parts.
+        // A normalized event carries the object's home and the source's own statements, never trusted parts. The source
+        // scope (Gate 3E) is such a statement: the source's own resource id for its fields, never the trusted event source.
         var normalized = typeof(NormalizedSourceEvent).GetProperties().Select(property => property.Name).ToArray();
         Assert.Equal(
-            ["Content", "OccurredAt", "SchemaVersion", "SourceRevision", "SourceUpdatedAt", "Type", "ValueConfirmation", "WorkObject"],
+            ["Content", "OccurredAt", "SchemaVersion", "SourceRevision", "SourceScope", "SourceUpdatedAt", "Type", "ValueConfirmation", "WorkObject"],
             normalized.Order(StringComparer.Ordinal));
-        Assert.DoesNotContain(normalized, name => trusted.Any(word => name.StartsWith(word, StringComparison.Ordinal) && name != "SourceRevision" && name != "SourceUpdatedAt"));
+        string[] sourceStatements = ["SourceRevision", "SourceScope", "SourceUpdatedAt"];
+        Assert.DoesNotContain(normalized, name => trusted.Any(word => name.StartsWith(word, StringComparison.Ordinal)) && !sourceStatements.Contains(name));
+        Assert.Equal(typeof(string), typeof(NormalizedSourceEvent).GetProperty(nameof(NormalizedSourceEvent.SourceScope))!.PropertyType);
     }
 
     [Fact]

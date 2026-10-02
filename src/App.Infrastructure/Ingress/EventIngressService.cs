@@ -358,7 +358,8 @@ internal sealed class EventIngressService(
         return IngressOutcome.Failed(correlationId);
     }
 
-    private static string Fingerprint(string payload) =>
+    // Shared with reconciliation (Gate 3E), whose read-evidence receipts are fingerprinted the same way.
+    internal static string Fingerprint(string payload) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
 
     // The marker names the receipt and nothing else, so it carries no content that must expire.

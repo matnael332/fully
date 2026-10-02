@@ -246,7 +246,9 @@ public sealed class ConnectorSecurityTests
     [Fact]
     public void Every_connector_operation_is_a_declared_low_risk_read_with_a_single_read_query()
     {
-        Assert.Equal(4, MondayOperations.All.Count);
+        // Gate 3E added the status reread, the only fifth operation, and it is a read like every other.
+        Assert.Equal(5, MondayOperations.All.Count);
+        Assert.Contains(MondayOperations.ReadItemStatusesById, MondayOperations.All);
         Assert.All(MondayOperations.All, operation =>
         {
             Assert.True(operation.IsReadOnly, operation.Name);

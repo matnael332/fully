@@ -43,9 +43,10 @@ public static class MondayWebhookNormalizationErrors
 /// subitem's parent fields. The object is the monday item, by its id; the field is the column, by its id, as
 /// <see cref="FactDataType.TaskStatus"/>; the values are the status labels, as untrusted hints; the actor is the monday
 /// user id, left unresolved; <c>changedAt</c> is the source update time and <c>triggerTime</c> the occurrence time;
-/// there is no revision. Ids are read from the JSON token's own text, never as floating-point numbers; numbers and
-/// times are read culture-invariantly by exact formats. Names, titles, group ids, label indexes and styles, and
-/// <c>originalTriggerUuid</c> are never read as identity, order or value.
+/// there is no revision. The board id, which a column id is unique only within, is the event's source scope (D3E-10):
+/// required, and taken from the validated id itself. Ids are read from the JSON token's own text, never as
+/// floating-point numbers; numbers and times are read culture-invariantly by exact formats. Names, titles, group ids,
+/// label indexes and styles, and <c>originalTriggerUuid</c> are never read as identity, order or value.
 /// </para>
 /// <para>
 /// Everything else is refused with a fixed, content-free code (<see cref="MondayWebhookNormalizationErrors"/>): never
@@ -183,6 +184,7 @@ public sealed class MondayWebhookNormalizer : ISourceEventNormalizer
                 [new FieldChange(columnId, FactDataType.TaskStatus, before.Text, after.Text)],
                 actor,
                 "board/" + boardId + "/item/" + itemId),
+            sourceScope: boardId,
             SourceValueConfirmation.Unconfirmed));
     }
 

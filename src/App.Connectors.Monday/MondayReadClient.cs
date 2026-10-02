@@ -95,6 +95,45 @@ public sealed class MondayReadClient
         return ExecuteAsync(context, operation, request, data => MondayResponseParser.ItemsById(data, ids), cancellationToken);
     }
 
+    /// <summary>
+    /// Rereads the current status values of up to 100 items, in every state, by id: each item's state and board, and the
+    /// named columns' typed <c>StatusValue</c> fields (Gate 3E).
+    /// </summary>
+    /// <param name="context">The call's tenant, connection and correlation.</param>
+    /// <param name="itemIds">The monday item ids: 1 to 100 distinct numeric ids.</param>
+    /// <param name="columnIds">The column ids: 1 to 100 distinct column tokens.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    public Task<ConnectorCallResult<MondayItemStatusBatch>> ReadItemStatusesByIdAsync(
+        MondayRequestContext context,
+        IReadOnlyCollection<string> itemIds,
+        IReadOnlyCollection<string> columnIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var operation = MondayOperations.ReadItemStatusesById;
+
+        if (itemIds is null
+            || itemIds.Count is 0 or > MondayOperations.MaxItemsPerRead
+            || !itemIds.All(IsMondayId)
+            || itemIds.Distinct(StringComparer.Ordinal).Count() != itemIds.Count
+            || columnIds is null
+            || columnIds.Count is 0 or > MondayOperations.MaxColumnsPerRead
+            || !columnIds.All(EventText.IsToken)
+            || columnIds.Distinct(StringComparer.Ordinal).Count() != columnIds.Count)
+        {
+            return Task.FromResult(Invalid<MondayItemStatusBatch>(operation));
+        }
+
+        var ids = itemIds.ToArray();
+        var columns = columnIds.ToArray();
+        var request = new MondayGraphQlRequest(MondayQueries.ReadItemStatusesById)
+            .With("ids", ids)
+            .With("limit", ids.Length)
+            .With("columns", columns);
+
+        return ExecuteAsync(context, operation, request, data => MondayResponseParser.ItemStatuses(data, ids, columns), cancellationToken);
+    }
+
     /// <summary>Reads the first page of one board's items.</summary>
     /// <param name="context">The call's tenant, connection and correlation.</param>
     /// <param name="boardId">The monday board id.</param>

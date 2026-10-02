@@ -108,6 +108,9 @@ public sealed class TenantIsolationAcceptanceTests(DatabaseFixture fixture)
                 await path.SubmitAcceptedAsync(connection, stated);
             }
 
+            // Gate 3E: a change signal whose values are unconfirmed, so processing writes the tenant's reconciliation target.
+            await path.SubmitAcceptedAsync(connection, HeldForReconciliation(label));
+
             tenants.Add(tenant);
         }
 
@@ -228,6 +231,16 @@ public sealed class TenantIsolationAcceptanceTests(DatabaseFixture fixture)
         Stated("evt-shared-4", "2002", 1, ("status", "TaskStatus", $"{valuePrefix}-blocked")),
         Stated("evt-shared-5", "2002", 2, ("status", "TaskStatus", $"{valuePrefix}-done")),
     ];
+
+    private static SourceEvent HeldForReconciliation(string valuePrefix) =>
+        new("evt-held-1", new SyntheticEvent
+        {
+            ObjectId = "2003",
+            UpdatedAt = T0,
+            ValueConfirmation = "Unconfirmed",
+            SourceScope = "scope-" + valuePrefix,
+            Changes = [new SyntheticChange("status", "TaskStatus", null, $"{valuePrefix}-hint")],
+        });
 
     private static SourceEvent Stated(string id, string objectId, long revision, params (string Field, string DataType, string Value)[] changes) =>
         new(id, new SyntheticEvent

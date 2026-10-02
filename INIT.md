@@ -1,7 +1,7 @@
 # INIT — Project Handoff State
 
 Last updated: 2026-10-01 (Gate 2 and Premium Gate P0 PASS and closed; Gate 3, monday Connector, IN PROGRESS: 3A,
-3B, 3C and 3D PASS, 3E next and not started). Read this first when resuming.
+3B, 3C and 3D PASS, 3E in progress). Read this first when resuming.
 
 ## Where the project is
 
@@ -16,7 +16,7 @@ Last updated: 2026-10-01 (Gate 2 and Premium Gate P0 PASS and closed; Gate 3, mo
 | 1G Foundation Hardening | **PASS** — commits `9651ed3` (implementation), `fc9bb3e` (CI fix), `450c13d` (Dev readiness probe on), plus this closure commit (Commit C) |
 | **Gate 1 — Foundation** | **PASS** |
 | Gate 2 — Event Backbone | **PASS — closed 2026-09-29.** 2A (event contract, validation, authority table) **PASS**, commit `7ba941a`. 2B (durable ingress) **PASS**, commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design). 2C (outbox relay, publisher, consumer, dead-letter handling) **PASS**, commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally). 2D (processing pipeline and event ledger) **PASS**, commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI). 2E (Snapshot projection) **PASS**, commit `e165852`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI). 2F (retention and metrics) **PASS**, commit `259be35`, CI run 36542058355 green (584 tests: 577 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2F test ran and passed in CI). 2G (acceptance suite, crash recovery, tenant isolation and the Gate report) **PASS**, commit `59f74e1`, CI run 36552321567 green (613 tests: 604 passed, 0 failed, 9 Service Bus emulator tests skipped by design; every other 2G test ran and passed in CI; 613/613 locally). Acceptance satisfied: duplicate, delayed and out-of-order events do not corrupt the Snapshot and no event is silently lost. Report, risks and deferred items: `docs/gates/gate-2-report.md`. Azure Dev has **none** of the 2B, 2C, 2D, 2E or 2F migrations or schema. Scope and owner decisions: `docs/gates/gate-2-scope.md` |
-| Gate 3 — monday Connector | **IN PROGRESS — authorized 2026-09-29.** 3A (connector contract and monday client foundation) **PASS** — approved 2026-09-30, committed as `d06ed66` (773 tests locally, 32/32 mutants caught). 3B (OAuth 2.1 connection lifecycle) **PASS** — approved 2026-09-30 with owner decisions D3B-1 to D3B-3 and review decisions R3B-1 and R3B-2, committed as the Gate 3B commit (986 tests locally, 91/91 mutation and vacuity checks). 3C (webhook intake) **PASS** — approved 2026-09-30 with owner decision D3C-1 (intake only) and the owner-review decisions, committed as the Gate 3C commit (1,167 tests locally, 45/45 mutation checks caught). 3D (source mapping and normalization) **PASS** — approved 2026-10-01 with owner decisions D3D-1 to D3D-8 and the accepted `SourceValueConfirmation` Core extension, committed as the Gate 3D commit (1,291 tests locally, 24/24 mutation checks caught). 3E (API reconciliation and authoritative reread) NEXT / NOT STARTED; 3F–3G not started. Scope and Definition of Done: `docs/gates/gate-3-scope.md` |
+| Gate 3 — monday Connector | **IN PROGRESS — authorized 2026-09-29.** 3A (connector contract and monday client foundation) **PASS** — approved 2026-09-30, committed as `d06ed66` (773 tests locally, 32/32 mutants caught). 3B (OAuth 2.1 connection lifecycle) **PASS** — approved 2026-09-30 with owner decisions D3B-1 to D3B-3 and review decisions R3B-1 and R3B-2, committed as the Gate 3B commit (986 tests locally, 91/91 mutation and vacuity checks). 3C (webhook intake) **PASS** — approved 2026-09-30 with owner decision D3C-1 (intake only) and the owner-review decisions, committed as the Gate 3C commit (1,167 tests locally, 45/45 mutation checks caught). 3D (source mapping and normalization) **PASS** — approved 2026-10-01 with owner decisions D3D-1 to D3D-8 and the accepted `SourceValueConfirmation` Core extension, committed as the Gate 3D commit (1,291 tests locally, 24/24 mutation checks caught). 3E (API reconciliation and authoritative reread) **PASS** — approved by the product owner on 2026-10-02 (D3E-1 to D3E-11; transient and access failures never held; `AuthorityChanged` for a read overtaken by a reauthorization; 1,420 tests locally; mutation checks 38/38, 32/32 and 13/13), committed after the separate 3B maintenance commit `273faa6`; 3F (initial sync, watermark and buffered replay) NEXT / NOT STARTED; 3G not started. Scope and Definition of Done: `docs/gates/gate-3-scope.md` |
 | Premium P0 — Architecture Freeze | **PASS — ARCHITECTURE FROZEN, closed 2026-09-29.** D1–D4 and C1 approved; invariant 35 COMPATIBLE; audit rerun with no unresolved contradiction. Closure commit `999d2f9` (documentation only), CI run 36619836845 green. `docs/premium/`, `docs/gates/gate-P0-report.md` |
 | Premium P1–P11 | Planned; NOT STARTED; not authorized |
 
@@ -78,13 +78,16 @@ same day, the product owner gave 3B its final pass (PASS), and then authorized 3
 with decision D3C-1 (intake only); after the owner's review the same day, 3C passed (PASS), and the product owner then
 authorized 3D (source mapping and normalization) in SAFE AUTO MODE with decisions D3D-1 to D3D-5. On 2026-10-01 the
 product owner gave 3D its final pass (PASS), accepting the `SourceValueConfirmation` Core extension and recording
-decisions D3D-6 to D3D-8; 3E (API reconciliation and authoritative reread) is next and not started.
+decisions D3D-6 to D3D-8. The same day the product owner authorized 3E (API reconciliation and authoritative reread)
+in SAFE AUTO MODE with decisions D3E-1 to D3E-9; 3E stopped before code for a durable board id,
+and the owner chose option A (decisions D3E-10 and D3E-11); 3E is implemented and awaits
+the owner's review.
 
 ## Rules that must not be broken (from CLAUDE.md and the canonical docs)
 
 - Work only on an explicitly authorized Gate. Gate 2 is closed (PASS; `docs/gates/gate-2-scope.md`,
   `docs/gates/gate-2-report.md`), and so is Premium Gate P0 (PASS; `docs/gates/gate-P0-report.md`). Gate 3 is
-  authorized and in progress (`docs/gates/gate-3-scope.md`): work only on an explicitly authorized sub-gate; 3E to
+  authorized and in progress (`docs/gates/gate-3-scope.md`): work only on an explicitly authorized sub-gate; 3F and
   3G each need explicit authorization. Premium Gates P1 to P11 are not started and not authorized. The Premium
   documents in `docs/premium/` are frozen, subordinate to the frozen Core documents, and change only with explicit
   product-owner approval.
@@ -168,14 +171,16 @@ Full evidence: `docs/gates/gate-1G-report.md`.
 
 ## Exact next step
 
-1. Gate 3 (monday Connector) is IN PROGRESS: 3A, 3B and 3C are PASS (approved 2026-09-30), and 3D (source mapping and
-   normalization) is PASS (approved 2026-10-01). 3E (API reconciliation and authoritative reread) is NEXT / NOT
-   STARTED and needs its own authorization. The 3D decisions stay in force: D3D-1 to D3D-5; D3D-6 (the ledger keeps
-   the provider-neutral `processing.normalizer.rejected` for every normalizer refusal); D3D-7 (no new canonical
-   "reread object" concept: 3E starts from `ReconciliationRequired` with the trusted tenant and connection and the
-   provider object, board and field ids); and D3D-8 (no automatic mapping of a monday date column to `Deadline`). The
-   3C decisions stay in force: D3C-1 (intake only), the monday account bound before any durable write, and HS256 and
-   the raw-or-Bearer
+1. Gate 3 (monday Connector) is IN PROGRESS: 3A, 3B and 3C are PASS (approved 2026-09-30), 3D (source mapping and
+   normalization) is PASS (approved 2026-10-01), and 3E (API reconciliation and authoritative reread) is PASS
+   (approved 2026-10-02; decisions D3E-1 to D3E-11; `docs/gates/gate-3-scope.md`), committed after the separate 3B
+   maintenance commit `273faa6`. 3F (initial sync, watermark and buffered replay) is NEXT / NOT STARTED and needs its
+   own product-owner authorization.
+   The 3D decisions stay in force: D3D-1 to D3D-5; D3D-6 (the ledger keeps the provider-neutral
+   `processing.normalizer.rejected` for every normalizer refusal); D3D-7 (no new canonical "reread object" concept: 3E
+   starts from `ReconciliationRequired` with the trusted tenant and connection and the provider object, board and
+   field ids); and D3D-8 (no automatic mapping of a monday date column to `Deadline`). The 3C decisions stay in force:
+   D3C-1 (intake only), the monday account bound before any durable write, and HS256 and the raw-or-Bearer
    header forms as compatibility assumptions confirmed in 3G. The 3B decisions stay in force: D3B-1 (delegated
    identity), D3B-2 (secret boundary), D3B-3 (no real monday app yet), R3B-1 (real monday OAuth before Gate 7 only
    through an owner-operated DEV/TEST harness) and R3B-2 (only SELECT, INSERT and UPDATE for the runtime role on the

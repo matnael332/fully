@@ -85,6 +85,35 @@ public sealed class MondayWebhookNormalizerTests
         Assert.Equal(new FieldChange("status", FactDataType.TaskStatus, null, "Status change wbhook"), change);
         Assert.Equal(EventActor.Unresolved("9603417"), normalized.Content.Actor);
         Assert.Equal("board/1771812698/item/1772099344", normalized.Content.SourceReference);
+
+        // D3E-10: the board, which a column id is unique only within, is the event's source scope.
+        Assert.Equal("1771812698", normalized.SourceScope);
+    }
+
+    [Fact]
+    public void The_source_scope_is_the_validated_board_id_itself_never_display_text_or_the_reference()
+    {
+        var other = Success(MondayWebhookSamples.Status(delivery => delivery["boardId"] = 4401));
+        var renamed = Success(MondayWebhookSamples.Status(delivery =>
+        {
+            delivery["boardName"] = "Board 1771812698";
+            delivery["groupId"] = "1771812698";
+            delivery["pulseName"] = "board/9999/item/1";
+        }));
+
+        Assert.Equal("4401", other.SourceScope);
+        Assert.Equal("1771812698", renamed.SourceScope);
+
+        // Without a valid board id there is no scope, and no event: the body is refused, never held unscoped.
+        foreach (var unscoped in new[]
+                 {
+                     MondayWebhookSamples.Status(delivery => delivery.Remove("boardId")),
+                     MondayWebhookSamples.Status(delivery => delivery["boardId"] = "1771812698"),
+                     MondayWebhookSamples.Status(delivery => delivery["boardId"] = null),
+                 })
+        {
+            AssertRefused(MondayWebhookSamples.Normalize(unscoped, "504b2eb76c80f672a18f892c0f700e41"), MondayWebhookNormalizationErrors.Malformed);
+        }
     }
 
     [Fact]

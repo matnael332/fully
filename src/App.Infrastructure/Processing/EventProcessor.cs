@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using WorkContinuity.Core.Correlation;
 using WorkContinuity.Core.Events;
 using WorkContinuity.Core.Processing;
 using WorkContinuity.Core.Results;
@@ -11,6 +12,7 @@ using WorkContinuity.Core.Transport;
 using WorkContinuity.Infrastructure.Observability;
 using WorkContinuity.Infrastructure.Persistence;
 using WorkContinuity.Infrastructure.Persistence.Entities;
+using WorkContinuity.Infrastructure.Reconciliation;
 
 namespace WorkContinuity.Infrastructure.Processing;
 
@@ -239,7 +241,7 @@ internal sealed class EventProcessor : IEventProcessor
 
         if (!_normalizers.TryGetValue(receipt.SourceSystem, out var normalizer) || !normalizer.Supports(receipt.SchemaVersion))
         {
-            return QuarantineReceipt(dbContext, receipt, eventId, envelope, processedAt, QuarantineReason.UnknownSchemaVersion, ProcessingErrors.NormalizerMissing);
+            return QuarantineReceipt(dbContext, receipt, eventId, envelope.CorrelationId, processedAt, QuarantineReason.UnknownSchemaVersion, ProcessingErrors.NormalizerMissing);
         }
 
         Result<NormalizedSourceEvent> normalized;
@@ -256,17 +258,99 @@ internal sealed class EventProcessor : IEventProcessor
                 receipt.SourceSystem,
                 exception.GetType().Name,
                 receiptId);
-            return QuarantineReceipt(dbContext, receipt, eventId, envelope, processedAt, QuarantineReason.BadSchema, ProcessingErrors.NormalizerFailed);
+            return QuarantineReceipt(dbContext, receipt, eventId, envelope.CorrelationId, processedAt, QuarantineReason.BadSchema, ProcessingErrors.NormalizerFailed);
         }
 
         if (normalized.IsFailure)
         {
-            return QuarantineReceipt(dbContext, receipt, eventId, envelope, processedAt, QuarantineReason.BadSchema, ProcessingErrors.NormalizerRejected);
+            return QuarantineReceipt(dbContext, receipt, eventId, envelope.CorrelationId, processedAt, QuarantineReason.BadSchema, ProcessingErrors.NormalizerRejected);
         }
 
-        // Every trusted part comes from the receipt and the envelope; the normalizer supplied only what the
+        return await DecideNormalizedAsync(
+            dbContext,
+            receipt,
+            normalized.Value,
+            envelope.CorrelationId,
+            tenant,
+            processedAt,
+            _options.ClockSkewTolerance,
+            requestReconciliation: true,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Decides one normalized event of one receipt and records it, in the caller's transaction: canonical event, authority,
+    /// plausibility, confirmation, ordering, ledger. The transport path calls it for every delivery, and reconciliation
+    /// (Gate 3E) for every confirmed read, so both go through the one decision.
+    /// </summary>
+    /// <remarks>
+    /// With <paramref name="requestReconciliation"/>, a <c>ReconciliationRequired</c> outcome also writes or updates the
+    /// reconciliation target of every field it holds, with the event's source scope, in this same transaction (decision
+    /// D3E-11): no such outcome commits without the identifiers that execute it. Reconciliation itself records the outcome
+    /// on the target it holds, so it does not request one.
+    /// </remarks>
+    internal static async Task<EventProcessingResult> DecideNormalizedAsync(
+        WorkContinuityDbContext dbContext,
+        RawReceiptRecord receipt,
+        NormalizedSourceEvent parts,
+        CorrelationId correlationId,
+        TenantId tenant,
+        DateTimeOffset processedAt,
+        TimeSpan clockSkewTolerance,
+        bool requestReconciliation,
+        CancellationToken cancellationToken)
+    {
+        var result = await DecideCanonicalAsync(dbContext, receipt, parts, correlationId, tenant, processedAt, clockSkewTolerance, cancellationToken);
+        if (requestReconciliation && result.Outcome == EventProcessingOutcome.ReconciliationRequired)
+        {
+            // The ledger entry first: the target names the event that requested it.
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await ReconciliationTargets.RequestAsync(dbContext, tenant, result, parts.SourceScope, processedAt, cancellationToken);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Decides a confirmed read of reconciliation (Gate 3E) through the same decision, and projects it exactly as a
+    /// delivery is projected: only an accepted result's handoff reaches the Snapshot, in the caller's transaction.
+    /// Reconciliation never writes the Snapshot itself (decision D3E-7).
+    /// </summary>
+    internal static async Task<EventProcessingResult> DecideAndProjectAsync(
+        WorkContinuityDbContext dbContext,
+        RawReceiptRecord receipt,
+        NormalizedSourceEvent parts,
+        CorrelationId correlationId,
+        TenantId tenant,
+        DateTimeOffset processedAt,
+        TimeSpan clockSkewTolerance,
+        CancellationToken cancellationToken)
+    {
+        var result = await DecideNormalizedAsync(
+            dbContext, receipt, parts, correlationId, tenant, processedAt, clockSkewTolerance, requestReconciliation: false, cancellationToken);
+        if (result.TryGetProjection(out var projection))
+        {
+            await SnapshotProjection.ProjectAsync(dbContext, projection!, cancellationToken);
+        }
+
+        return result;
+    }
+
+    private static async Task<EventProcessingResult> DecideCanonicalAsync(
+        WorkContinuityDbContext dbContext,
+        RawReceiptRecord receipt,
+        NormalizedSourceEvent parts,
+        CorrelationId correlationId,
+        TenantId tenant,
+        DateTimeOffset processedAt,
+        TimeSpan clockSkewTolerance,
+        CancellationToken cancellationToken)
+    {
+        var receiptId = receipt.ReceiptId;
+        var eventId = EventIdentity.ForReceipt(receiptId);
+
+        // Every trusted part comes from the receipt and the caller; the normalizer, or the reader, supplied only what the
         // source itself states.
-        var parts = normalized.Value;
         var created = CanonicalEvent.Create(
             new CanonicalEventMetadata(
                 eventId,
@@ -281,13 +365,13 @@ internal sealed class EventProcessor : IEventProcessor
                 parts.SourceUpdatedAt,
                 receipt.ReceivedAtUtc,
                 processedAt,
-                envelope.CorrelationId,
+                correlationId,
                 receiptId),
             parts.Content);
         if (created.IsFailure)
         {
             return QuarantineReceipt(
-                dbContext, receipt, eventId, envelope, processedAt, CanonicalEventErrors.QuarantineReasonFor(created.Error), created.Error);
+                dbContext, receipt, eventId, correlationId, processedAt, CanonicalEventErrors.QuarantineReasonFor(created.Error), created.Error);
         }
 
         var canonical = created.Value;
@@ -307,7 +391,7 @@ internal sealed class EventProcessor : IEventProcessor
             return QuarantineEvent(dbContext, receipt, canonical, QuarantineReason.AuthorityConflict, ProcessingErrors.AuthorityConflict, Withheld(canonical, incoming));
         }
 
-        if (OrderingPolicy.ImpossibilityOf(incoming, canonical.Metadata.ReceivedAtUtc, _options.ClockSkewTolerance) is { } impossible)
+        if (OrderingPolicy.ImpossibilityOf(incoming, canonical.Metadata.ReceivedAtUtc, clockSkewTolerance) is { } impossible)
         {
             return QuarantineEvent(dbContext, receipt, canonical, QuarantineReason.ImpossibleOrdering, impossible, Withheld(canonical, incoming));
         }
@@ -488,13 +572,13 @@ internal sealed class EventProcessor : IEventProcessor
         WorkContinuityDbContext dbContext,
         RawReceiptRecord receipt,
         CanonicalEventId eventId,
-        TransportEnvelope envelope,
+        CorrelationId correlationId,
         DateTimeOffset processedAt,
         QuarantineReason reason,
         Error cause)
     {
         dbContext.EventLedger.Add(EventLedgerRecord.ForUnnormalizedReceipt(
-            eventId, receipt, EventSourceKind.SaasConnector, processedAt, envelope.CorrelationId, reason, cause.Code));
+            eventId, receipt, EventSourceKind.SaasConnector, processedAt, correlationId, reason, cause.Code));
         receipt.MarkQuarantined();
         return EventProcessingResult.Quarantined(eventId, receipt.ReceiptId, reason, cause.Code, workObject: null, []);
     }

@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using WorkContinuity.Core.Events;
 using WorkContinuity.Core.Processing;
+using WorkContinuity.Core.Tenancy;
 using WorkContinuity.Infrastructure.Persistence;
 using WorkContinuity.Infrastructure.Persistence.Entities;
 
@@ -25,6 +27,34 @@ namespace WorkContinuity.Infrastructure.Processing;
 /// </remarks>
 internal static class SnapshotProjection
 {
+    /// <summary>
+    /// Whether the Snapshot holds exactly this value for one field, as the change the given ordering state accepted. A
+    /// read only, for reconciliation's check that a source's state is already current (Gate 3E); it writes nothing.
+    /// </summary>
+    public static async Task<bool> HoldsAsync(
+        WorkContinuityDbContext dbContext,
+        TenantId tenant,
+        ObjectReference workObject,
+        string field,
+        string? value,
+        Guid acceptedEventId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(workObject);
+        var held = await dbContext.SnapshotFields
+            .AsNoTracking()
+            .Where(row => row.TenantId == tenant
+                && row.ObjectSystem == workObject.SourceSystem
+                && row.ObjectConnection == workObject.ConnectionReference
+                && row.ObjectType == workObject.ObjectType
+                && row.ObjectId == workObject.SourceObjectId
+                && row.Field == field)
+            .Select(row => new { row.LastEventId, row.Value })
+            .SingleOrDefaultAsync(cancellationToken);
+        return held is not null && held.LastEventId == acceptedEventId && string.Equals(held.Value, value, StringComparison.Ordinal);
+    }
+
     /// <summary>Projects the advanced fields of an accepted event and returns the object's new version.</summary>
     /// <exception cref="InvalidOperationException">
     /// The Snapshot disagrees with the ordering state the event was decided against, so nothing may be overwritten.

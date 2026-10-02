@@ -42,6 +42,40 @@ internal static class MondayResponseParser
         return ParseOutcome<MondayItemBatch>.Parsed(new MondayItemBatch(parsed));
     }
 
+    /// <summary>
+    /// A status reread (Gate 3E). Strict: an unrequested or repeated item, an unknown state, a board that is neither null
+    /// nor an object with an id, an unrequested or repeated column, or a <c>StatusValue</c> fragment with only some of its
+    /// fields, makes the whole answer unsupported, so no value can be bound to anything but what was asked.
+    /// </summary>
+    internal static ParseOutcome<MondayItemStatusBatch> ItemStatuses(
+        JsonElement data,
+        IReadOnlyCollection<string> requestedIds,
+        IReadOnlyCollection<string> requestedColumns)
+    {
+        if (!data.TryGetProperty("items", out var items)
+            || items.ValueKind != JsonValueKind.Array
+            || items.GetArrayLength() > requestedIds.Count)
+        {
+            return ParseOutcome<MondayItemStatusBatch>.Unsupported;
+        }
+
+        var wantedItems = new HashSet<string>(requestedIds, StringComparer.Ordinal);
+        var wantedColumns = new HashSet<string>(requestedColumns, StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var parsed = new List<MondayItemStatus>(items.GetArrayLength());
+        foreach (var element in items.EnumerateArray())
+        {
+            if (ItemStatus(element, wantedColumns) is not { } item || !wantedItems.Contains(item.Id) || !seen.Add(item.Id))
+            {
+                return ParseOutcome<MondayItemStatusBatch>.Unsupported;
+            }
+
+            parsed.Add(item);
+        }
+
+        return ParseOutcome<MondayItemStatusBatch>.Parsed(new MondayItemStatusBatch(parsed));
+    }
+
     internal static ParseOutcome<MondayItemsPage> BoardItemsPage(JsonElement data, int limit)
     {
         if (!data.TryGetProperty("boards", out var boards) || boards.ValueKind != JsonValueKind.Array)
@@ -158,6 +192,97 @@ internal static class MondayResponseParser
         }
 
         return new MondayItem(id, name, state, createdAt, updatedAt, boardId, groupId, columnValues);
+    }
+
+    private static MondayItemStatus? ItemStatus(JsonElement element, HashSet<string> wantedColumns)
+    {
+        if (element.ValueKind != JsonValueKind.Object
+            || Identifier(element, "id") is not { } id
+            || !TryState(element, out var state)
+            || !element.TryGetProperty("board", out var board)
+            || !element.TryGetProperty("column_values", out var list)
+            || list.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        string? boardId = null;
+        string? rawBoardId = null;
+        switch (board.ValueKind)
+        {
+            case JsonValueKind.Null:
+                break;
+            case JsonValueKind.Object when Identifier(board, "id") is { } nested:
+                boardId = nested;
+                rawBoardId = board.GetProperty("id").GetRawText();
+                break;
+            default:
+                return null;
+        }
+
+        var columns = new List<MondayStatusColumn>(list.GetArrayLength());
+        var seenColumns = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in list.EnumerateArray())
+        {
+            if (StatusColumn(entry) is not { } column || !wantedColumns.Contains(column.ColumnId) || !seenColumns.Add(column.ColumnId))
+            {
+                return null;
+            }
+
+            columns.Add(column);
+        }
+
+        return new MondayItemStatus(
+            id, state, boardId, columns, element.GetProperty("id").GetRawText(), element.GetProperty("state").GetRawText(), rawBoardId);
+    }
+
+    // A column of a status reread: its id and type, and the StatusValue fields when the fragment matched. A column the
+    // fragment did not match has none of them; one with only some of them is not a shape monday documents.
+    private static MondayStatusColumn? StatusColumn(JsonElement entry)
+    {
+        if (entry.ValueKind != JsonValueKind.Object
+            || Identifier(entry, "id") is not { } columnId
+            || Identifier(entry, "type") is not { } columnType)
+        {
+            return null;
+        }
+
+        var hasLabel = entry.TryGetProperty("label", out var label);
+        var hasIndex = entry.TryGetProperty("index", out var index);
+        var hasUpdated = entry.TryGetProperty("updated_at", out var updated);
+        MondayStatusFields? status = null;
+        if (hasLabel || hasIndex || hasUpdated)
+        {
+            if (!(hasLabel && hasIndex && hasUpdated)
+                || label.ValueKind is not (JsonValueKind.Null or JsonValueKind.String)
+                || index.ValueKind is not (JsonValueKind.Null or JsonValueKind.Number)
+                || updated.ValueKind is not (JsonValueKind.Null or JsonValueKind.String))
+            {
+                return null;
+            }
+
+            long? indexValue = null;
+            if (index.ValueKind == JsonValueKind.Number)
+            {
+                if (!index.TryGetInt64(out var parsedIndex) || parsedIndex < 0)
+                {
+                    return null;
+                }
+
+                indexValue = parsedIndex;
+            }
+
+            status = new MondayStatusFields(
+                label.ValueKind == JsonValueKind.String ? label.GetString() : null,
+                indexValue,
+                updated.ValueKind == JsonValueKind.String ? updated.GetString() : null,
+                label.GetRawText(),
+                index.GetRawText(),
+                updated.GetRawText());
+        }
+
+        return new MondayStatusColumn(
+            columnId, columnType, status, entry.GetProperty("id").GetRawText(), entry.GetProperty("type").GetRawText());
     }
 
     private static bool TryColumnValues(JsonElement item, out IReadOnlyList<MondayColumnValue> columnValues)

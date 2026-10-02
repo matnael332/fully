@@ -11,7 +11,8 @@ namespace WorkContinuity.Integration.Tests.Connectors;
 internal sealed class FakeMonday : HttpMessageHandler
 {
     private readonly ConcurrentQueue<Func<CancellationToken, Task<HttpResponseMessage>>> _token = new();
-    private readonly ConcurrentQueue<Func<HttpResponseMessage>> _api = new();
+    private readonly ConcurrentQueue<Func<string, CancellationToken, Task<HttpResponseMessage>>> _api = new();
+    private Func<string, HttpResponseMessage>? _apiAnswer;
 
     internal ConcurrentQueue<(Uri? Uri, string? Authorization, string Body)> Requests { get; } = new();
 
@@ -23,7 +24,15 @@ internal sealed class FakeMonday : HttpMessageHandler
 
     internal void ThenToken(Func<CancellationToken, Task<HttpResponseMessage>> respond) => _token.Enqueue(respond);
 
-    internal void ThenApi(HttpStatusCode status, string body) => _api.Enqueue(() => Json(status, body));
+    internal void ThenApi(HttpStatusCode status, string body) => _api.Enqueue((_, _) => Task.FromResult(Json(status, body)));
+
+    /// <summary>Scripts one API answer that may wait, so a test can hold a call open while it interleaves other work.</summary>
+    internal void ThenApi(Func<string, CancellationToken, Task<HttpResponseMessage>> respond) => _api.Enqueue(respond);
+
+    /// <summary>Answers every unscripted API call from its request body, as monday answers whatever it is asked.</summary>
+    internal void AnswerApi(Func<string, HttpResponseMessage> answer) => _apiAnswer = answer;
+
+    internal int ApiCalls => Requests.Count(request => request.Uri == MondayEndpoints.Api);
 
     internal static HttpResponseMessage Json(HttpStatusCode status, string body) =>
         new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
@@ -58,7 +67,12 @@ internal sealed class FakeMonday : HttpMessageHandler
 
         if (request.RequestUri == MondayEndpoints.Api)
         {
-            return _api.TryDequeue(out var api) ? api() : throw new InvalidOperationException("Unscripted API request.");
+            if (_api.TryDequeue(out var api))
+            {
+                return await api(body, cancellationToken);
+            }
+
+            return _apiAnswer is { } answer ? answer(body) : throw new InvalidOperationException("Unscripted API request.");
         }
 
         throw new InvalidOperationException("A request went to an address the connector must never call.");

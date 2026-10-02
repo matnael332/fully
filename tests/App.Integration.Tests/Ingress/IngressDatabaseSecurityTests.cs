@@ -270,6 +270,8 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
                 "outbox_messages.tenant_isolation_outbox_messages",
                 "raw_receipts.retention_discovery_raw_receipts",
                 "raw_receipts.tenant_isolation_raw_receipts",
+                "reconciliation_targets.no_delete_reconciliation_targets",
+                "reconciliation_targets.tenant_isolation_reconciliation_targets",
                 "snapshot_fields.no_delete_snapshot_fields",
                 "snapshot_fields.tenant_isolation_snapshot_fields",
                 "snapshot_objects.no_delete_snapshot_objects",
@@ -280,7 +282,7 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
             policies.Select(policy => $"{policy.Table}.{policy.Name}"));
 
         // The ledger's append-only policies (Gate 2D) only restrict: every update and delete, for everyone; and
-        // ordering state (Gate 2D) and the Snapshot (Gate 2E) are never deleted.
+        // ordering state (Gate 2D), the Snapshot (Gate 2E) and reconciliation targets (Gate 3E) are never deleted.
         var appendOnly = policies.Where(policy => policy.Name.StartsWith("append_only_", StringComparison.Ordinal)).ToList();
         Assert.Equal(4, appendOnly.Count);
         Assert.All(appendOnly, policy =>
@@ -295,7 +297,7 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
 
         var noDelete = policies.Where(policy => policy.Name.StartsWith("no_delete_", StringComparison.Ordinal)).ToList();
         Assert.Equal(
-            ["no_delete_field_ordering_states", "no_delete_snapshot_fields", "no_delete_snapshot_objects"],
+            ["no_delete_field_ordering_states", "no_delete_reconciliation_targets", "no_delete_snapshot_fields", "no_delete_snapshot_objects"],
             noDelete.Select(policy => policy.Name).Order(StringComparer.Ordinal));
         Assert.All(noDelete, policy =>
         {

@@ -9,8 +9,9 @@
 | 3B — OAuth 2.1 connection lifecycle | **PASS** — approved by the product owner on 2026-09-30 |
 | 3C — Webhook intake | **PASS** — approved by the product owner on 2026-09-30 |
 | 3D — Source mapping and normalization | **PASS** — approved by the product owner on 2026-10-01 |
-| 3E — API reconciliation and authoritative reread | **NEXT / NOT STARTED** — needs its own product-owner authorization |
-| 3F to 3G | Not started; each needs its own product-owner authorization |
+| 3E — API reconciliation and authoritative reread | **PASS** — approved by the product owner on 2026-10-02 |
+| 3F — Initial sync, watermark and buffered replay | **NEXT / NOT STARTED** — needs its own product-owner authorization |
+| 3G — Real monday end-to-end acceptance and Gate closure | Not started; needs its own product-owner authorization |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -1295,3 +1296,631 @@ status documentation changed after it.
 
 **3E (API reconciliation and authoritative reread) is NEXT / NOT STARTED** and begins only on its own authorization.
 Gate 3 stays IN PROGRESS.
+
+## 3E — API reconciliation and authoritative reread
+
+Authorized by the product owner on 2026-10-01 in SAFE AUTO MODE. Baseline: `main` == `origin/main` == remote `main` ==
+`0c2d18e` (the Gate 3D commit), working tree clean, the frozen Core and Premium documents byte-identical to their
+recorded hashes, CI run 36819668481 green, and no CD run since 2026-09-28. 3E stops at its owner boundary: no commit,
+no push, no 3F.
+
+### 3E owner decisions (2026-10-01)
+
+- **D3E-1 — The API reread is the authoritative path.** A webhook value stays `Unconfirmed` and is held as
+  `ReconciliationRequired`; only a successful, authenticated monday API reread may produce a `Confirmed` value, and
+  only then may the Snapshot change. The reread uses the 3A read client and the 3B access-time credential path: no
+  second monday HTTP client, and no bypass of credential renewal or revocation checks.
+- **D3E-2 — Authoritative status field.** 3E rereads the surface 3D supports, an item's status column, through
+  monday's typed `StatusValue` (`id`, `type`, `label`, `index`, `text`, `updated_at`). The canonical value follows
+  3D's mapping, preferring the typed `label`, and an empty status follows 3D's clear-value semantics. `index` is kept
+  as bounded provenance only where the existing model has a place for it. The field identity stays the column id.
+- **D3E-3 — Field timestamp authority.** The status value's own `updated_at` is the source-update-time evidence: never
+  receipt time, reconciliation time, a local or database clock, or the item's `updated_at`. When it is unavailable,
+  malformed or not safely representable, no timestamp is fabricated: the work stays on the ambiguity /
+  `ReconciliationRequired` path and is reported. A fallback to the item's `updated_at` needs owner approval. monday
+  has no item revision, and a column-settings revision is never used as one.
+- **D3E-4 — Current state beats the webhook value.** The reread's current provider state is authoritative even when it
+  differs from the webhook that triggered it; no intermediate webhook value is reproduced.
+- **D3E-5 — Known-object reconciliation is not initial sync.** 3E reconciles events already recorded
+  `ReconciliationRequired` and source objects Fully already knows. It discovers no workspace, ingests no board,
+  creates no initial Snapshot, sets no initial-sync watermark and implements no buffered replay. If known objects
+  cannot be enumerated safely and provider-neutrally, 3E stops and reports.
+- **D3E-6 — Crash-safe completion.** Work is resolved only after the confirmed state was applied through processing
+  and the result recorded durably. A crash at any point leaves the work safely retryable or idempotently repairable,
+  never resolved while its Snapshot repair is missing.
+- **D3E-7 — No direct Snapshot bypass.** The reread produces the equivalent of a `Confirmed` normalized source event,
+  and the existing ordering and Snapshot logic decides the write. No monday-specific Snapshot SQL, and
+  `App.Connectors.Monday` never references Infrastructure.
+- **D3E-8 — Response binding.** A response is authoritative only when the returned item id, board id, column id and
+  column type equal the requested item, the expected board, the expected field and the supported status type; the
+  connection, tenant and source are still the trusted ones; and the identity used is still the expected 3B delegated
+  identity. Any mismatch fails closed, and nothing is remapped to what monday returned.
+- **D3E-9 — Item state.** Absence is never read as deletion. A reported `archived` or `deleted` state is provider
+  evidence: the item's status value is not applied as an active task's, and nothing archived or deleted is
+  resurrected. A lifecycle is reconciled only if the canonical model already represents it; otherwise the work stays
+  unresolved with an explicit outcome and the Core gap is reported.
+
+### monday item and status reads, reverified (2026-10-01)
+
+Reverified against monday's own API reference: items, the status column, column values, columns, multi-level boards,
+errors and rate limits. Nothing contradicts a material point of the 3E authorization; new points are marked.
+
+| Topic | Verified fact |
+|---|---|
+| `items(ids:)` | Up to 100 ids "using the `limit` argument"; `limit` defaults to 25, at most 100. `exclude_nonactive` excludes inactive and deleted items, and items of deleted items, only with `ids`. `state` is `active`, `archived` or `deleted` (`all` is a filter value). Whether an inaccessible or unknown id is omitted or reported as an error is not documented |
+| The 3A query | `items(ids: $ids, limit: $limit)` with `limit` set to the number of ids and without `exclude_nonactive`, so archived and deleted items come back with their state. It reads `id name state created_at updated_at board { id } group { id } column_values { id type text value }`, none of `StatusValue`'s typed fields; the parser refuses an unrequested id, and a missing id is simply absent |
+| `StatusValue` | `id`, `type`, `label` and `index` (both null when the status is empty), `text` (null when empty), `updated_at` ("the column's last updated date"), `value` (`{"index": N}`), `is_done`, `label_style`, `update_id`, `column` and `is_leaf`. New: at most 40 labels per column, each at most 30 characters |
+| Timestamps | `updated_at` is a `Date`, documented as `2026-03-21T08:36:10+00:00` |
+| Column identity | New: the API names a status column's type `status`, while webhooks report `color` (3D). Column ids are unique only within a board |
+| Multi-level boards | New: a status column with rollup resolves to `BatteryValue` for every item, leaves included, and `... on StatusValue` does not match it; `column_values` omits rollup columns unless `capabilities: [CALCULATED]` is passed. `hierarchy_type` is `multi_level` or `classic` |
+| Errors and limits | Application errors usually return HTTP 200 with an `errors` array, possibly with partial data: `ResourceNotFoundException`, `UserUnauthorizedException` (403), `missingRequiredPermissions`. Every rate-limit error carries `retry_in_seconds`; an app's reads have a budget of 5,000,000 complexity points per minute |
+
+### 3E Definition of Done
+
+Recorded before coding, exactly as the product owner set it. Gate 3E is READY FOR OWNER REVIEW only when:
+
+1. A production provider-neutral reconciliation path exists.
+2. monday authoritative reread uses the existing 3A client.
+3. Every provider call uses 3B access-time credentials.
+4. Gate 3D webhook values remain Unconfirmed.
+5. Only API-reread values may become Confirmed.
+6. Supported status values are reread using stable item/board/column identifiers.
+7. `StatusValue.updated_at` is the preferred field ordering evidence.
+8. No monday item revision is fabricated.
+9. No local/receipt timestamp is substituted for provider ordering evidence.
+10. Returned item/board/column/type are validated against the requested source reference.
+11. Current API state wins over stale webhook hints.
+12. Reconciliation applies through the existing ordering/Snapshot path.
+13. Snapshot is never written by monday-specific SQL.
+14. Reconciliation completion is crash-safe and idempotent.
+15. Duplicate reconciliation converges.
+16. Provider transient/rate-limit failures leave work safely retryable.
+17. Disabled/revoked/reauthorization-required connections fail closed.
+18. Tenant suspension fails closed.
+19. Known-object reconciliation can detect a missed status webhook.
+20. Reconciliation does not discover new provider objects.
+21. Gate 3F initial sync is not implemented.
+22. Unsupported/missing/archived/deleted/provider-shape cases are handled explicitly, never guessed.
+23. The 5-minute Gate 2 clock-skew rule is tested and unchanged unless separately approved.
+24. EventText 1,024 limit remains unchanged and nothing is silently truncated.
+25. No provider text/secrets/raw responses leak to logs or shadow storage.
+26. Full unit/security/architecture/integration evidence is green.
+27. Critical mutation/vacuity guards are proven.
+28. Gate 2, 3C and 3D regressions remain green.
+29. All six frozen documents remain byte-identical.
+30. No Azure or real monday activity is required.
+31. No contradiction exists with Core or Premium P0.
+
+### 3E pre-code inspection
+
+**What a 3D `ReconciliationRequired` record holds.** `event_ledger`: the tenant, the receipt, the source system and
+connection, the provider event id (`triggerUuid`), the event type and schema, the object's system, connection, type
+(`item`) and id (the monday item id), `changedAt` as source update time, `triggerTime` as occurrence time, the receipt
+and processing times, the correlation, the outcome and the reason `processing.source.unconfirmed`.
+`event_ledger_fields`: each field token (the column id), its data type (`TaskStatus`) and its decision (`Withheld`).
+No value and no reference.
+
+**The board id is held nowhere durable.** 3D validated it but placed it only in the event's source reference
+(`board/{boardId}/item/{itemId}`), which lives in memory and is stored nowhere. The ledger, the ordering state and the
+Snapshot have no column for it, and no Snapshot object knows its board. Its only durable copy is inside the
+authenticated webhook body in `raw_receipts.payload`, which the retention purge clears at 28 days.
+
+**Everything else 3E needs exists:**
+
+- the tenant, connection, source, item id and column id are durable, and Snapshot objects can be enumerated per
+  tenant, connection, source system and object type, so known objects can be listed without discovering anything;
+- the 3A client rereads up to 100 items by id in every state and records the identity it used;
+- the 3B credential source refuses a revoked, disabled, reauthorization-required or deactivated connection before
+  every attempt;
+- ingress already refuses a suspended tenant inside its write transaction (`TenantStatus.Suspended`), and
+  reconciliation can do the same;
+- 3A's retry policy honours monday's waits within its bound and returns longer ones as failures.
+
+### 3E blocker (stopped before code)
+
+D3E-8 requires the returned board to equal the expected board, and the 3E inputs name the board id as a required
+stable identifier. Column ids are unique only within a board, and an item can move to another board, so without the
+expected board a reread could apply another board's column of the same id to the canonical field. The existing
+reconciliation record lacks the board id, and the owner's instruction for that case is to stop and report the smallest
+provider-neutral extension, never to parse an identity out of text. 3E therefore stopped before any code was written.
+
+The options for the owner:
+
+- **A (recommended): a typed scope on the normalized event, kept in 3E's own reconciliation state.**
+  `NormalizedSourceEvent` gains one optional provider-neutral member, the source scope: a bounded identifier of the
+  provider resource that scopes the object's field identities (for monday, the board). The monday normalizer sets it
+  from the `boardId` it already validates. One tenant-owned table with forced row-level security holds a
+  reconciliation target per object and field: its identity, the field and data type, the expected scope, and the
+  claim, attempt, retry and outcome state. Processing writes or refreshes the target in the same transaction that
+  records a `ReconciliationRequired` outcome, so the expected board is durable before the work exists, and
+  reconciliation updates it in the transaction that applies the confirmed state. The targets are also the known
+  objects a sweep may reread, each with its expected board, so nothing is discovered. The canonical event, the ledger
+  and the Snapshot do not change.
+- **B: the scope becomes part of the canonical object.** `ObjectReference`, and with it the canonical event, the
+  ledger, the ordering state and the Snapshot, gains the scope. Equally strict, but larger: it changes the canonical
+  object model and every Gate 2 table that keys objects.
+- **C: no expected-board check in 3E.** Item, column, type and state are bound, and the returned board is only
+  provenance. The smallest change, but weaker than D3E-8: a column of another board with the same id would not be
+  detected.
+
+With option A or B, the rest of the Definition of Done is reachable within SAFE AUTO MODE. The planned design, which
+needs no further decision:
+
+- each authoritative read becomes a durable receipt in `raw_receipts`, holding a minimal normalized read document
+  rather than the raw API response; the same processing core decides it, in one transaction with the target's
+  resolution, and the existing retention purges it;
+- the 3A item read gains a narrow status read: `column_values(ids:)` with a `StatusValue` fragment reading `label`,
+  `index` and `updated_at`, the API's `status` type, and strict parsing of `updated_at`;
+- a rollup column, which monday omits by default, is reported as unsupported, never as a cleared value;
+- reconciliation runs only when invoked: no hosted scheduler and nothing activated in Azure.
+
+### 3E contradiction audit (before code)
+
+Every 3E decision was compared with PRD v1, System Architecture v1, the 83 Architecture Invariants, Development Gates
+v1, the frozen Premium documents and the Gate 2 decisions.
+
+| Element | Canonical rule | Result |
+|---|---|---|
+| Only an authenticated API reread confirms a value; webhook values stay unconfirmed | Invariants 13 and 17; System Architecture v1 §2 and §3 | Compatible |
+| Confirmed state applied through processing; no Snapshot bypass | System Architecture v1 §3 lifecycle; Gate 2 decisions | Compatible |
+| The status value's `updated_at` as update-time evidence; no fabricated revision; read and receipt time never order | System Architecture v1 §3 ordering; invariants 12 and 18 | Compatible |
+| Known objects only; no discovery, initial sync or watermark | System Architecture v1 §2 initial-connection sequence (3F); Development Gates v1 | Compatible |
+| Archived and deleted items left unresolved while Core has no lifecycle | PRD v1 §5; invariants 13 and 22 | Compatible: the gap is reported, not invented |
+| Read only; no write scope | Development Gates v1; invariant 37; D3C-1 | Compatible |
+| Board binding with no durable board id | D3E-8 and the 3E inputs | Not a contradiction with a frozen document: an owner-instruction stop, needing the smallest provider-neutral extension (blocker above) |
+
+**Result: no contradiction with the frozen documents.** One owner-instruction stop: the board id. Nothing was
+implemented.
+
+### 3E owner decisions, continued (2026-10-01)
+
+The product owner chose option A and continued 3E from the stopped state, keeping its documentation:
+
+- **D3E-10 — Provider-neutral source scope.** `NormalizedSourceEvent` may carry an optional, stable source scope: a
+  bounded opaque identifier of the provider resource that disambiguates the source field. Core does not interpret it,
+  has no board semantics and stores no display name or title. For the supported monday status event the scope is
+  required and holds the validated `boardId`; its absence fails closed; it is never parsed from `SourceReference` text
+  or recovered from display data. `ObjectReference`, Snapshot identity and the frozen canonical event architecture do
+  not change.
+- **D3E-11 — Reconciliation-target persistence.** One provider-neutral, tenant-owned table holds only the operational
+  metadata reconciliation needs: no copy of a work value, no status label, no raw API body, no OAuth material, no
+  signing secret and no user or display text. It has forced row-level security, tenant-inclusive foreign keys where
+  they apply, least privilege for the runtime role and no tenant-less lookup, and it is scoped by connection and
+  source. Processing writes or updates the target in the same transaction as each `ReconciliationRequired` outcome, so
+  no such outcome commits without the identifiers that execute it.
+- **Generations.** A target is versioned. A newer request raises its generation, and a worker that claimed generation
+  N can never close N+1: resolution is a compare-and-swap on the generation, so neither a crash nor a race loses a
+  later request. Applying a current read may still advance the Snapshot through normal ordering. No process-local lock
+  decides correctness.
+- **Known objects.** A target reconciled successfully keeps its stable source identity as the known-object metadata
+  the missed-webhook sweep may enumerate. The sweep enumerates only those targets and never queries a board or
+  workspace; discovery stays 3F.
+- **Board mismatch.** A reread binds the account and connection authority, the item id, the expected scope, the column
+  id and the supported status type. The same item returned on another board fails closed and stays unresolved: the
+  expected board is never replaced by what the API returned, and item moves are left to later real-provider and
+  lifecycle work.
+- **Read-evidence receipts.** No normalized or canonical document is stored as raw evidence. `raw_receipts` may be
+  reused only if it can honestly represent an internally initiated provider observation: a distinct receipt holding
+  only the exact provider evidence consumed, clearly distinguishable from a webhook delivery, under the existing
+  retention, with no full response, credential or unrelated field. Otherwise 3E stops and reports the smallest
+  provider-neutral schema extension; no webhook receipt is faked and ledger causation is not weakened.
+- **Renamed labels.** A different label whose `updated_at` does not let the existing ordering engine order it newer is
+  never forced into the Snapshot: no reconciliation time or item `updated_at` is substituted, the work stays
+  unresolved, and the case is a 3G verification item. The Gate 2 ordering algorithm does not change.
+
+### 3E design
+
+**Source scope.** `NormalizedSourceEvent` gains `SourceScope`, a constructor argument every normalizer must state,
+null when its source has no scope, and validated as a bounded opaque identifier (`EventText.IsIdentifier`). The monday
+normalizer passes the `boardId` it already validates; the Gate 2 synthetic normalizer passes none unless a test asks.
+It is provider-neutral: neither the name, the type nor the validation says "board", Core never parses or interprets
+it, and only the monday connector knows that a monday scope is a board.
+
+**Reconciliation targets.** Table `reconciliation_targets`, one row per tenant, source system, connection, object
+type, object id and field, the key of the ordering state and of a Snapshot field. It holds:
+
+- identity: the field's canonical data type and the source scope;
+- lifecycle: the state (`Pending`, `Resolved` or `Held`), the generation, the resolved generation, the kind of the
+  latest request (`Event` or `Sweep`), when it was requested and the ledger event that requested it;
+- claim: the claim id, the claimed generation and the lease expiry, all present or all absent;
+- retries: the attempts at the current generation, the next and the last attempt, and the last outcome code;
+- results: when it was resolved, the ledger event that resolved it, and when it was last verified current.
+
+No column can hold a value, a label, a response, a credential or display text. Forced row-level security with the
+standard tenant policy, a restrictive no-delete policy, foreign keys to the ledger that include the tenant, and
+SELECT, INSERT and UPDATE only for the runtime role: rows are never deleted. The connection is named by its connection
+reference, as the ledger and the Snapshot name it.
+
+**Lifecycle.**
+
+- *Request.* Processing upserts the target in the transaction that records `ReconciliationRequired`. A new target
+  starts `Pending` at generation 1. An existing target's generation rises by one, its attempts reset and it is
+  `Pending` again, unless the request names another scope or data type: the stored identity is then never replaced,
+  and the target is `Held` with a scope-conflict outcome.
+- *Claim.* A worker claims due `Pending` targets of one tenant, source and connection with `FOR UPDATE SKIP LOCKED`,
+  recording its claim id, the claimed generation and a lease; a target whose lease expired can be claimed again.
+- *Read.* Outside any transaction, through the source's authoritative reader.
+- *Apply.* One transaction per target. The target is locked and the claim checked. The tenant must be active, the
+  connection active and its authorization active and held by the delegated identity the read used. A read equal to the
+  Snapshot, the same value with the same update time, resolves the target with no event. Any other read is stored as
+  an evidence receipt and decided by the unchanged Gate 2 processing core as a `Confirmed` event, projected by the
+  Snapshot projection, and the target's outcome is written in the same transaction.
+- *Resolve.* Compare-and-swap: the target becomes `Resolved` only while its generation still equals the claimed one;
+  otherwise it stays `Pending` for the newer request. No failure resolves a target.
+- *Retry or hold* (revised after the owner's review; see "3E owner review" below). A transient failure (a rate
+  limit, monday unavailable, a credential that cannot be obtained just now) is retried on the capped backoff for as
+  long as it lasts and is never held. A refusal of access (the tenant inactive; the connection, its authorization or
+  its user not standing) makes no provider call: every later attempt checks access locally first, on the same backoff,
+  and the target resumes by itself once access stands. An unusable answer (the item missing, a response the reader does
+  not understand) is retried and held after eight consecutive such answers. What retrying cannot change holds at once:
+  an archived or deleted item, a binding mismatch, a missing or unsupported column, an invalid value, ambiguous,
+  unevidenced or impossible ordering, a quarantine, a missing scope, a scope conflict, or a read under another identity
+  while the authorization did not change. A read overtaken by a new authorization is discarded and retried (see "3E
+  final owner review" below). A held target reopens only on a new request.
+
+**Sweep.** It requests the least recently verified `Resolved` targets of one tenant, source and connection, a bounded
+number per call, by raising their generation. It never inserts a target, so it can only reread objects Fully has
+already reconciled.
+
+**Read-evidence receipts, verified against the receipt and ledger semantics.** `raw_receipts` can represent the
+observation honestly, so 3E does not stop here:
+
+- `schema_version` exists to say what a payload is: an observation gets its own version, `monday.api-read.v1`,
+  distinct from `monday.webhook.v1`; it has no provider event id, and the database stamps its receipt time;
+- the payload holds only the provider values consumed, each exactly as the response held it: the item's `id`,
+  `state` and `board.id`, and the column value's `id`, `type`, `label`, `index` and `updated_at`, beside the operation
+  name and the pinned API version. No other provider field, no full response and no credential;
+- it is created and settled inside the apply transaction, with no outbox message, so the transport never processes it;
+  the webhook normalizer does not support its schema, so it could never be read as a webhook delivery; and nothing
+  reads a receipt to decide confirmation: only a live, bound read produces `Confirmed`;
+- the ledger's causation is unchanged: its entry names that receipt; and the existing retention purges the content
+  like any raw work data, so no second store exists.
+
+**monday reader.** A new read-only operation of the 3A client: `items(ids:, limit:)` with `id state board { id }` and
+`column_values(ids:)` returning `id`, `type` and, through a `StatusValue` fragment, `label`, `index` and `updated_at`;
+`limit` is the number of ids. It uses the same credential source, query guard, bounds, classification and retry
+policy, and strict parsing: an unrequested or repeated item, an unknown state, a missing board, a column of another
+type, a fragment that did not match or a label without its index each fail closed. `updated_at` is parsed strictly;
+when it is absent or unreadable, the read carries no update time, and processing records `ReconciliationRequired` for
+want of ordering evidence.
+
+**Ordering.** The status value's `updated_at` is the source update time; there is no revision and no occurrence time,
+and the read time orders nothing. The database's receipt time feeds the unchanged 5-minute plausibility check.
+
+**Running.** Reconciliation runs when invoked, for one tenant and connection; no hosted scheduler, and nothing
+registered in the Web or Worker host or activated in Azure.
+
+**Audit additions (before code).**
+
+| Element | Canonical rule | Result |
+|---|---|---|
+| Optional source scope on the normalized event | System Architecture v1 §3 normalization; D3E-10 | Compatible: provider-neutral, opaque and bounded; the canonical object, event and Snapshot unchanged |
+| Reconciliation targets written with each `ReconciliationRequired` outcome | Gate 2 decisions 1 and 5; invariants 44 and 45 | Compatible: tenant-owned with forced row-level security and no tenant-less function; metadata only, no content |
+| Read evidence in `raw_receipts` | PRD v1 §12; Gate 2 decision 5; invariant 20 | Compatible: one raw store, the existing retention, only the consumed provider values |
+| A generation compare-and-swap decides resolution | System Architecture v1 §3 lifecycle; D3E-6 | Compatible: idempotent and crash-safe in the database, no process-local lock |
+
+**Result: no contradiction, and the receipt semantics need no schema extension.** Implementation proceeds.
+
+### 3E implementation record
+
+Implemented on `0c2d18e`, uncommitted. One additive migration, `20261001073251_ReconciliationTargets`, applied only to
+the local database, by the tests' fixture. No package, workflow, IaC, Key Vault or Azure change, and no registration
+in any host.
+
+**Core, provider-neutral.** `NormalizedSourceEvent.SourceScope` (D3E-10): a constructor argument every normalizer
+states, null or a bounded opaque identifier. `src/App.Core/Reconciliation/`: the target (`ReconciliationTarget`); the
+read contract (`AuthoritativeReadRequest`, `AuthoritativeReadResult`, `TargetReading`, `AuthoritativeFieldState`,
+`ObservationEvidence`); the reader port `IAuthoritativeSourceReader`; the runner port `ISourceReconciler` with
+`ReconciliationRun` and `ReconciliationRunSummary`; `ReconciliationErrors`; and the closed `ReconciliationOutcome` set
+with fixed codes and dispositions (resolve, retry or hold).
+
+**Infrastructure.**
+
+- `reconciliation_targets` (entity, model, migration): forced row-level security, the tenant policy, a restrictive
+  no-delete policy, SELECT, INSERT and UPDATE only for the runtime role, and foreign keys to the ledger that include
+  the tenant.
+- Processing: the decision after normalization is shared (`DecideNormalizedAsync`). A delivery's
+  `ReconciliationRequired` writes its fields' targets in the same transaction, through an atomic upsert
+  (`ReconciliationTargets.RequestAsync`). Reconciliation enters only through `DecideAndProjectAsync`, so the processor
+  stays the only caller of the Snapshot projection; `SnapshotProjection.HoldsAsync` is the read behind the
+  already-current check.
+- `SourceReconciler`, `ReconciliationOptions` and `AddSourceReconciliation`, which only registers.
+  `EventIngressService.Fingerprint` is shared, so evidence receipts are fingerprinted like deliveries.
+
+**Connector.** The 3A read model gained the read-only operation `monday.items.read-status-by-id`, its query,
+`MondayReadClient.ReadItemStatusesByIdAsync` and its strict parser (`MondayItemStatuses.cs`); `MondayStatusReader` is
+the monday `IAuthoritativeSourceReader`; and the 3D normalizer carries the board as the source scope.
+
+**Tests:** unit 870 (+73), security 152 (+8), architecture 31 (+1), integration 352 (+32): 1,405 in all, 1,405/1,405
+locally, the 9 Service Bus emulator tests included.
+
+- Unit: the Core contracts, the closed outcome set, the reader against a deterministic fake of monday (binding,
+  refusals, strict times, exact evidence, failure mapping, identity), and the 5-minute rule at its exact bound on
+  monday-shaped times.
+- Integration: the whole path end to end (23), from a signed webhook through the real 3C endpoint, the real processor
+  and the real reader and client to the Snapshot, including the real 3B credential lifecycle; provider-neutral
+  requests (6), including a forced crash between a hold and its target; and the table on databases created for the
+  test (3).
+- Security and architecture: Confirmed constructed only by the reconciler after binding; no fabricated revision,
+  occurrence or local time; the Snapshot untouched by reconciliation itself; no value column; the migration's grants
+  and policies; no host registration; and provider-neutral reconciliation code.
+- Deliberate pin updates, each still exact: monday's documents and operations (4 to 5), the pinned members of
+  `NormalizedSourceEvent` (`SourceScope`, a source statement), the connector files that mention webhooks (the reader,
+  which reads the surface the normalizer maps), the database policy list (the two target policies), and the
+  cross-tenant acceptance test, which now also attacks the target table and seeds a hold per tenant.
+- Test infrastructure: `FakeMonday` gained an awaitable API answer and an answer built from the request;
+  `SyntheticEvent` can state a source scope.
+
+**Mutation and vacuity:** 38 mutants, E01 to E37 and E39 (`mutate-3e.py`), all caught, in nine short foreground runs.
+After every mutant the driver restores each changed file and checks its hash, and all 37 changed code files matched
+their recorded hashes after every run; the two test files strengthened between runs were recorded again.
+
+- E03, a repeated item accepted by the parser, first survived. With one requested item the response's count bound
+  already refused a repeat, so no test exercised the repeat check. A test-only fix asks for two items and returns one
+  twice; E03 was then caught.
+- E37, reconciliation requesting reconciliation again, was first caught only by a static pin. The end-to-end test now
+  also pins the held target's generation and request kind, and catches it.
+- The mutants cover every guard the owner listed: item, board, column and type binding (E01 to E07); archived and
+  deleted items (E08); the status value's own time, strict parsing, no local or receipt time, no revision and no
+  occurrence (E09, E10, E12 to E15); no truncation (E11); Confirmed only from a reread, with the board as scope (E16,
+  E39); completion only with the Snapshot commit, the generation compare-and-swap and lost claims (E17 to E19);
+  identical and current reads (E23, E24); standing, suspension and identity (E20 to E22); requests (E25 to E27, E37);
+  retries (E28, E29); known objects only (E30); logs and evidence (E31, E32); and the table's row-level security,
+  no-delete policy, grants and tenant isolation (E33 to E36).
+- Vacuity: with row-level security disabled, the isolation check sees the other tenant's target; the log test proves
+  the run's own summary is captured; and the database-wide scan finds the label in the receipts and the Snapshot, its
+  positive controls, and never in a target.
+
+**Verification:** clean non-incremental build with 0 warnings and 0 errors; full suite 1,405/1,405; both repository
+verifiers PASS; the six frozen documents byte-identical; `git diff --check` clean; and no changed file mixes line
+endings.
+
+**Security review** (no finding needs a change before review):
+
+1. *Identity at apply time* (corrected in the final owner review). A read must have used the connection's current
+   delegated identity, under the authorization that access found before the read. A renewal keeps the authorization.
+   3B lets only the connection's own monday user authorize it again, so an authorization by another monday user cannot
+   happen; an authorization again during the read discards and retries the read, and a read under another identity
+   with the authorization unchanged is held.
+2. *Duplicates.* The parser refuses a repeated or unrequested item, and the reader relies on it: the parser is the
+   only way into the reader's binding.
+3. *Evidence.* Each consumed value is copied exactly as monday returned it; PostgreSQL stores the document as jsonb,
+   which keeps every value but not its whitespace or key order. It is purged with all raw content, and the ledger
+   keeps its ids.
+4. *Held targets* never reopen on their own: a sweep verifies only resolved targets, and only a new request reopens a
+   held one. An item that stays archived, deleted or moved stays held, visible by its outcome code, until lifecycle
+   work decides it.
+5. *The bootstrap rerun hazard (R3B-2)* now also covers `reconciliation_targets`: a rerun re-grants DELETE, which the
+   restrictive policy still refuses, and the Azure rollout's re-assertion must include the table.
+6. *Leases.* Workers whose clocks disagree by more than a lease could both claim a target, but the claim check in the
+   apply transaction lets only the current holder record anything.
+
+**Deferred to 3F and 3G, and owner items:**
+
+- 3F: initial sync, the watermark, buffered replay and discovery.
+- 3G, on a real workspace: what `items(ids:)` returns for an unknown or inaccessible id (retried, then held); the
+  precision and format of `updated_at`; whether renaming a status label changes `updated_at` (held, as approved); the
+  5-minute rule against real data; the `status` and `color` types; and multi-level boards, whose rollup columns monday
+  omits (held).
+- The owner: running reconciliation in a host and in Azure, including how a worker finds the tenants and connections
+  with due targets, which needs a tenant-less lookup that Gate 2 decision 1 does not allow today; applying the
+  migration in Azure; and lifecycle semantics for archived, deleted, restored and moved items.
+
+### 3E owner review (2026-10-01): transient failures are never held
+
+The owner accepted the 3E implementation except for one blocker. Transient failures (a rate limit, a monday outage, a
+secret store that cannot be read) and conditions of access (authorization needed again, a suspended tenant) were
+retried eight times and then held, and a held target never reopens on its own, so a condition that outlasted eight
+attempts disabled reconciliation of the field until a new webhook arrived. Retrying is now split by what retrying can
+change. Nothing else changed: the source scope, the evidence receipts, the item, board, column and type binding, the
+`StatusValue.updated_at` ordering evidence, the confirmation rules, the Snapshot processing path, the 5-minute rule,
+the 1,024-character bound, the schema and the frozen documents.
+
+**Classification.** Every outcome has exactly one disposition, fixed in Core (`ReconciliationOutcomes`):
+
+| Outcome | Code | Disposition | Behaviour |
+|---|---|---|---|
+| `Current`, `Repaired`, `Superseded` | `reconciliation.current`, `reconciliation.repaired`, `reconciliation.superseded` | Resolve | Resolved, by compare-and-swap on the claimed generation. |
+| `RateLimited` | `reconciliation.provider.rate_limited` | Retry (transient) | Retried on the capped backoff for as long as it lasts; never held. |
+| `ProviderUnavailable` | `reconciliation.provider.unavailable` | Retry (transient) | As above: monday failed or could not be reached, or the reader failed. |
+| `CredentialUnavailable` | `reconciliation.credential.unavailable` | Retry (transient) | As above: the credential's state or secret could not be read, a renewal is undecided, or what was read did not match the connection. Nothing was sent. |
+| `ConnectionUnavailable` | `reconciliation.connection.unavailable` | AwaitAccess | The connection disabled or disconnected, unknown or of another source; its authorization revoked, needing authorization again or of an inactive user; or monday rejected the credential or the identity. No provider call while it lasts; resumes by itself; never held. |
+| `TenantInactive` | `reconciliation.tenant.inactive` | AwaitAccess | As above, for a tenant that is not active. |
+| `AuthorityChanged` | `reconciliation.authority.changed` | AwaitAccess | The authorization changed while monday answered: the read is discarded, never applied, and the next attempt reads again under the current authorization. Added in the final owner review. |
+| `ObjectMissing` | `reconciliation.object.missing` | RetryThenHold | Held after 8 consecutive such answers; what monday returns for a missing or inaccessible id is a 3G item. |
+| `UnsupportedResponse` | `reconciliation.provider.unsupported_response` | RetryThenHold | Held after 8 consecutive such answers. |
+| `ObjectInactive`, `BindingMismatch`, `FieldMissing`, `FieldUnsupported`, `ValueInvalid`, `OrderingAmbiguous`, `OrderingUnevidenced`, `OrderingImpossible`, `Quarantined`, `ScopeMissing`, `ScopeConflict`, `IdentityMismatch` | unchanged | Hold | Held at once: retrying the same evidence cannot change the answer. Only a new request reopens it. |
+
+`IdentityMismatch` stays a hold for a stable mismatch only: the read was not made under the connection's current
+delegated identity although the authorization did not change during the read, and D3E-8 fails closed. A read overtaken
+by a new authorization is `AuthorityChanged`, discarded and retried (see "3E final owner review"); the example given
+here before, another monday user authorizing the connection during the read, cannot happen under 3B. Work waiting for
+access is read under whatever authorization stands when access returns, so it is not affected.
+
+**Retry and hold behaviour.**
+
+- `attempts` counts the current run of like failures: every claim counts one, and a failure of another disposition
+  than the last starts the count again, so an outage never spends the bound of a missing item. While a transient or
+  access failure lasts, the count keeps rising, for telemetry.
+- Only `RetryThenHold` outcomes are held for their attempts, after `MaxAttempts` (8) consecutive ones.
+- The backoff is 30 seconds doubling over the current run, capped at 1 hour, so no attempt comes sooner than 30
+  seconds. A longer wait the provider asks for wins, up to `MaxProviderWait` (1 day, the bound 3A already puts on
+  monday's waits), so no answer parks a target indefinitely.
+- The reader reports a credential that monday or 3B refuses (revoked, needing authorization again, rejected after a
+  renewal) as `ConnectionUnavailable`; only a credential that cannot be obtained just now is `CredentialUnavailable`.
+  The local access check reports an inactive authorization or user as `ConnectionUnavailable` (it was
+  `CredentialUnavailable`).
+
+**Automatic recovery.**
+
+- Every run checks access locally, after its claim and before any read: the tenant active, the connection active and
+  of the run's source, its authorization active, and its user active. While any of them does not stand, no credential
+  is asked for and nothing is sent to monday; each claimed target records the refusal and waits on the backoff.
+- Its next due attempt checks again. Once 3B restores the authorization (the connection's user authorizes it again),
+  the user is active again, or the tenant is active again, the target is read at that attempt, at most an hour later,
+  with no new webhook, no manual database change and no discovery.
+- The check reads only the run's own tenant, under its row-level security: no cross-tenant path. The apply transaction
+  checks access again, as before, for a change during the read.
+- 3B never re-enables a disconnected connection. Its targets keep waiting, checked locally at most hourly when a run is
+  invoked for that connection, and are never held; whether to retire them belongs with the host activation decision.
+- Semantic holds are unaffected: a sweep verifies only resolved targets and never reopens a held one.
+
+**Tests**, written first: 3 unit and 10 integration tests failed before the change, each for the intended reason.
+
+- Unit: the classification table and the parsing of recorded codes; the reader's mapping of refused credentials, and
+  a 401 that a renewal does not cure.
+- Integration (`MondayReconciliationTests`, now 33):
+  1. to 3. A rate limit, a monday outage and a credential that cannot be obtained each stay pending for twelve attempts,
+     past the bound of eight, and repair the Snapshot once they end.
+  4. A two-day outage: 54 attempts, never more than an hour apart, then repaired when monday returns.
+  5. Ten attempts with the connection needing authorization again, and ten with it disconnected: no credential
+     acquired and nothing sent to monday.
+  6. Work waiting for reauthorization resumes after the real 3B reauthorization, and work waiting for a suspended
+     tenant resumes once it is active, both with no new webhook.
+  7. Archived, moved and unevidenced holds stay held after three days, a run and a sweep.
+  8. A missing item is held after eight consecutive missing answers, which ten failed attempts before them did not
+     shorten.
+  9. An unsupported answer is held after eight.
+  10. Delays of 30, 60, 120, 240, 480, 960 and 1,920 seconds, then 3,600; a run a second early claims and sends
+      nothing; a 2-hour wait from monday is kept, and a 12-hour one is cut to the configured bound.
+- Tests 7 and 9 passed before the change: they pin behaviour that already held, and mutants R09 and R08 prove they can
+  fail.
+- Deliberate pin updates, each still exact: the outcome table; the reader's refusal mapping; the access test's
+  reauthorization case (now `ConnectionUnavailable`, with no call to monday); the count of log calls, now 5 (the access
+  check's failure, ids and a code only); and the removed test that asserted a transient failure held at the bound.
+
+**Mutation:** `mutate-3e-retry.py`, 32 mutants, all caught, in six short foreground runs; all 37 changed code files
+matched their pre-mutation hashes after every run.
+
+- The owner's three: a transient failure held at the bound (R01); a read while access does not stand (R02); and
+  recovery prevented, by holding access refusals at once (R03), at the bound (R04), or by never claiming them again
+  (R05).
+- Classification and bounds, R06 to R14: a rate limit bounded; a missing item and an unsupported response never held;
+  an archived item retried; the bound on unusable answers removed; the run of like failures never restarted; recorded
+  codes never parsed; and a refusal reported as transient, by the reader (R13, caught by the reader's unit tests, since
+  the apply transaction's access check also refuses) or by the access check (R14).
+- Scheduling: no floor on the backoff (R15), no cap (R16), the provider's longer wait ignored (R17) or unbounded
+  (R18); and a lost claim still recording (R19).
+- R10, R17 and R19 re-anchor E28, E29 and E19, whose code moved. E17, E18, E20 to E27, E30, E31 and E37, whose code or
+  detecting tests this correction touched, were run again and caught. The other 3E mutants touch code and tests this
+  correction did not change.
+
+**Verification:** clean non-incremental build with 0 warnings and 0 errors; full suite 1,416/1,416 (unit 871, security
+152, architecture 31, integration 362, the 9 Service Bus emulator tests included); both repository verifiers PASS; the
+six frozen documents byte-identical; `git diff --check` clean.
+
+**Later operational hardening, not a 3E item (owner decision, final review):** the backoff has no random jitter.
+Each run claims a connection's due targets as one batch, so retries that fall due together become one read.
+
+### 3E final owner review (2026-10-02): a read overtaken by a reauthorization
+
+The owner accepted the retry and access correction and named one last blocker: `IdentityMismatch` was held, so a
+legitimate reauthorization while monday answered would strand reconciliation of the field. 3B's data model showed the
+gap was different and wider than reported. 3B lets only the connection's own monday user, with the same subject and
+account, authorize a connection again (`ConnectorAuthorizationStore.ReauthorizeAsync`), so a reauthorization never
+changed the identity the apply step compared, and a read made under the earlier authorization was applied. A run of the
+new race test before this correction confirmed it: the Snapshot took the stale read's value and the target resolved as
+`reconciliation.repaired`. The example in the first review section, another monday user authorizing the connection
+during the read, cannot happen and is corrected there.
+
+**Detection, from existing evidence.** No schema, migration, Core connector contract or 3B change. 3B stamps
+`connector_authorizations.authorized_at_utc` only when a connection is authorized or authorized again; a renewal
+records `refreshed_at_utc` and leaves it unchanged, while `generation` and `material_version` change on both. Every
+run's access check, after its claim and before any read, also records the authorization it found: the delegated
+identity's subject and `authorized_at_utc`. Every apply, after its own access check, compares them with what it finds:
+
+- Different: the authorization changed while monday answered, and the read is stale whatever it reports.
+  `AuthorityChanged` (`reconciliation.authority.changed`, AwaitAccess): nothing is applied, confirmed or kept as
+  evidence, the target stays pending, and its next due attempt checks access, acquires the current 3B credential and
+  reads again, with no webhook, manual change or discovery.
+- The same, and the read's identity is not the connection's current delegated identity: a stable mismatch,
+  `IdentityMismatch`, held as before, and monday is not asked again.
+- The same, and the identity matches: applied as before.
+
+The comparison is sound: the record is taken before the credential is acquired, and 3B only ever moves
+`authorized_at_utc` to a later authorization, so an unchanged value at apply means no authorization happened in
+between, and the read's credential belongs to the authorization the apply step finds. An authorization between the
+record and the acquisition only discards a read that was in fact current, and the next attempt repeats it. A renewal,
+by this run or by another worker, is no change: the existing real-3B test renews before a reread and still finds
+`Current`.
+
+**Tests**, written first: the contract test and the two race tests failed before the change, for the intended reasons.
+
+- `A_read_overtaken_by_a_reauthorization_is_discarded_and_the_next_attempt_rereads_under_the_new_authorization`
+  (owner tests 1 to 7 and 10), through the real 3B lifecycle: the reread starts with authorization A's token; while
+  monday answers, the connection needs authorizing again and its user authorizes it again (B); A's result is discarded,
+  the Snapshot unchanged, no receipt kept and A's value found nowhere in the database, the target pending, no webhook
+  delivered; the next due attempt sends B's token, and B's result repairs the Snapshot.
+- `A_wrong_identity_is_retried_only_when_the_authorization_changed_during_the_read_and_held_once_it_did_not` (test 8): a
+  read under a wrong identity during a reauthorization through the real 3B store is discarded and retried; the next
+  read, with nothing changed, reports the same wrong identity and is held; three days later a run and a sweep do
+  nothing and monday is not asked again. The earlier wrong-identity test still holds at once.
+- `A_credential_bound_to_another_connection_or_tenant_sends_nothing_and_confirms_nothing` (test 9): the 3A client
+  refuses a credential for another connection, of another monday account, or for another tenant before anything is
+  sent, at every attempt, and nothing is confirmed. 3B itself refuses stored material of another account, as its own
+  tests show. This test passed before the change: it pins fail-closed behaviour that already held.
+- The contract test pins the new outcome, its code and its disposition.
+
+**Mutation:** `mutate-3e-authority.py`, 13 mutants, all caught, in three short foreground runs (and A04 once more, to
+name its failing tests); all 37 changed code files matched their pre-mutation hashes after every run.
+
+- The owner's four: the race held (A01); the stale read accepted, with the authorization not compared (A02); a stable
+  mismatch retried (A03); and the reread made with the old credential, the 3A client keeping its first one (A04, caught
+  by the race test among ten others).
+- The comparison: by identity alone, as before this correction (A05); a stable mismatch reported as a change (A06); a
+  renewal counted as a change (A07); and the authorization at read start never recorded (A08).
+- Reruns in the code this correction touched: E20, E21, E22, R02 and R14.
+
+**Verification:** clean non-incremental build with 0 warnings and 0 errors; full suite 1,419/1,419 (unit 871, security
+152, architecture 31, integration 365, the 9 Service Bus emulator tests included); both repository verifiers PASS; the
+six frozen documents byte-identical; `git diff --check` clean.
+
+**A pre-existing 3B defect found during this verification (fixed separately in `273faa6`; see the closure).** The 3B unit test
+`Concurrent_copies_of_one_callback_exchange_the_code_exactly_once` failed once in a full run here, passed in the other
+full runs, and fails every time when run alone, on the committed `0c2d18e` as well. Root cause: when concurrent copies
+of one OAuth callback arrive, the first consumes the transaction and goes on to read its PKCE verifier, while every copy
+refused as replayed deletes that verifier (`MondayConnectionAuthorizer.CompleteAsync`, the `AlreadyConsumed` branch).
+If a copy deletes it first, the genuine completion fails with `connector.authorization.storage_failed` before any code
+exchange. It fails closed (no code is exchanged twice and nothing leaks), but a duplicate callback can defeat a genuine
+authorization, which the user must then start again. The smallest fix leaves the verifier to the completion that
+consumed the transaction, which already deletes it when it finishes, and to the existing expiry cleanup, by removing
+the delete from the replay branch. The owner approved it as a separate 3B maintenance commit.
+
+### 3E owner review and closure (2026-10-02)
+
+The product owner gave 3E the final pass on 2026-10-02: **3E is PASS**. The `AuthorityChanged` design is approved: an
+authorization change during a provider read discards the stale result, creates no `Confirmed` state and writes no
+Snapshot, and the work is retried under the current 3B authorization; a stable `IdentityMismatch`, with no
+authorization change, stays held. No 3E design blocker remains, and decisions D3E-1 to D3E-11 stay in force.
+
+**Intervening 3B maintenance commit.** As the owner directed, the pre-existing 3B defect recorded above was fixed on
+its own before 3E was committed: `273faa6` ("fix: preserve PKCE verifier during duplicate OAuth callback") removes the
+verifier deletion from the replay path, so a copy of a callback refused as a replay never touches the verifier of the
+completion that owns the transaction. That completion still removes it when it finishes, and expiry cleanup still
+removes the verifiers of abandoned transactions. A deterministic regression test holds the winning completion at its
+verifier read while a copy is refused, and a mutant that restores the deletion fails it. CI run 36993975259 was green
+(1,292 tests: 1,283 passed, 0 failed, 9 Service Bus emulator tests skipped by design; gitleaks found no leaks in 39
+commits), with no CD run and no Azure action. 3E's baseline moved from `0c2d18e` to `273faa6`; no 3E file changed.
+
+A residual, pre-existing 3B gap is recorded for later: expiry cleanup closes only transactions that were never
+consumed, so a completion whose process dies, or whose final verifier deletion fails, after it consumed its
+transaction leaves that verifier behind. The removed replay-side deletion covered that case only when the same
+callback happened to arrive again.
+
+**Final evidence:** a provider-neutral reconciliation target model (a tenant-owned `reconciliation_targets` table with
+forced row-level security, written in the same transaction as each `ReconciliationRequired`); `SourceScope` binding
+the monday board; the authoritative monday API reread through the 3A client and 3B credentials, with API-read evidence
+receipts; `Confirmed` only after a bound reread; `StatusValue.updated_at` as ordering evidence; generation
+compare-and-swap for crash-safe completion; current provider state over stale webhook hints; transient failures never
+held, access refusals rechecked locally with no provider call and resumed without a new webhook, unusable answers
+bounded, semantic cases held; `AuthorityChanged` for a read overtaken by a reauthorization; and a known-object-only
+missed-webhook sweep. 1,420/1,420 local tests on the tree being committed (unit 872, security 152, architecture 31,
+integration 365), including the 3B regression test; mutation checks 38/38 for the implementation, 32/32 for the retry
+and access correction, and 13/13 for the authorization race; build with 0 warnings and 0 errors; both repository
+verifiers PASS; the six frozen documents byte-identical; no initial sync, no Azure and no real monday activity. Before
+the closing commit, the clean build, the full suite, both verifiers, the frozen-document hashes and `git diff --check`
+were repeated on the tree being committed; every mutation-tested 3E code file is byte-identical to the version its
+mutants ran against, so the mutation evidence stands.
+
+**3F (initial sync, watermark and buffered replay) is NEXT / NOT STARTED** and begins only on its own authorization.
+3G is NOT STARTED. Gate 3 stays IN PROGRESS. Premium Gates P1 to P11 are NOT STARTED.

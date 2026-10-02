@@ -9,7 +9,7 @@ namespace WorkContinuity.Architecture.Tests;
 /// neither Core nor the connector takes a package, and the connector does not log. Webhook intake (3C) stays in its own
 /// files, its route is written once, it reaches storage only through the Gate 2 ports, no webhook subscription is created
 /// or deleted, and the Web host runs nothing else of the Event Backbone. Normalization (3D) lives only in the monday
-/// normalizer, and Core's processing contract names no provider.
+/// normalizer, the authoritative reread (3E) only in its reader, and Core's processing contract names no provider.
 /// </summary>
 public sealed class ConnectorBoundaryTests
 {
@@ -23,6 +23,7 @@ public sealed class ConnectorBoundaryTests
     private const string WebhooksFile = "src/App.Connectors.Monday/MondayWebhooks.cs";
     private const string VerifierFile = "src/App.Connectors.Monday/MondayWebhookVerifier.cs";
     private const string NormalizerFile = "src/App.Connectors.Monday/MondayWebhookNormalizer.cs";
+    private const string ReaderFile = "src/App.Connectors.Monday/MondayStatusReader.cs";
     private const string WebEndpointFile = "src/App.Web/Connectors/MondayWebhookEndpoint.cs";
     private const string WebRegistrationFile = "src/App.Web/Connectors/MondayWebhookRegistration.cs";
 
@@ -140,22 +141,33 @@ public sealed class ConnectorBoundaryTests
     public void Webhook_code_stays_in_its_own_files_and_normalization_lives_only_in_the_normalizer()
     {
         // Gate 3C brought webhook intake and 3D its normalization. Every connector file that mentions a webhook is an
-        // intake or normalization file, the scope allowlist (monday's read scope names one) or the secret-name catalogue.
+        // intake or normalization file, the scope allowlist (monday's read scope names one), the secret-name catalogue,
+        // or the 3E status reader, which reads the surface the normalizer maps, with the normalizer's own object type.
         var webhook = MondaySources()
             .Where(file => File.ReadAllText(file.FullName).Contains("webhook", StringComparison.OrdinalIgnoreCase))
             .Select(RepositoryLayout.RelativePath)
             .Order(StringComparer.Ordinal)
             .ToList();
-        Assert.Equal(WebhookFiles.Concat([ScopePolicyFile, SecretStoreFile]).Order(StringComparer.Ordinal), webhook);
+        Assert.Equal(WebhookFiles.Concat([ScopePolicyFile, SecretStoreFile, ReaderFile]).Order(StringComparer.Ordinal), webhook);
 
-        // The connector supplies the source verifier and the normalizer, each in its own file, and builds submissions.
-        // It never calls ingress or the connection check itself.
+        // The connector supplies the source verifier, the normalizer and the authoritative reader, each in its own file,
+        // and builds submissions. It never calls ingress, the connection check or reconciliation itself.
         Assert.Equal(new[] { VerifierFile }, MondayHolders("ISourceVerifier"));
         Assert.Equal(new[] { NormalizerFile }, MondayHolders("ISourceEventNormalizer"));
         Assert.Equal(new[] { NormalizerFile }, MondayHolders("NormalizedSourceEvent"));
         Assert.Equal(new[] { NormalizerFile }, MondayHolders("SourcePayload"));
+        Assert.Equal(new[] { ReaderFile }, MondayHolders("IAuthoritativeSourceReader"));
+        Assert.Equal(new[] { ReaderFile }, MondayHolders("AuthoritativeFieldState"));
+        Assert.Equal(new[] { ReaderFile }, MondayHolders("ObservationEvidence"));
 
-        foreach (var port in new[] { "IEventIngress", "IIngressConnectionCheck", "IEventProcessor", "EventProcessingResult", "ProjectionHandoff", "SnapshotProjection", "SnapshotField", "SnapshotObject" })
+        // The reader reports what the source holds; whether a value is confirmed is never the connector's to declare there.
+        Assert.DoesNotContain("SourceValueConfirmation", File.ReadAllText(Path.Combine(RepositoryLayout.Root.FullName, ReaderFile)), StringComparison.Ordinal);
+
+        foreach (var port in new[]
+                 {
+                     "IEventIngress", "IIngressConnectionCheck", "IEventProcessor", "EventProcessingResult", "ProjectionHandoff",
+                     "SnapshotProjection", "SnapshotField", "SnapshotObject", "ISourceReconciler", "ReconciliationRun",
+                 })
         {
             Assert.DoesNotContain(MondaySources(), file => File.ReadAllText(file.FullName).Contains(port, StringComparison.Ordinal));
         }
@@ -173,6 +185,30 @@ public sealed class ConnectorBoundaryTests
         {
             var text = File.ReadAllText(file.FullName);
             foreach (var specific in new[] { "Monday", "pulse", "columnId", "triggerUuid", "changedAt", "triggerTime", "Jwt", "HS256", "label" })
+            {
+                Assert.DoesNotContain(specific, text, StringComparison.Ordinal);
+            }
+        });
+    }
+
+    [Fact]
+    public void Reconciliation_its_targets_and_its_migration_are_provider_neutral()
+    {
+        // Gate 3E: Core's reconciliation contract, the engine, the target record and its migration name no provider and
+        // no provider concept; only the monday reader knows that a monday scope is a board.
+        var root = RepositoryLayout.Root.FullName;
+        var files = new DirectoryInfo(Path.Combine(root, "src", "App.Core", "Reconciliation")).EnumerateFiles("*.cs")
+            .Concat(new DirectoryInfo(Path.Combine(root, "src", "App.Infrastructure", "Reconciliation")).EnumerateFiles("*.cs"))
+            .Concat(new DirectoryInfo(Path.Combine(root, "src", "App.Infrastructure", "Persistence", "Entities")).EnumerateFiles("ReconciliationTarget*.cs"))
+            .Concat(new DirectoryInfo(Path.Combine(root, "src", "App.Infrastructure", "Persistence", "Migrations")).EnumerateFiles("*_ReconciliationTargets.cs"))
+            .ToList();
+
+        // Core's contract and outcomes, the engine, the request and the registration, the record, and the migration.
+        Assert.Equal(7, files.Count);
+        Assert.All(files, file =>
+        {
+            var text = File.ReadAllText(file.FullName);
+            foreach (var specific in new[] { "monday", "Monday", "board", "Board", "pulse", "StatusValue", "columnId", "BatteryValue" })
             {
                 Assert.DoesNotContain(specific, text, StringComparison.Ordinal);
             }

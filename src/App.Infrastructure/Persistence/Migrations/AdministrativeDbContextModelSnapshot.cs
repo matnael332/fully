@@ -607,6 +607,157 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ReconciliationTargetRecord", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("ObjectSystem")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("object_system");
+
+                    b.Property<string>("ObjectConnection")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("object_connection");
+
+                    b.Property<string>("ObjectType")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("object_type");
+
+                    b.Property<string>("ObjectId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("object_id");
+
+                    b.Property<string>("Field")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("field");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<Guid?>("ClaimId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("claim_id");
+
+                    b.Property<long?>("ClaimedGeneration")
+                        .HasColumnType("bigint")
+                        .HasColumnName("claimed_generation");
+
+                    b.Property<DateTimeOffset?>("ClaimedUntilUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("claimed_until_utc");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("DataType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("data_type");
+
+                    b.Property<long>("Generation")
+                        .HasColumnType("bigint")
+                        .HasColumnName("generation");
+
+                    b.Property<DateTimeOffset?>("LastAttemptedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("last_attempted_at_utc");
+
+                    b.Property<string>("LastOutcome")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_outcome");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("next_attempt_at_utc");
+
+                    b.Property<string>("RequestKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("request_kind");
+
+                    b.Property<DateTimeOffset>("RequestedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("requested_at_utc");
+
+                    b.Property<Guid?>("RequestedByEventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requested_by_event_id");
+
+                    b.Property<DateTimeOffset?>("ResolvedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("resolved_at_utc");
+
+                    b.Property<Guid?>("ResolvedByEventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("resolved_by_event_id");
+
+                    b.Property<long?>("ResolvedGeneration")
+                        .HasColumnType("bigint")
+                        .HasColumnName("resolved_generation");
+
+                    b.Property<string>("SourceScope")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("source_scope");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("state");
+
+                    b.Property<DateTimeOffset?>("VerifiedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("verified_at_utc");
+
+                    b.HasKey("TenantId", "ObjectSystem", "ObjectConnection", "ObjectType", "ObjectId", "Field");
+
+                    b.HasIndex("TenantId", "RequestedByEventId")
+                        .HasDatabaseName("ix_reconciliation_targets_tenant_requested_by");
+
+                    b.HasIndex("TenantId", "ResolvedByEventId")
+                        .HasDatabaseName("ix_reconciliation_targets_tenant_resolved_by");
+
+                    b.HasIndex("TenantId", "ObjectSystem", "ObjectConnection", "State", "NextAttemptAtUtc")
+                        .HasDatabaseName("ix_reconciliation_targets_due");
+
+                    b.HasIndex("TenantId", "ObjectSystem", "ObjectConnection", "State", "VerifiedAtUtc")
+                        .HasDatabaseName("ix_reconciliation_targets_verified");
+
+                    b.ToTable("reconciliation_targets", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_reconciliation_targets_attempts", "attempts >= 0");
+
+                            t.HasCheckConstraint("ck_reconciliation_targets_claim", "(claim_id IS NULL) = (claimed_generation IS NULL) AND (claim_id IS NULL) = (claimed_until_utc IS NULL) AND (claimed_generation IS NULL OR claimed_generation BETWEEN 1 AND generation)");
+
+                            t.HasCheckConstraint("ck_reconciliation_targets_data_type", "data_type IN ('TaskStatus', 'PcActivity', 'ApprovalDecision', 'IdentityAndPermissions', 'Deadline', 'ActionResult')");
+
+                            t.HasCheckConstraint("ck_reconciliation_targets_generation", "generation >= 1 AND (resolved_generation IS NULL OR resolved_generation BETWEEN 1 AND generation)");
+
+                            t.HasCheckConstraint("ck_reconciliation_targets_request_kind", "request_kind IN ('Event', 'Sweep')");
+
+                            t.HasCheckConstraint("ck_reconciliation_targets_requester", "(request_kind = 'Sweep') = (requested_by_event_id IS NULL)");
+
+                            t.HasCheckConstraint("ck_reconciliation_targets_resolved", "state <> 'Resolved' OR resolved_generation = generation");
+
+                            t.HasCheckConstraint("ck_reconciliation_targets_scope", "source_scope IS NULL OR source_scope <> ''");
+
+                            t.HasCheckConstraint("ck_reconciliation_targets_state", "state IN ('Pending', 'Resolved', 'Held')");
+                        });
+                });
+
             modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.SnapshotFieldRecord", b =>
                 {
                     b.Property<Guid>("TenantId")
@@ -891,6 +1042,23 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_field_ordering_states_last_event");
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ReconciliationTargetRecord", b =>
+                {
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.EventLedgerRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "RequestedByEventId")
+                        .HasPrincipalKey("TenantId", "EventId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_reconciliation_targets_requested_by_event");
+
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.EventLedgerRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ResolvedByEventId")
+                        .HasPrincipalKey("TenantId", "EventId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_reconciliation_targets_resolved_by_event");
                 });
 
             modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.SnapshotFieldRecord", b =>
