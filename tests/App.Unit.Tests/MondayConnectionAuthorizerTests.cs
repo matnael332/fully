@@ -307,6 +307,59 @@ public sealed class MondayConnectionAuthorizerTests
         Assert.Single(harness.Server.TokenRequests);
     }
 
+    [Fact]
+    public async Task A_copy_refused_as_a_replay_while_the_winner_is_completing_leaves_the_winners_verifier()
+    {
+        var harness = new OAuthHarness();
+        var redirect = await harness.StartAsync();
+        var state = OAuthHarness.Query(redirect.AuthorizationUri)["state"];
+        var verifierName = VerifierName(harness, state);
+        var verifier = StoredVerifier(harness, state);
+        harness.ScriptExchange();
+
+        // Callback A takes ownership of the transaction and is held just before it reads its verifier.
+        var reading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        harness.Secrets.GetOverride = name =>
+        {
+            if (name.Value == verifierName && reading.TrySetResult())
+            {
+                release.Wait(TimeSpan.FromSeconds(30), Cancel);
+            }
+
+            return null;
+        };
+        var winner = Task.Run(() => harness.Authorizer.CompleteAsync(harness.Principal, OAuthHarness.CallbackFor(redirect), Cancel), Cancel);
+        await reading.Task.WaitAsync(Cancel);
+
+        try
+        {
+            // Copy B arrives now: refused as a replay, it gains nothing and leaves A's verifier where it is.
+            var copy = await harness.Authorizer.CompleteAsync(harness.Principal, OAuthHarness.CallbackFor(redirect), Cancel);
+            Assert.Equal(ConnectorAuthorizationErrors.Replayed, copy.Error);
+            Assert.Equal(verifier, StoredVerifier(harness, state));
+            Assert.Empty(harness.Server.TokenRequests);
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        // A goes on: it reads its verifier, exchanges the code exactly once and completes; only A removes the verifier.
+        var completed = await winner;
+        Assert.True(completed.IsSuccess, completed.IsSuccess ? string.Empty : completed.Error.Code);
+        var exchange = Assert.Single(harness.Server.TokenRequests);
+        Assert.Equal(verifier, TestTokens.Body(exchange).GetProperty("code_verifier").GetString());
+        Assert.Null(harness.Secrets.Peek(verifierName));
+        Assert.Equal(
+            ["set " + verifierName, "get " + verifierName, "delete " + verifierName],
+            harness.Secrets.Operations.Where(operation => operation.EndsWith(verifierName, StringComparison.Ordinal)));
+
+        // No later copy succeeds either.
+        Assert.Equal(ConnectorAuthorizationErrors.Replayed, (await harness.Authorizer.CompleteAsync(harness.Principal, OAuthHarness.CallbackFor(redirect), Cancel)).Error);
+        Assert.Single(harness.Server.TokenRequests);
+    }
+
     public static TheoryData<string, string?, string?, string?> RefusedResponses => new()
     {
         // case, code, error, iss

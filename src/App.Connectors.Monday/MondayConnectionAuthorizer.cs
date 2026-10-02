@@ -230,7 +230,8 @@ public sealed class MondayConnectionAuthorizer
                 return Result<ConnectorIdentity>.Failure(ConnectorAuthorizationErrors.StateMismatch);
 
             case ConnectorTransactionOutcome.AlreadyConsumed:
-                await _keeper.DeleteQuietlyAsync(verifierName).ConfigureAwait(false);
+                // A replay never touches the verifier: the completion that consumed the transaction may still be about to
+                // read it, and removes it itself when it finishes.
                 return Result<ConnectorIdentity>.Failure(ConnectorAuthorizationErrors.Replayed);
         }
 
