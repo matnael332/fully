@@ -109,7 +109,7 @@ internal sealed class EventProcessor : IEventProcessor
         }
 
         var processed = await _database.ExecuteAsync(
-            (dbContext, token) => ProcessReceiptAsync(dbContext, envelope, tenant, token),
+            (dbContext, token) => ProcessReceiptAsync(dbContext, envelope.CausationId, envelope.CorrelationId, tenant, holdForInitialSync: true, token),
             cancellationToken);
 
         if (processed.IsFailure)
@@ -134,6 +134,18 @@ internal sealed class EventProcessor : IEventProcessor
                 ProcessingErrors.ReceiptNotVisible.Code,
                 envelope.CorrelationId);
             return Refuse(ProcessingErrors.ReceiptNotVisible, started);
+        }
+
+        if (outcome.Held)
+        {
+            // Nothing was decided: the receipt stays durable and unprocessed, and its connection's initial sync replays it.
+            _logger.LogInformation(
+                "Processing held receipt {ReceiptId} of tenant {TenantId}: {ReasonCode} (correlation {CorrelationId}).",
+                envelope.CausationId,
+                tenant,
+                ProcessingErrors.HeldForInitialSync.Code,
+                envelope.CorrelationId);
+            return Result<EventProcessingResult>.Failure(ProcessingErrors.HeldForInitialSync);
         }
 
         if (outcome.Result is not { } result)
@@ -164,13 +176,47 @@ internal sealed class EventProcessor : IEventProcessor
         return Result<EventProcessingResult>.Failure(reason);
     }
 
-    private async Task<Processed?> ProcessReceiptAsync(
+    /// <summary>
+    /// Replays one receipt held for its connection's initial sync (Gate 3F), in the caller's transaction, which already
+    /// holds the connection's sync-row lock: the transport path's decision and projection, without its hold.
+    /// </summary>
+    /// <returns>The result, or null when the receipt is not visible or its content expired before it could be replayed.</returns>
+    internal async Task<EventProcessingResult?> ReplayHeldAsync(
         WorkContinuityDbContext dbContext,
-        TransportEnvelope envelope,
+        Guid receiptId,
+        CorrelationId correlationId,
         TenantId tenant,
         CancellationToken cancellationToken)
     {
-        var receiptId = envelope.CausationId;
+        var processed = await ProcessReceiptAsync(dbContext, receiptId, correlationId, tenant, holdForInitialSync: false, cancellationToken);
+        return processed?.Result;
+    }
+
+    private async Task<Processed?> ProcessReceiptAsync(
+        WorkContinuityDbContext dbContext,
+        Guid receiptId,
+        CorrelationId correlationId,
+        TenantId tenant,
+        bool holdForInitialSync,
+        CancellationToken cancellationToken)
+    {
+        // Initial sync (Gate 3F): the connection's sync row is locked before the receipt, in the order a cutover locks them.
+        // The receipt's connection and ingress position never change, so they are read before any lock is taken.
+        var held = false;
+        if (holdForInitialSync)
+        {
+            var position = await dbContext.RawReceipts
+                .AsNoTracking()
+                .Where(candidate => candidate.ReceiptId == receiptId)
+                .Select(candidate => new { candidate.ConnectionReference, candidate.IngressSequence })
+                .SingleOrDefaultAsync(cancellationToken);
+            if (position is null)
+            {
+                return null;
+            }
+
+            held = await InitialSyncGate.HoldsAsync(dbContext, tenant, position.ConnectionReference, position.IngressSequence, cancellationToken);
+        }
 
         // Row-level security shows this tenant's receipt only; the lock queues concurrent deliveries of it.
         var receipt = (await dbContext.RawReceipts
@@ -196,6 +242,12 @@ internal sealed class EventProcessor : IEventProcessor
                 Projection: null);
         }
 
+        // Held for the connection's initial sync: nothing is decided or written, and the sync generation replays it.
+        if (held)
+        {
+            return new Processed(Result: null, receipt.ReceivedAtUtc, Lag: null, Projection: null, Held: true);
+        }
+
         // Retention cleared the content of a receipt that was never processed: nothing is left to decide from.
         if (!receipt.HasContent)
         {
@@ -203,7 +255,7 @@ internal sealed class EventProcessor : IEventProcessor
         }
 
         var processedAt = _clock.UtcNow;
-        var result = await DecideAsync(dbContext, receipt, envelope, tenant, processedAt, cancellationToken);
+        var result = await DecideAsync(dbContext, receipt, correlationId, tenant, processedAt, cancellationToken);
 
         // Only an accepted result has a handoff, and it is projected in this same transaction.
         Projected? projected = null;
@@ -229,7 +281,7 @@ internal sealed class EventProcessor : IEventProcessor
     private async Task<EventProcessingResult> DecideAsync(
         WorkContinuityDbContext dbContext,
         RawReceiptRecord receipt,
-        TransportEnvelope envelope,
+        CorrelationId correlationId,
         TenantId tenant,
         DateTimeOffset processedAt,
         CancellationToken cancellationToken)
@@ -241,7 +293,7 @@ internal sealed class EventProcessor : IEventProcessor
 
         if (!_normalizers.TryGetValue(receipt.SourceSystem, out var normalizer) || !normalizer.Supports(receipt.SchemaVersion))
         {
-            return QuarantineReceipt(dbContext, receipt, eventId, envelope.CorrelationId, processedAt, QuarantineReason.UnknownSchemaVersion, ProcessingErrors.NormalizerMissing);
+            return QuarantineReceipt(dbContext, receipt, eventId, correlationId, processedAt, QuarantineReason.UnknownSchemaVersion, ProcessingErrors.NormalizerMissing);
         }
 
         Result<NormalizedSourceEvent> normalized;
@@ -258,19 +310,19 @@ internal sealed class EventProcessor : IEventProcessor
                 receipt.SourceSystem,
                 exception.GetType().Name,
                 receiptId);
-            return QuarantineReceipt(dbContext, receipt, eventId, envelope.CorrelationId, processedAt, QuarantineReason.BadSchema, ProcessingErrors.NormalizerFailed);
+            return QuarantineReceipt(dbContext, receipt, eventId, correlationId, processedAt, QuarantineReason.BadSchema, ProcessingErrors.NormalizerFailed);
         }
 
         if (normalized.IsFailure)
         {
-            return QuarantineReceipt(dbContext, receipt, eventId, envelope.CorrelationId, processedAt, QuarantineReason.BadSchema, ProcessingErrors.NormalizerRejected);
+            return QuarantineReceipt(dbContext, receipt, eventId, correlationId, processedAt, QuarantineReason.BadSchema, ProcessingErrors.NormalizerRejected);
         }
 
         return await DecideNormalizedAsync(
             dbContext,
             receipt,
             normalized.Value,
-            envelope.CorrelationId,
+            correlationId,
             tenant,
             processedAt,
             _options.ClockSkewTolerance,
@@ -661,7 +713,7 @@ internal sealed class EventProcessor : IEventProcessor
     /// What one transaction settled: an outcome, or none for a receipt whose content expired; the receipt's time,
     /// the lag to a fresh decision, and the projection of an accepted outcome.
     /// </summary>
-    private sealed record Processed(EventProcessingResult? Result, DateTimeOffset ReceivedAtUtc, TimeSpan? Lag, Projected? Projection);
+    private sealed record Processed(EventProcessingResult? Result, DateTimeOffset ReceivedAtUtc, TimeSpan? Lag, Projected? Projection, bool Held = false);
 
     /// <summary>A projection: the Snapshot object version it produced, the fields it wrote and how long it took.</summary>
     private sealed record Projected(long SnapshotVersion, int Fields, TimeSpan Duration);

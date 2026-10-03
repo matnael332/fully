@@ -164,16 +164,18 @@ public sealed class ReconciliationTargetTests(DatabaseFixture fixture)
         var hint = "hint-" + IngressData.NewMarker();
         await host.ProcessSettledAsync((await host.SubmitAsync(fixture, tenant, connection, Unconfirmed("scope-1", label: hint), "evt-held-1")).Envelope);
 
-        // The table's columns are identifiers, the scope and the lifecycle: nothing named or able to be a value.
+        // The table's columns are identifiers, the scope and the lifecycle: nothing named or able to be a value. Gate 3F adds
+        // only a scope-set version: the version at which the field awaits a baseline.
         await using (var admin = await fixture.OpenAdministrativeConnectionAsync(Token))
         await using (var columns = new NpgsqlCommand(
             "SELECT string_agg(column_name, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_name = 'reconciliation_targets';",
             admin))
         {
             Assert.Equal(
-                "attempts,claim_id,claimed_generation,claimed_until_utc,created_at_utc,data_type,field,generation,last_attempted_at_utc,"
-                + "last_outcome,next_attempt_at_utc,object_connection,object_id,object_system,object_type,request_kind,requested_at_utc,"
-                + "requested_by_event_id,resolved_at_utc,resolved_by_event_id,resolved_generation,source_scope,state,tenant_id,verified_at_utc",
+                "attempts,awaiting_baseline_version,claim_id,claimed_generation,claimed_until_utc,created_at_utc,data_type,field,generation,"
+                + "last_attempted_at_utc,last_outcome,next_attempt_at_utc,object_connection,object_id,object_system,object_type,request_kind,"
+                + "requested_at_utc,requested_by_event_id,resolved_at_utc,resolved_by_event_id,resolved_generation,source_scope,state,tenant_id,"
+                + "verified_at_utc",
                 (string)(await columns.ExecuteScalarAsync(Token))!);
         }
 

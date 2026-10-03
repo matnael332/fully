@@ -13,6 +13,7 @@ internal sealed class FakeMonday : HttpMessageHandler
     private readonly ConcurrentQueue<Func<CancellationToken, Task<HttpResponseMessage>>> _token = new();
     private readonly ConcurrentQueue<Func<string, CancellationToken, Task<HttpResponseMessage>>> _api = new();
     private Func<string, HttpResponseMessage>? _apiAnswer;
+    private Func<string, CancellationToken, Task<HttpResponseMessage>>? _apiAnswerAsync;
 
     internal ConcurrentQueue<(Uri? Uri, string? Authorization, string Body)> Requests { get; } = new();
 
@@ -31,6 +32,9 @@ internal sealed class FakeMonday : HttpMessageHandler
 
     /// <summary>Answers every unscripted API call from its request body, as monday answers whatever it is asked.</summary>
     internal void AnswerApi(Func<string, HttpResponseMessage> answer) => _apiAnswer = answer;
+
+    /// <summary>Answers every unscripted API call from its request body, after any work the test interleaves with the call.</summary>
+    internal void AnswerApiAsync(Func<string, CancellationToken, Task<HttpResponseMessage>> answer) => _apiAnswerAsync = answer;
 
     internal int ApiCalls => Requests.Count(request => request.Uri == MondayEndpoints.Api);
 
@@ -70,6 +74,11 @@ internal sealed class FakeMonday : HttpMessageHandler
             if (_api.TryDequeue(out var api))
             {
                 return await api(body, cancellationToken);
+            }
+
+            if (_apiAnswerAsync is { } answerAsync)
+            {
+                return await answerAsync(body, cancellationToken);
             }
 
             return _apiAnswer is { } answer ? answer(body) : throw new InvalidOperationException("Unscripted API request.");

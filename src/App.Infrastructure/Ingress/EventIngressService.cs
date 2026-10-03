@@ -11,6 +11,7 @@ using WorkContinuity.Core.Time;
 using WorkContinuity.Infrastructure.Observability;
 using WorkContinuity.Infrastructure.Persistence;
 using WorkContinuity.Infrastructure.Persistence.Entities;
+using WorkContinuity.Infrastructure.Processing;
 
 namespace WorkContinuity.Infrastructure.Ingress;
 
@@ -168,6 +169,10 @@ internal sealed class EventIngressService(
                 {
                     return WriteResult.TenantInactive;
                 }
+
+                // Initial sync (Gate 3F): the connection's row is key-share-locked before the receipt is stored, so a buffer
+                // start or a cutover holding it waits for this receipt, and the ingress fence it records is exact.
+                await InitialSyncGate.LockForIngressAsync(dbContext, connection.TenantId, submission.ConnectionId, token);
 
                 dbContext.RawReceipts.Add(RawReceiptRecord.Receive(
                     receiptId,

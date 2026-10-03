@@ -10,8 +10,8 @@
 | 3C — Webhook intake | **PASS** — approved by the product owner on 2026-09-30 |
 | 3D — Source mapping and normalization | **PASS** — approved by the product owner on 2026-10-01 |
 | 3E — API reconciliation and authoritative reread | **PASS** — approved by the product owner on 2026-10-02 |
-| 3F — Initial sync, watermark and buffered replay | **NEXT / NOT STARTED** — needs its own product-owner authorization |
-| 3G — Real monday end-to-end acceptance and Gate closure | Not started; needs its own product-owner authorization |
+| 3F — Initial sync, watermark and buffered replay | **PASS** — approved by the product owner on 2026-10-03 |
+| 3G — Real monday end-to-end acceptance and Gate closure | **NEXT / NOT STARTED**; needs its own product-owner authorization; the PKCE verifier cleanup is resolved first |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -1924,3 +1924,783 @@ mutants ran against, so the mutation evidence stands.
 
 **3F (initial sync, watermark and buffered replay) is NEXT / NOT STARTED** and begins only on its own authorization.
 3G is NOT STARTED. Gate 3 stays IN PROGRESS. Premium Gates P1 to P11 are NOT STARTED.
+
+## 3F — Initial sync, watermark and buffered replay
+
+### 3F authorization and owner decisions (2026-10-02)
+
+The product owner authorized 3F on 2026-10-02 in SAFE AUTO MODE, on `main` == `origin/main` == `0dbfe1e` with a clean
+tree. It implements the frozen initial-connection flow (System Architecture v1 §2): establish the connector,
+activate or buffer realtime intake, read the current authorized source state, build the initial Snapshot, record the
+sync watermark, replay buffered newer events and enter normal realtime mode. It is never simplified to "scan first,
+then enable webhooks". Real webhook registration stays in 3G (D3C-1).
+
+- **D3F-1 — Explicit source scope only.** A connection syncs only an explicit, enabled allowlist of provider
+  resources: for monday, board ids. A provider-neutral, tenant-owned, connection-owned source scope holds an opaque
+  bounded resource id and an enabled flag; no display text is identity, and nothing discovers boards.
+- **D3F-2 — A local ingress fence is the watermark.** monday offers no global revision or event sequence, so none is
+  invented. The cursor, `updated_at`, `changedAt`, `triggerTime`, the receipt time and the local clock are never the
+  watermark. The watermark is a local, durable, database-generated ingress sequence that only decides which receipts
+  belong before, inside or after a cutover; it is never business ordering.
+- **D3F-3 — Raw receipts are the buffer.** 3C keeps accepting and acknowledging webhooks only after the durable
+  receipt; nothing copies a webhook body. New sync tables hold metadata, fences and progress only.
+- **D3F-4 — A durable sync state machine per connection,** with generations; a stale generation never completes a
+  newer one, and process memory is never the source of truth.
+- **D3F-5 — Authority snapshot.** The monday subject and the 3B `authorized_at_utc` are captured at start, as 3E
+  proved: a token renewal never restarts a sync, a reauthorization invalidates the generation, and access that does
+  not stand fails closed with no provider call.
+- **D3F-6 — Initial values are authoritative API reads,** `Confirmed` only after binding and shape validation, through
+  the same processing, ordering and Snapshot path as 3E; no monday-specific Snapshot SQL.
+- **D3F-7 — The 3E evidence model is reused** for initial-sync reads, identifying their purpose truthfully, under the
+  raw-content retention, with no raw response, credential or unrelated field.
+- **D3F-8 — Known objects.** Every synchronized supported field becomes a resolved 3E reconciliation target, available
+  to the known-object sweep, through the existing target model.
+- **D3F-9 — Consistency model.** monday pages are not a frozen snapshot. Correctness comes from buffering before the
+  scan, authoritative reads, normal ordering, replay of buffered receipts as unconfirmed hints, and 3E rereads.
+- **D3F-10 and D3F-11 — Gap-free buffer start and cutover,** decided by durable fences and locks, never by time or
+  sleeps.
+- **D3F-12 — Buffered receipts never reach the Snapshot path ahead of the baseline,** with no redelivery loop, no
+  memory queue and no second raw-data buffer.
+- **D3F-13 — Restartable and idempotent;** **D3F-14 — failures classified as in 3E;** **D3F-15 — no partial Live
+  connection:** every enabled configured scope completes before Live.
+
+### Reverified monday facts (2026-10-02)
+
+- `items_page`: default 25, maximum 500 items per page; returns active items only, with no state filter.
+- `next_items_page(cursor:, limit:)`: limit at most 500; the cursor is opaque; it is cached for 60 minutes and "will
+  expire 60 minutes after the first request"; a `null` cursor means no more items. What an expired cursor returns is
+  not documented, and no cursor error code is documented.
+- `boards(ids:, state:)`: the state filter defaults to `active` (`active`, `archived`, `deleted`, `all`);
+  `hierarchy_type` is `classic` or `multi_level`; `type` is `board`, `custom_object`, `document` or `sub_items_board`.
+  What `boards(ids:)` returns for a missing or inaccessible id is not documented.
+- Status columns have type `status`; their values are `StatusValue` (`label`, `index`, `updated_at`), with `label`,
+  `index` and `text` all `null` when the status is empty. On multi-level boards status columns resolve to
+  `BatteryValue` and need `capabilities: [CALCULATED]`.
+- Errors: application errors return HTTP 200 with an `errors` array (`InvalidBoardIdException`,
+  `ResourceNotFoundException`, `InvalidColumnIdException`); rate limits return 429.
+- Not documented, to confirm in 3G: item order and consistency across pages, the expired-cursor error, and what an
+  unknown board id returns.
+
+### 3F Definition of Done
+
+Recorded before coding, exactly as the product owner set it. Gate 3F is READY FOR OWNER REVIEW only when:
+
+1. A provider-neutral initial-sync state machine exists.
+2. Initial sync operates only on explicitly configured SourceScopes.
+3. No automatic all-workspace ingestion occurs.
+4. Realtime intake can be durably buffered before baseline read begins.
+5. Buffering reuses existing durable raw receipts; no shadow payload buffer exists.
+6. A durable non-time-based ingress fence defines buffer membership.
+7. The ingress fence is never used as business ordering.
+8. monday pagination cursor is never used as the sync watermark.
+9. Cursor expiry/restart converges safely.
+10. Initial baseline values come only from authoritative monday API reads.
+11. Initial values become Confirmed only after provider binding validation.
+12. Initial values use the existing processing/ordering/Snapshot path.
+13. No monday-specific Snapshot write exists.
+14. Successfully initialized fields become known to 3E reconciliation.
+15. Every enabled configured board scope must complete before Live.
+16. No partial connection is silently marked Live.
+17. Buffer start is gap-free.
+18. Replay through cutover fence is gap-free.
+19. Receipts after cutover transition to normal realtime behavior.
+20. Buffered receipts cannot mutate Snapshot before baseline completion.
+21. Current provider truth wins over stale buffered hints.
+22. Failed sync generations never lose buffered receipts.
+23. Sync generation/CAS prevents stale-worker completion.
+24. Reauthorization invalidates/restarts a stale generation.
+25. Ordinary token refresh does not restart the generation.
+26. Initial sync is crash-safe and idempotent.
+27. Provider transient failures remain recoverable.
+28. Access revocation fails closed.
+29. Unsupported board/item/value shapes are explicit, never guessed.
+30. monday cursor expiry cannot permanently strand a sync.
+31. No webhook registration/write scope is added.
+32. Gate 3G is not started.
+33. No initial-sync work touches Azure.
+34. No real monday workspace is required.
+35. New persistence is tenant-isolated with forced RLS and least privilege.
+36. No credentials/raw API bodies/provider text leak to logs or sync metadata.
+37. Full unit/security/architecture/integration evidence is green.
+38. Critical mutation/vacuity guards are proven.
+39. Gate 2 and Gate 3A–3E regressions remain green.
+40. All six frozen documents remain byte-identical.
+41. No contradiction exists with Core or Premium P0.
+
+### 3F pre-code inspection
+
+- **No ingress sequence exists.** `raw_receipts.receipt_id` is an application UUID v7, time-ordered, and
+  `received_at_utc` is a timestamp; D3F-2 rules out both. 3F adds a database-generated identity, used only for fences.
+- **Receipt states** are `Received`, `Processed` and `Quarantined`. No sweeper republishes a `Received` receipt; the
+  only re-drive is the manual dead-letter tool. The transport handler completes a message on success, retries on
+  `processing.unavailable` and dead-letters every other refusal.
+- **A processing result always names a ledger event,** which a held receipt does not have, so a held receipt is
+  reported by a fixed processing code that the handler completes, and Gate 2's result contract stays unchanged.
+- **The ingress write** is one transaction: tenant status, then the receipt and its outbox marker, committed before
+  the acknowledgement.
+- **3E targets** know the request kinds `Event` (a `ReconciliationRequired` outcome asked) and `Sweep`. A target that
+  initial sync establishes was asked for by neither; recording it honestly needs one more kind, `Sync`, on the same
+  table: the smallest extension under D3F-8, with no second registry.
+- **3B evidence:** `authorized_at_utc` is set only when a connection is authorized or authorized again;
+  `generation` and `material_version` also change on every renewal. Connections have the tenant-inclusive key
+  `ak_connections_tenant_connection`.
+
+### 3F design
+
+**Source scopes (D3F-1).** `connector_source_scopes`: tenant, connection, source system, an opaque resource id (a
+bounded identifier) and an enabled flag, keyed by tenant, connection and resource id, with a tenant-inclusive foreign
+key to the connection. The runtime role may read and insert, and may update only `enabled` and `updated_at_utc`, so a
+scope can never move to another connection or change its resource; deletes are refused. A provider-neutral application
+service configures scopes after checking that the connection belongs to the tenant and serves the source.
+
+**Ingress fence (D3F-2).** `raw_receipts.ingress_sequence`: a `bigint` identity generated by the database at insert,
+made immutable by a trigger, and indexed with the tenant and connection. It never orders business state.
+
+**Sync state (D3F-4).** `connection_syncs`, one row per connection that has started initial sync: the current
+generation; its state (`Buffering`, `Reading`, `Replaying`, `Live`, `Failed`, `RequiresRestart`; a connection with no
+row is NotStarted and processes realtime receipts as before, which "3F owner review" supersedes); the authority snapshot (the delegated subject and
+`authorized_at_utc`); the replay floor; the generation's buffer-start, replay and cutover fences; a worker lease;
+retry state; and timestamps. `connection_sync_scopes` records each generation's scope set and progress (state, attempt
+streak, last outcome, pages and items read, fields applied). No value, label, cursor, token or response is stored.
+
+**Buffer start (D3F-10).** One transaction locks the connection's sync row, checks the tenant, the connection and its
+authorization locally, snapshots the authority, raises the generation, records the buffer-start fence (the highest
+ingress sequence of the connection's committed receipts) and copies the enabled scopes; only after it commits does any
+provider call happen. The replay floor is kept from the earliest generation since the last Live, so a failed or
+restarted generation never drops what an earlier one buffered (DoD 22).
+
+**Holding and fencing (D3F-11, D3F-12).** The ingress transaction takes a share lock on the connection's sync row
+before it inserts a receipt, and the processor takes the same share lock before it decides one. A receipt of a
+connection that is not Live and whose ingress sequence lies above the replay floor is held: nothing is decided, the
+receipt stays `Received`, and the transport message completes with the fixed code
+`processing.receipt.held_for_initial_sync`. The cutover takes the row's exclusive lock, so no ingress or processing
+decision for the connection is in flight; it captures the cutover fence, replays every unprocessed receipt above the
+floor up to it, and marks the generation Live in the same transaction. A receipt committed afterwards has a higher
+sequence and meets a Live connection, so it is processed normally. Duplicates stay no-ops through the ledger.
+
+**Baseline (D3F-6, D3F-7, D3F-8).** For each scope of the generation, the reader validates the board through a typed
+read-only operation (it must be the requested board, active, of type `board` and `classic` hierarchy, with at least
+one `status` column), then pages its active items 500 at a time with `items_page` and `next_items_page`, reading only
+item id, item state, board id and the status columns' `StatusValue`. Each field is applied as 3E applies a target: a
+local access check, the authority comparison, the already-current check, an evidence receipt (`monday.api-read.v1`,
+the consumed values only, its `operation` naming the initial-sync read), and the processing core's
+`DecideAndProjectAsync` with a `Confirmed` event. The field then becomes a known 3E target, resolved, or held with its
+outcome, inserted only when absent, with the request kind `Sync`. A cleared status is a valid value; a missing column,
+an unsupported type and a malformed response are distinct, explicit outcomes.
+
+**Pagination (D3F-9; DoD 9 and 30).** The cursor lives only in memory for one scan and is never stored, logged or used as
+a watermark. A continuation monday refuses, an expired cursor and a resumed scan restart that board from its first
+page; reapplying a page is idempotent.
+
+**Authority (D3F-5).** Before every provider call the access check runs locally, and each apply transaction compares
+the authority with the generation's snapshot. A change discards the read, marks the generation `RequiresRestart`, and
+the next run starts a new generation under the current authority; a renewal never changes `authorized_at_utc`.
+
+**Failures (D3F-14).** Per scope, as in 3E: transient failures are retried on the capped backoff and never held;
+access refusals wait with no provider call and resume; a missing or inaccessible board and an unsupported response are
+retried up to the bound and then held; an inactive board, an unsupported type or hierarchy, a board without a status
+column and a binding or identity mismatch are held. A held scope fails the generation, which never reaches Live
+(D3F-15).
+
+**Concurrency (D3F-13).** A run claims the generation with a lease; every transition compares the generation and the
+claim, so a stale worker records nothing; the lease is renewed per page.
+
+### 3F contradiction audit (before code)
+
+| Rule | Source | Result |
+|---|---|---|
+| Initial connection flow, in order | System Architecture v1 §2 | Compatible: buffer start, baseline, watermark (replay and cutover fences), replay, Live |
+| Webhooks give speed, reconciliation correctness | Invariant 17 | Compatible: buffered webhooks are replayed as unconfirmed hints |
+| Receipt time never decides business order | Invariant 12 | Compatible: the ingress sequence only fences; Gate 2 ordering decides |
+| No blind last-write-wins | Invariant 18 | Compatible: every value passes the processing core's ordering |
+| Unknown or untrusted data never reaches the Snapshot | Invariants 13, 25 | Compatible: binding and shape validation before `Confirmed` |
+| Provenance | Invariant 14 | Compatible: evidence receipts and ledger entries |
+| Tenant isolation | Invariants 44, 45, 48, 52, 59 | Compatible: forced row-level security, tenant-inclusive keys, no enumeration |
+| Secrets and retention | Invariants 20, 53, 55 | Compatible: the buffer is the existing receipts; sync metadata holds no content |
+| Revocation at access time | Invariant 58; Premium §20.7 | Compatible: a local check before every provider call |
+| Service Bus is transport; application idempotency | Invariants 63, 64 | Compatible: held messages complete; the replay is idempotent |
+| Typed operations | Premium §20.3 | Compatible: each read is declared with its descriptor |
+| No webhook registration or write | D3C-1 | Compatible: none added |
+| Tenant-less access | Gate 2 decision 1 | Compatible: no new tenant-less function |
+| Least privilege | R3B-2 | Compatible: explicit grants, no delete, column-level updates |
+| No AI, no Premium, no Azure | Development Gates v1; P0 closure; CLAUDE.md | Compatible |
+
+No contradiction found.
+
+**For the owner's attention:** (1) a connection with no sync row keeps processing realtime receipts as before, so a
+host must start initial sync right after it activates a connection (host activation is already an owner item;
+resolved in "3F owner review"); (2)
+the `Sync` request kind is the one extension of the 3E target model; (3) initial-sync evidence reuses
+`monday.api-read.v1`, its `operation` naming the read; (4) a held receipt whose content expires before replay is
+superseded by the baseline read.
+
+### 3F implementation record
+
+Implemented on `0dbfe1e`, uncommitted. One additive migration, `20261002140325_InitialSync`, applied only to the local
+database by the tests' fixture and to the databases the tests create. No package, workflow, IaC, Key Vault or Azure
+change; no registration in any host; no real monday call, credential or webhook registration; no monday write; 3G not
+started.
+
+**Core, provider-neutral** (`src/App.Core/InitialSync/`). The configured scope (`ConnectorSourceScope`) and its port
+`IConnectorSourceScopes`; the reader port `IInitialSyncReader` with its requests and answers (`ScopeReadRequest`,
+`ScopeValidation`, `ScopePageRequest`, `ScopePage`, `SyncedObject`, `SyncField`) and `ScopeContinuation`, an opaque,
+bounded, never-rendered position that nothing stores; the runner port `IInitialSync` with `InitialSyncRun`,
+`InitialSyncSummary`, the state machine `InitialSyncState` and `InitialSyncErrors`; and the closed `SyncScopeOutcome`
+set with fixed `initial_sync.*` codes and the 3E dispositions. Processing gained one fixed code,
+`processing.receipt.held_for_initial_sync`.
+
+**Infrastructure.**
+
+- *Ingress fence (D3F-2).* `raw_receipts.ingress_sequence`: an identity the database generates at insert, existing rows
+  included, one value at a time (sequence cache 1, so positions follow insert order across sessions), refused if
+  supplied, and kept from any change by a trigger whose function has no definer rights, a fixed search path and no
+  caller. A unique index orders a connection's receipts by it. It decides fence membership and nothing else.
+- *Tables (D3F-1, D3F-4).* `connector_source_scopes`, `connection_syncs` and `connection_sync_scopes`: forced row-level
+  security with the tenant policy, a restrictive policy refusing every delete, foreign keys that include the tenant,
+  and exact grants: read, insert, and update only of the columns that may change. A scope never moves to another
+  connection or resource, a sync row never changes its identity, and its replay floor, set once when the connection's
+  first generation starts, is not updatable at all. `reconciliation_targets` gained the request kind `Sync`, and its
+  requester rule is restated as `(request_kind = 'Event') = (requested_by_event_id IS NOT NULL)`, equivalent for every
+  existing row.
+- *Gate (D3F-10 to D3F-12).* Ingress takes a key-share lock on its connection's row before it stores a receipt.
+  Processing takes a share lock on the connection's sync row before it locks a receipt, and holds the receipt when the
+  row exists, is not Live and the receipt lies above the replay floor: nothing is decided, the receipt stays
+  `Received`, and the transport handler completes the message. Buffer start and cutover take the exclusive lock of the
+  connection row, then of the sync row, so both fences are exact, the first generation's included.
+- *Engine.* `InitialSyncEngine` (buffer start, claim and lease, a local access and authority check before every
+  provider call, one transaction per object, failure recording, replay passes and the locked cutover, as designed
+  above); `ConnectorSourceScopes`; and `AddInitialSync`, which only registers.
+- *Shared with 3E, its behaviour unchanged.* The 3E apply path is one method, `SourceReconciler.ConfirmAsync`, which the
+  reconciler and initial sync both call, so a value becomes `Confirmed` in one place only; the 3E access check
+  (`StandingAsync`) is shared the same way. `ReconciliationTargets` gained the three writes initial sync needs: lock a
+  known target, establish a field, and hold a scope conflict.
+
+**Connector.** Three read-only operations, each with its document, client method and strict parser: the board
+validation (`monday.board.read-sync-scope`: id, state in every state, type, hierarchy, and column ids and types), the
+first status page (`monday.board.read-sync-status-page`: the board's id, and its items' ids, states and boards with the
+named status columns' typed `StatusValue`) and the next page (`monday.items.read-next-sync-status-page`). No name,
+title, text, value or item update time is read. `MondayInitialSyncReader` is the monday `IInitialSyncReader`. The 3E
+reader's per-column binding is now one shared rule, `MondayStatusReader.ReadStatus`, used by both readers, its evidence
+naming the operation that read it.
+
+**Behaviour, as tested.**
+
+- Only the enabled configured scopes of the run's own connection and source are read; nothing is discovered, and a Live
+  connection is never scanned again.
+- Every field goes through the 3E path: a bound read, the access and authority check in the object's transaction, the
+  already-current check, an evidence receipt (`monday.api-read.v1`, its `operation` naming the initial-sync read) and
+  the processing core with a `Confirmed` event. Each field becomes a known 3E target with the request kind `Sync`:
+  resolved, or held with its outcome. A field already known in another scope is held as a scope conflict and never
+  overwritten; an object monday places on another board is neither applied nor made known in this one.
+- A cleared status is a confirmed empty value; a missing column, an unsupported type or shape, an invalid label, an
+  inactive item and a misbound item are distinct held outcomes, and a malformed or ambiguous page binds nothing.
+- Pages hold up to 500 items; a cursor monday refuses, or answers with no next page, restarts that board from its first
+  page once per run and then waits on the backoff, never held; an item answered twice is applied once; no cursor is
+  stored anywhere, not even during the scan.
+- Every enabled scope must complete: a held scope fails the generation, which never reaches Live; transient failures
+  and missing access wait on the capped backoff and are never held; an unusable answer is held after the bound.
+- A reauthorization during the scan discards the read and makes the generation `RequiresRestart`; the next run starts
+  a new generation under the current authority, keeping the replay floor. A token renewal changes nothing.
+- A stale worker records nothing: a live claim excludes every other worker, a lapsed one is taken over, and every write
+  compares the generation and the claim, the cutover's included.
+- Every receipt above the floor and up to the cutover fence is replayed, in ingress order, as the unconfirmed hint it
+  is; one being stored during the buffer start or the cutover is waited for; every later receipt is processed live;
+  duplicates are no-ops; and business order comes from monday's evidence and the 3E reread, never from ingress order.
+
+**Tests:** unit 940 (+68), security 161 (+9), architecture 32 (+1), integration 421 (+56): 1,554 in all, 1,554/1,554
+locally, the Service Bus emulator tests included.
+
+- Unit: the monday reader against a deterministic fake of monday (68): validation and its refusals, pages and their
+  binding, the exact evidence, cursor handling and the classification of every failure.
+- Integration (56), against the real local PostgreSQL, the real 3C endpoint, the real processor behind the real
+  transport consumer, the real reader and client, and one stateful fake monday account: scope, baseline and pagination
+  (23); fences and ordering races (8), including a receipt held mid-write at the buffer start and at the cutover;
+  failure and recovery (14), including a database failure after the evidence receipt was written and two workers at
+  the cutover; the records' transitions (7); and the new tables on databases created for the test (4).
+- Security and architecture: the trigger function, the grants and policies, no content-bearing member, fences that are
+  positions, the hold and complete path, the one confirmation path, log hygiene, the reader's boundaries, no host
+  registration, and provider-neutral 3F code.
+- Deliberate pin updates, each still exact: monday's documents and operations (5 to 8); the processing errors (14 to
+  15); the connector files that mention webhooks (the initial-sync reader, which reads the surface the normalizer maps),
+  tightened so that the connector never runs a sync or configures a scope; the migration routine allowlist (the trigger
+  function); the database policy and no-delete lists (the three tables); the raw-receipt triggers (two); and the
+  cross-tenant acceptance test, which inserts with `OVERRIDING SYSTEM VALUE` and seeds a configured scope and a started
+  generation per tenant through the real application path.
+- Test infrastructure: `FakeMonday` gained an awaitable answer built from the request; `FakeMondayWorkspace`,
+  `InitialSyncStack` and `InitialSyncData` are new; the 3B seeding helper returns its grant.
+
+**Mutation and vacuity:** 43 mutants, F01 to F43 (`mutate-3f.py`, on the 3E runner), all caught. After every mutant
+the runner restored each changed file and checked its hash, and all 311 source and test files matched their recorded
+hashes after every batch.
+
+- F12, the apply-time claim check ignoring the claim, first survived: the stale worker woke only after the other had
+  reached Live, so the state check alone stopped it. The test now wakes the stale worker while the other still holds
+  the generation mid-read; F12 was then caught.
+- F04, the cursor kept as sync progress, was first caught only by a static pin, because the cursor was cleared before
+  the end-to-end test looked. The test now looks during the scan and catches it too.
+- The mutants cover every guard the owner listed: the scope filters (F01, F02); receipt time and the cursor as the
+  watermark (F03, F04); processing before the baseline (F05); the buffer-start lock and fence (F06, F07); a skipped
+  replay and the cutover gap (F08 to F10); stale workers (F11 to F14); reauthorization and renewal (F15, F16); board,
+  item and column binding (F17 to F21); the confirmation of the baseline and of webhooks (F22 to F24); a partial scope
+  set (F25); cross-tenant configuration (F26); rediscovery (F27). And the guards 3F added: scope conflicts and
+  misbound objects (F28, F29); identity, authority and access checks (F30 to F32); the replay floor, the transient
+  bound and cursor refusals (F33 to F35); the held message (F36); the ingress and gate locks (F37, F38); and the
+  tables' grants, no-delete policies, tenant isolation and the ingress-position trigger (F39 to F43).
+- Vacuity: with row-level security disabled, each table's isolation check sees the other tenant's rows; the acceptance
+  test requires every tenant-owned table to hold rows of its own; the log test requires the run's own Live record; and
+  the cursor checks require the fake to have issued the cursor they look for.
+
+**Verification:** clean non-incremental build with 0 warnings and 0 errors; full suite 1,554/1,554; both repository
+verifiers PASS; the six frozen documents byte-identical; `git diff --check` clean; no changed file mixes line endings;
+and the migration's idempotent SQL read in full.
+
+**Runtime privileges (R3B-2).** Superseded by the block in "3F owner review", which adds the two scope-set version
+columns. The unchanged global bootstrap, if rerun after this migration, re-grants DELETE and
+full UPDATE on the three new tables; the restrictive policies still refuse every delete. The Azure rollout must run,
+in the same approved step as any bootstrap rerun, the re-assertion for the 3B and 3E tables and this one, which the
+tests prove restores the exact grants:
+
+```sql
+REVOKE ALL PRIVILEGES ON connector_source_scopes FROM workcontinuity_app;
+GRANT SELECT, INSERT ON connector_source_scopes TO workcontinuity_app;
+GRANT UPDATE (enabled, updated_at_utc) ON connector_source_scopes TO workcontinuity_app;
+REVOKE ALL PRIVILEGES ON connection_syncs FROM workcontinuity_app;
+GRANT SELECT, INSERT ON connection_syncs TO workcontinuity_app;
+GRANT UPDATE (generation, state, provider_subject, authorized_at_utc, buffer_start_fence, replay_fence, cutover_fence,
+    claim_id, claimed_until_utc, attempts, next_attempt_at_utc, last_outcome, started_at_utc, live_at_utc, updated_at_utc)
+    ON connection_syncs TO workcontinuity_app;
+REVOKE ALL PRIVILEGES ON connection_sync_scopes FROM workcontinuity_app;
+GRANT SELECT, INSERT ON connection_sync_scopes TO workcontinuity_app;
+GRANT UPDATE (state, attempts, last_outcome, pages_read, objects_read, fields_applied, completed_at_utc)
+    ON connection_sync_scopes TO workcontinuity_app;
+```
+
+**Security review** (no finding needs a change before review):
+
+1. *Locks on the connection row.* Every ingress now takes a key-share lock on its connection's row. Such locks never
+   wait for each other or for an ordinary update; only a buffer start or a cutover makes ingress for that one
+   connection wait, briefly, and the cutover replays only what arrived after the last replay pass.
+2. *Held receipts.* While a generation has failed, its connection's receipts stay held until a new generation starts.
+   A held receipt whose content expires first is skipped by the replay, and the baseline read supersedes it.
+3. *A connection with no sync row* processes webhooks as before; the host must start initial sync right after it
+   activates the connection. Superseded by "3F owner review": a configured connection holds from its first enabled
+   scope.
+4. *Correlation.* A replay is recorded under the sync run's correlation id; its causation stays the receipt id.
+5. *Leases.* As in 3E: workers whose clocks disagree by more than a lease could both run, but every write compares the
+   generation and the claim, so only the holder records anything, which the tests prove for the page and the cutover.
+6. *Evidence.* Initial-sync evidence receipts hold exactly the provider values consumed, as raw work data under the
+   30-day retention; no other new column can hold a value, a label, a cursor or a credential.
+7. *Rollout.* Adding the identity column numbers the existing receipts, which rewrites `raw_receipts` under an exclusive
+   lock; the Azure migration step should be scheduled with that in mind.
+
+**Deferred to 3G** (to confirm on a real workspace): what monday answers for an expired cursor (an error and a missing
+next page are both handled as a refusal); what `boards(ids:)` answers for an unknown or inaccessible id (an empty list
+is retried, then held); the `hierarchy_type` of classic boards (anything but `classic`, null included, fails closed as
+unsupported); item order and consistency across pages and the cursor's lifetime (rereads converge); and deliveries of a
+real subscription buffered through 3C during a real initial sync.
+
+**For the owner's attention:**
+
+- Host wiring: which component starts initial sync right after a connection is activated and runs it until Live. No
+  host registers 3F, and finding due work across tenants raises the same tenant-less lookup question as 3E.
+- A failed generation waits for an explicit start after its configuration is fixed; the connection's receipts stay held
+  meanwhile. A change of its enabled scope set now makes it restart at the next run ("3F owner review").
+- A scope enabled after Live is not read: syncing an added board, or a Live connection again, is a future decision;
+  `StartAsync` refuses a Live connection. Superseded by "3F owner review": any change of the enabled scope set
+  invalidates Live, and the next run restarts over the new set.
+- A field the read cannot apply is held as its own target with its outcome and does not fail its board; board-level
+  problems fail the generation.
+- Azure: applying the migration and the re-assertion above.
+
+### 3F owner review (2026-10-02): a configured connection holds, and its scope set has a version
+
+The owner accepted the core 3F implementation for review and named two related lifecycle blockers, both fixed here.
+Nothing the owner listed as settled changed: the ingress sequence and fences, the connection-row locking design (scope
+configuration now takes the same locks, in the same order), raw receipts as the buffer, the replay and cutover
+algorithm, monday pagination, 3E `ConfirmAsync`, the evidence receipts, Known Object seeding, authority generations,
+transient retries, the `EventText` limits and the frozen documents. Host activation stays deferred to 3G (owner
+decision): 3F exposes the provider-neutral start and resume operations, and correctness never depends on a host
+invoking them at once.
+
+**Blocker 1: a configured connection that has not started never processes realtime data.** A connection had no sync
+row until its first generation started, and a connection with no row processed realtime receipts as before 3F, even
+with enabled scopes.
+
+- A connection now takes part in initial sync from the transaction that first enables one of its scopes through
+  `IConnectorSourceScopes`: trusted local configuration, never a payload. That transaction takes the connection row's
+  exclusive lock, so every receipt ingress was storing for the connection has committed and none is stored until it
+  commits, then the sync row's lock, and creates the sync row: `NotStarted`, generation 0, no authority, start or
+  generation scope-set version, scope-set version 1, and the replay floor and buffer-start fence both at the exact
+  ingress fence.
+- The gate keeps its lock (processing takes the sync row's share lock before it locks a receipt) and decides:
+
+  | Connection | A realtime receipt above the replay floor |
+  |---|---|
+  | No sync row and no enabled scope (never configured, or disabled scopes only) | Processed as before 3F |
+  | No sync row and an enabled scope (written outside the configuration service) | Held; the first generation replays from floor 0 |
+  | `NotStarted`, `Buffering`, `Reading`, `Failed` or `RequiresRestart` | Held |
+  | `Replaying` | Held; only the engine's controlled replay decides it |
+  | `Live` | Processed by the ordinary realtime path |
+
+  A receipt at or below the floor was stored before the connection took part and is decided as it would have been.
+  A held receipt stays `Received` with no ledger entry, Snapshot change or reconciliation request, and its message
+  completes with `processing.receipt.held_for_initial_sync` at every delivery: no redelivery loop and no poison message.
+  Nothing is inferred from a payload, and another tenant's or another connection's scopes never count.
+- `IInitialSync.StartAsync` starts the first generation of a `NotStarted` connection, which replays everything held
+  above the floor before it goes Live. A run never starts a `NotStarted` connection by itself: starting stays the
+  host's decision, and until then the connection holds safely.
+- Found while writing the tests, and fixed: the gate locked the sync row, found none, and only then read the
+  configuration, so a first configuration committing between the two reads made it hold a receipt at or below the new
+  floor, which no generation would ever replay. Whether a sync row exists and whether a scope is enabled are now read in
+  one snapshot, and a row created since decides, under its share lock. A test reproduces the interleaving
+  deterministically; it failed before the fix and passes after it.
+- Disabling, through the service, the last enabled scope written outside it also creates the row, at floor 0, so what
+  those scopes held is replayed instead of stranded.
+
+**Blocker 2: the scope set never changes while Live without invalidating the baseline.**
+
+- *Version model.* `connection_syncs.scope_version` is the version of the connection's enabled scope set: 1 when the
+  connection first takes part, raised by one by every effective change: a scope added enabled, a disabled scope
+  enabled, an enabled scope disabled. A call that leaves the enabled set as it was changes nothing.
+  `connection_syncs.generation_scope_version` is the version the current generation captured when it started, in the
+  same buffer-start transaction that copies exactly the enabled scopes into the generation's own
+  `connection_sync_scopes` rows; it is null only while `NotStarted`.
+- *In the database itself.* `ck_connection_syncs_scope_version`: `scope_version >= 1`, a generation's version between
+  1 and the current one, and a `Live` row only on the current version. `ck_connection_syncs_not_started`: a
+  `NotStarted` row has no authority (subject and authorization time), start or generation version, and every other row
+  has all of them. `ck_connection_syncs_generation`: generation 0 exactly when `NotStarted`. `GoLive` also refuses a
+  generation whose version is not current.
+- *Atomic invalidation.* The configuration transaction takes the connection row's exclusive lock, then the sync row's,
+  writes the scope and, when the enabled set changed, raises the version in the same transaction. A `Live`,
+  `Buffering`, `Reading`, `Replaying` or `Failed` row becomes `RequiresRestart` with its claim released, its cutover
+  fence and Live time cleared and its attempt streak reset, and records `initial_sync.scope_set.changed`; `NotStarted`
+  and `RequiresRestart` keep their state. The new scope set and the invalidation commit together, so no transaction
+  sees one without the other, and the check refuses a Live row on an earlier version. No time and no process memory
+  takes part.
+- *After the change.* Realtime receipts above the floor are held; the stale worker's next write finds no claim and
+  records nothing; the next run restarts a generation under the current authority, with no new webhook, capturing the
+  new version and exactly the enabled scopes, disabled ones excluded; and what was held is replayed before Live. A
+  stale generation never becomes Live: its claim is gone, `GoLive` refuses its version, and the check refuses the row.
+  Disabling every scope restarts an empty generation, which reads nothing, replays what was held and goes Live.
+- *Frozen membership.* A configuration change never touches `connection_sync_scopes`: a generation's scope rows stay as
+  they were, as historical evidence. The runtime role cannot change a scope row's generation or resource, nor delete
+  one.
+- *Replay floor.* Set once, when the connection first takes part: the exact ingress fence then, or 0 when enabled scopes
+  had no row. It never moves, not by a scope change, a failure, a restart or Live, and the runtime role still cannot
+  update it. A restart replays every receipt above it that is still unresolved, so a failed generation restarted by a
+  scope change keeps everything held since the first.
+- *Concurrency at the boundary.* A receipt being stored when a change begins holds the connection row's key-share lock,
+  so the change waits for it; delivered afterwards, it meets the new state and is held for the new generation. A
+  receipt stored after the change began waits for it and is held. A processing decision in flight when the change
+  begins holds the sync row's share lock, so the change waits for it: that receipt is decided under the old Live
+  generation, before the boundary. Nothing falls between, and nothing is lost.
+- *Tenants.* Configuration finds the connection under the trusted tenant's row-level security; another tenant can
+  neither name nor change this connection's scopes or sync row, and the gate reads only this connection's own scopes.
+
+**Schema.** One additive migration, `20261002193124_InitialSyncScopeVersions`, after `20261002140325_InitialSync`,
+which stays as it was: `NotStarted` joins the state check; the generation check allows generation 0 exactly when
+`NotStarted`; `provider_subject`, `authorized_at_utc` and `started_at_utc` become nullable (only a `NotStarted` row
+lacks them); `scope_version` (`bigint`, not null) and `generation_scope_version` (`bigint`) are added, both 1 on
+existing rows, with no default left on the column; the two new checks; and the runtime role's grants on
+`connection_syncs`, re-asserted exactly, add update of the two version columns and still never of the replay floor or
+an identity column. `Down` is refused while a `NotStarted` row exists, which the earlier shape cannot represent; a
+forward fix is preferred. Applied only to the local database by the tests' fixture and to the databases the tests
+create; its idempotent SQL was read in full.
+
+**Runtime privileges (R3B-2).** Superseded in turn by the block in "3F final owner review". This block superseded the
+one in the implementation record: the Azure rollout was to run it, in the same approved step as any bootstrap rerun,
+after both migrations. The tests prove it restores the exact
+grants:
+
+```sql
+REVOKE ALL PRIVILEGES ON connector_source_scopes FROM workcontinuity_app;
+GRANT SELECT, INSERT ON connector_source_scopes TO workcontinuity_app;
+GRANT UPDATE (enabled, updated_at_utc) ON connector_source_scopes TO workcontinuity_app;
+REVOKE ALL PRIVILEGES ON connection_syncs FROM workcontinuity_app;
+GRANT SELECT, INSERT ON connection_syncs TO workcontinuity_app;
+GRANT UPDATE (generation, state, provider_subject, authorized_at_utc, scope_version, generation_scope_version,
+    buffer_start_fence, replay_fence, cutover_fence, claim_id, claimed_until_utc, attempts, next_attempt_at_utc,
+    last_outcome, started_at_utc, live_at_utc, updated_at_utc)
+    ON connection_syncs TO workcontinuity_app;
+REVOKE ALL PRIVILEGES ON connection_sync_scopes FROM workcontinuity_app;
+GRANT SELECT, INSERT ON connection_sync_scopes TO workcontinuity_app;
+GRANT UPDATE (state, attempts, last_outcome, pages_read, objects_read, fields_applied, completed_at_utc)
+    ON connection_sync_scopes TO workcontinuity_app;
+```
+
+**Tests.** The race test and the stranded-scope test were written before their fixes and failed first, each for the
+intended reason; the others were written with the fix.
+
+- `InitialSyncConfigurationTests` (new, 18), on the real stack:
+  1. A configured connection holds a realtime receipt before its first generation (stored and acknowledged, no ledger
+     entry, no Snapshot change, its message completed at three redeliveries) and replays it once Live; realtime
+     receipts are then processed.
+  2. Enabled scopes with no sync row hold, and the first generation replays everything unresolved.
+  3. A receipt being stored while the first scope is configured is waited for and lies exactly at the boundary.
+  4. A receipt being decided while the first scope is configured is decided by the new row, never stranded.
+  5. Disabling the last scope written without a sync row keeps what it held for the next generation.
+  6. No scopes, or disabled scopes only: processing as before, and starting is refused with no scopes.
+  7. and 8. Another tenant's scope, and another connection's scope in the same tenant, never gate this connection.
+  9. and 10. Adding an enabled board, or enabling a disabled one, while Live invalidates Live atomically; the next run
+     restarts over the new set with no new webhook.
+  11. Disabling an enabled board while Live invalidates Live, and the next baseline excludes it.
+  12. Disabling every scope starts an empty generation that replays what was held and goes Live.
+  13. A call that changes no enabled scope leaves Live and the version alone.
+  14. A receipt being stored during a scope change is waited for and held for the new generation.
+  15. A receipt being decided during a scope change is waited for and decided under the old generation, once.
+  16. A stale generation stalled mid-read never returns to Live after the scope set changes; its frozen scope rows stay
+      as they were, and the next generation captures version 2.
+  17. A failed generation restarted by a scope change keeps the earliest replay floor and replays everything held.
+  18. Another tenant's scope change cannot invalidate this connection.
+- `InitialSyncRecordTests` (now 10): the `NotStarted` row; a first generation with no configuration row; a scope-set
+  change from every state, keeping the floor and refusing the stale worker; and a generation on an earlier version
+  never becoming Live.
+- `InitialSyncDatabaseSecurityTests` (now 5): the shape and version checks refuse a `NotStarted` row with a
+  generation's data, a scope-set change that leaves Live in place, a stale generation becoming Live and a generation
+  ahead of the scope set, and another tenant's statements change nothing.
+- `InitialSyncSecurityTests` (now 10): the version migration only relaxes and adds, has the database refuse a Live row
+  on an earlier version, and re-asserts exactly the grants.
+- Deliberate updates, each still exact: two fence tests now deliver the "before" receipt before the connection takes
+  part, and assert that receipts stored after it are held; the database grant lists, the insert helper and the
+  re-assertion add the two version columns; the record's member list adds them; the gate pin follows the renamed
+  local; the provider-neutral file count is 11 with the new migration; and the test helper that holds an ingress
+  transaction open now queues its outbox marker too, as ingress does.
+
+**Mutation and vacuity:** `mutate-3f-config.py`, 23 mutants, G01 to G23, on the 3E runner, all caught: 22 in one
+run, and G23 once the processing-in-flight test existed. After every mutant the runner restored each changed file and
+checked its hash, and all 56 changed files matched their pre-mutation hashes after each run. The 43 F mutants of the
+original run were run again against the new hold semantics, all caught; F05 and F14 were re-anchored because their code
+moved. Two comments changed afterwards, and no code.
+
+- Blocker 1: the configured hold removed (G01); enabled scopes with no row not holding (G02); no `NotStarted` row at the
+  first enabled scope (G03); an inexact boundary, the floor at 0 (G04); configuration without the connection lock
+  (G05); the gate's no-row decision read from two snapshots (G06); another connection's scope, or a disabled one,
+  counting (G07, G08); and a last scope written outside the service stranding what it held (G09).
+- Blocker 2: a change that invalidates nothing (G10); the version raised but Live or running generations kept (G11,
+  G12); a stale version becoming Live past the record (G13) or the database (G14); the `NotStarted` shape unchecked
+  (G15); a generation not capturing its version (G16); frozen membership extended in place (G17) or made updatable
+  (G18); the replay floor advanced by a configuration restart (G19) or made updatable in the effective grant (G20); the
+  stale worker keeping its claim (G21, caught by the record test, since the state check alone already stops the worker);
+  a call that changes nothing treated as a change (G22); and a decision in flight not holding the sync row (G23, F38's
+  mutation, which only a static pin caught before and the processing-in-flight test now catches end to end).
+- F39 still mutates the original migration's grant line; the version migration re-asserts the grants, so only the
+  static pin catches it there, and G20 covers the effective grant in the database too.
+- Vacuity: the race test and the stranded-scope test failed before their fixes; the database checks are proven by
+  statements the database refuses, and G14 and G15 show those tests fail without them; the processing-in-flight test
+  requires the change to be blocked by the paused decision's own backend.
+
+**Verification:** clean non-incremental build with 0 warnings and 0 errors; full suite 1,577/1,577 (unit 940,
+security 162, architecture 32, integration 443, the 9 Service Bus emulator tests included); both repository verifiers
+PASS; the six frozen documents byte-identical; `git diff --check` clean; no changed file mixes line endings; and the new
+migration's idempotent SQL read in full.
+
+**For the owner's attention:**
+
+- The replay floor never moves, so a restart after a long Live period scans the connection's receipts above its first
+  floor for the unresolved ones; the scan is indexed by connection and ingress position.
+- Snapshot state that a generation applied for a board later disabled stays: 3F defines no removal, and none was
+  invented. As in 3C to 3E, a Live connection's realtime receipts are processed whichever board they name. Superseded by
+  "3F final owner review": that state stays as history and leaves the current work view.
+- Host wiring stays a 3G item: a `NotStarted` connection holds until a host starts it, and a `RequiresRestart` one until
+  a run.
+- The earlier PKCE consumed-transaction verifier cleanup stays deferred, to be handled before real monday or the 3G
+  acceptance (owner decision).
+
+### 3F final owner review (2026-10-03): a disabled scope's state is never current work
+
+The owner accepted the two lifecycle fixes and approved 3F but for one blocker: state already read for a scope later
+disabled stayed in the Snapshot as if it were current. If scope B was part of generation N and generation N+1 reached
+Live without it, Fully must no longer treat B's old projected state as current work, and a scope enabled again must be
+read authoritatively before its state is current again. History must stay: the ledger, the receipts and evidence under
+their retention, provenance and reconciliation evidence. Nothing the owner listed as settled changed: the ingress fence,
+the replay floor, pagination, the authority model, the 3E confirmation path, the retry model, the scope-set version
+model and the frozen documents.
+
+**Provenance, checked before any change.** Snapshot rows carry the tenant, the source system and the connection, but not
+the scope. The scope is carried by the field's reconciliation target, whose key is the Snapshot field's own key (tenant,
+system, connection, type, object, field) and whose `source_scope` is provider-neutral (D3E-10, D3E-11, D3F-8): stored
+from the normalized event or the configured scope being read, never replaced, never deleted. Every confirmed value of a
+scoped source reaches the Snapshot through its target, read bound to that scope (3E `ConfirmAsync`, and the 3F apply
+that establishes or locks the target in the same transaction), and a field seen in another scope is held, never
+applied. So the originating scope is identified exactly, with no display text and no parsing of a reference, and no
+Gate 2 Snapshot table needed a change. Where a participating connection's field cannot be attributed to such a scope,
+it is treated as not current: attribution fails closed.
+
+**Semantics.**
+
+- A scope's state is current only while the scope is enabled and its baseline is established.
+  `connector_source_scopes.baseline_generation` is the generation whose transition to Live established it: set for every
+  enabled scope the generation read in full, in the cutover transaction itself; cleared in the transaction that
+  disables the scope; never restored by enabling it again. The database refuses a baseline on a disabled scope.
+- A field known before its scope was enabled again, or before it was first configured, awaits a baseline:
+  `reconciliation_targets.awaiting_baseline_version`, set to the connection's scope-set version for every field of the
+  scope, in the transaction that enables it. Only a baseline read of the scope that resolves the field clears it; a read
+  that holds the field, and a field the new baseline never finds, keep it.
+- The current work view: `active_snapshot_fields` and `active_snapshot_objects`, provider-neutral views over the
+  Snapshot, by identifiers only. A connection that never took part in initial sync shows all its state, as before 3F.
+  A participating connection's field is current only when its target names an enabled scope of that connection with an
+  established baseline and no baseline is awaited for the field; an object is current when one of its fields is. The
+  views run as their caller (`security_invoker`), so every table's row-level security applies to whoever reads them, and
+  the runtime role may only read them.
+
+| Moment | Scope B's state in the current view |
+|---|---|
+| B disabled (the configuration transaction) | Gone at once: B's baseline is cleared as the connection leaves Live, before any new generation |
+| The restart and the new generation without B | Gone; A, still enabled, keeps its baseline and stays current throughout |
+| The new generation reaches Live | Gone; A's baseline moves to the new generation |
+| B enabled again | Still gone: no baseline, and every field B held awaits one |
+| The next generation reads B | Still gone while it reads, even for fields already read again |
+| That generation reaches Live | Current again, but only the fields its baseline read and confirmed |
+
+Realtime changes read for B while it is disabled still reach the Snapshot through reconciliation, as history, and never
+the view. A board that is no configured scope of a participating connection is not current either: its state becomes
+current only through its own baseline once configured. Nothing is deleted or rewritten: the Snapshot rows, the ledger,
+the evidence receipts and the targets all stay exactly as they were.
+
+**Atomicity.** B's baseline is cleared in the very transaction that disables it, under the connection's and the sync
+row's exclusive locks, together with the scope-set change that ends Live; a new generation's baselines are set in the
+transaction that makes it Live, under the same locks. The view reads committed state only. There is no window in which B
+is disabled, a generation reports Live, and B's old state is presented as current; no time and no process memory takes
+part.
+
+**Schema.** One additive migration, `20261002212331_InitialSyncActiveScopes`: the two nullable columns, a check on each
+(`baseline_generation IS NULL OR (enabled AND baseline_generation >= 1)`; `awaiting_baseline_version` at least 1), the
+two views, and the grants: the runtime role's privileges on `connector_source_scopes` re-asserted exactly with update of
+the baseline, and the views read-only to it and closed to everyone else. No existing row is rewritten: a scope's
+baseline is set by its connection's next transition to Live, and no deployed environment holds initial-sync data.
+`Down` drops the views and the columns, losing only which state is current, never history. A later change to a column
+the views read must recreate them. Applied only to the local database by the tests' fixture and to the databases the
+tests create; its idempotent SQL was read in full.
+
+**Runtime privileges (R3B-2).** This block supersedes the earlier ones: the Azure rollout must run it, in the same
+approved step as any bootstrap rerun, after all three initial-sync migrations. The tests prove it restores the exact
+grants:
+
+```sql
+REVOKE ALL PRIVILEGES ON connector_source_scopes FROM workcontinuity_app;
+GRANT SELECT, INSERT ON connector_source_scopes TO workcontinuity_app;
+GRANT UPDATE (enabled, baseline_generation, updated_at_utc) ON connector_source_scopes TO workcontinuity_app;
+REVOKE ALL PRIVILEGES ON connection_syncs FROM workcontinuity_app;
+GRANT SELECT, INSERT ON connection_syncs TO workcontinuity_app;
+GRANT UPDATE (generation, state, provider_subject, authorized_at_utc, scope_version, generation_scope_version,
+    buffer_start_fence, replay_fence, cutover_fence, claim_id, claimed_until_utc, attempts, next_attempt_at_utc,
+    last_outcome, started_at_utc, live_at_utc, updated_at_utc)
+    ON connection_syncs TO workcontinuity_app;
+REVOKE ALL PRIVILEGES ON connection_sync_scopes FROM workcontinuity_app;
+GRANT SELECT, INSERT ON connection_sync_scopes TO workcontinuity_app;
+GRANT UPDATE (state, attempts, last_outcome, pages_read, objects_read, fields_applied, completed_at_utc)
+    ON connection_sync_scopes TO workcontinuity_app;
+REVOKE ALL PRIVILEGES ON active_snapshot_objects, active_snapshot_fields FROM workcontinuity_app;
+GRANT SELECT ON active_snapshot_objects, active_snapshot_fields TO workcontinuity_app;
+```
+
+**Tests.**
+
+- `InitialSyncActiveStateTests` (new, 6), on the real stack:
+  1. The owner's sequence: A and B synced and current; B disabled, Live ended, and B gone from the view at once while A
+     stays; the new generation excludes B and, once Live, B stays gone and A current; B's Snapshot rows, targets, ledger
+     entries and receipts unchanged; B enabled again shows nothing, not even while the next generation reads it; once
+     that generation is Live, B is current again with monday's state as read then.
+  2. Items B lost or cannot confirm while disabled (deleted, archived, a value that cannot be confirmed) never come
+     back, though the Snapshot keeps them as history.
+  3. Realtime changes read for B while disabled reach the Snapshot but not the view, until B's baseline is established
+     again.
+  4. A board that is no configured scope is not current for a participating connection, and becomes current only through
+     its own baseline.
+  5. A connection that never took part keeps all its state current.
+  6. Another tenant's scope changes, on a board of the same id, never hide or reveal this tenant's state, and it reads
+     only its own state through the view.
+- `InitialSyncDatabaseSecurityTests` (now 7): the views' rules on a database created for the test, row by row (current,
+  awaiting, enabled without a baseline, disabled, unconfigured, unattributed, never taking part, another tenant), with a
+  vacuity step: the same views run as their owner would show the other tenant's state; the baseline and awaiting
+  checks; the views read-only to the runtime role and run as the caller, after the migration and after the re-assertion.
+- `InitialSyncSecurityTests` (now 11): the migration's views run as their caller, the visibility rule, the exact grants,
+  and nothing dropped, deleted, inserted or rewritten going up. `InitialSyncRecordTests`: disabling drops the baseline,
+  enabling again restores none, and only an enabled scope establishes one.
+- `CurrentWorkViewTests` (architecture, new, 3), added in the final verification: only the projection and its
+  persistence plumbing name the raw Snapshot; the projection reads it only to write it and for reconciliation's
+  already-current check; and current work is presented by exactly the two views, run as their caller.
+- Deliberate updates, each still exact: the target and scope record member lists, the database grant lists and the
+  re-assertion, the cutover's pinned line, the provider-neutral file count (12, with the new migration), and 3E's exact
+  list of the reconciliation targets' columns, now with `awaiting_baseline_version`, a scope-set version and no value.
+
+**Mutation and vacuity:** `mutate-3f-active.py`, 16 mutants, H01 to H16, on the 3E runner: 15 caught and one
+equivalent.
+
+- A disabled scope's state still current: the view ignoring the scope (H01) or whether the connection takes part (H02);
+  disabling keeping the baseline (H03, which the database's check also refuses) and that check removed (H04); a disabled
+  scope establishing a baseline (H05).
+- Stale state current without a new baseline: enabling again marking nothing (H06); the view ignoring an awaited
+  baseline (H07); a read that holds a field clearing its mark (H08); enabling again establishing the baseline at once
+  (H09); and Live establishing none (H10).
+- History deleted or rewritten instead of only leaving the view: values wiped (H11) and targets detached from their
+  scope (H12), both caught by the history check. H13, which deletes the scope's Snapshot rows, survived as an equivalent
+  mutant: the database never lets the runtime role delete them, by grant and, where a bootstrap rerun re-granted DELETE
+  as on the shared test database, by the restrictive no-delete policy, which made its DELETE remove nothing; the same
+  history check confirmed every row intact.
+- The views' own guards: run as their owner (H14), writable by the runtime role (H15), and an object shown though none
+  of its fields is current (H16).
+- The 23 G mutants were run again, since the scope configuration changed: all caught. G03 and G04 were re-anchored, and
+  G09, which no longer compiled, was restated (the row created but persisted only while an enabled scope remains) and
+  caught. F09, F10, F11, F14 and F26, around the cutover and the configuration, were run again and caught. After every
+  run, all 60 changed files matched their pre-mutation hashes.
+
+**Current work readers (final verification, 2026-10-03).** No product reader of current work exists yet: no host,
+Core port or connector reads the Snapshot. The raw Snapshot tables are read in two places only, both internal: the
+projection, which reads the rows it writes, and `SnapshotProjection.HoldsAsync`, reconciliation's check that a confirmed
+value is already held, which is provenance, not a work view. The ledger, the evidence receipts and the targets stay
+readable internally for provenance and audit. The architecture guard `CurrentWorkViewTests` keeps it so: a later reader
+(Work Memory, an interface) that names the raw tables fails it and must read the current work view. Five vacuity
+mutants, V01 to V05 (`mutate-3f-guard.py`), were all caught: a host or a worker naming the raw tables, a new reader on
+the projection, reconciliation writing through it, and a view that runs as its owner.
+
+**Verification:** the first complete run was stopped by Claude Code for low memory during the integration tests. On the
+owner's go it was run again on the final tree, in sequential batches of one test process each, with nothing skipped,
+excluded or weakened: clean non-incremental build with 0 warnings and 0 errors; unit 940/940, security 163/163,
+architecture 35/35, and integration 451/451 in twelve batches whose sum equals the project's own listing, the 9 Service
+Bus emulator tests included: 1,589/1,589. The batches found one exact pin to update, 3E's list of the targets' columns
+(above). Both repository verifiers PASS; the six frozen documents byte-identical; `git diff --check` clean; no changed
+file mixes line endings; and the new migration's idempotent SQL read in full.
+
+**For the owner's attention:**
+
+- Reconciliation still rereads a disabled scope's known fields when a webhook or a sweep asks for them, as 3E does for
+  any known target; what it reads stays history and never reaches the view. Excluding disabled scopes from those reads
+  would change the 3E retry and sweep model, so it was not done here.
+- The view hides more than disabled scopes: for a participating connection, state of a board that is no configured
+  scope, and state no target attributes to a scope, is not current either (fail closed).
+- Fully's later readers (Work Memory, interfaces) must read the current work view, not the Snapshot tables; the
+  architecture guard `CurrentWorkViewTests` now enforces it.
+
+### 3F owner review and closure (2026-10-03)
+
+The product owner gave 3F the final pass on 2026-10-03: **3F is PASS**. The design and the implementation record above
+stand as approved, with the three owner reviews: a configured connection holds realtime receipts from its first enabled
+scope; every change of its enabled scope set has a version and invalidates Live; and a disabled scope's state leaves the
+current work view and returns only after a new baseline reaches Live. Decisions D3F-1 to D3F-15 stay in force.
+
+**Final evidence:** provider-neutral `ConnectorSourceScope` configuration and explicit configured-board sync only; an
+initial-sync state machine with generations, claims and leases; a database-generated ingress sequence as the fence, with
+raw receipts as the buffer and no shadow payload store; authoritative monday baseline reads with pagination and a safe
+cursor restart, confirmed through the 3E path with its evidence receipts, each field seeded as a known reconciliation
+target; buffered replay and a gap-free cutover; restart on an authorization change; scope-set versions; safe NotStarted
+gating; and the current work views `active_snapshot_fields` and `active_snapshot_objects`, with the architecture guard
+that keeps raw Snapshot reads out of current work. Three additive migrations, applied only locally:
+`20261002140325_InitialSync`, `20261002193124_InitialSyncScopeVersions` and `20261002212331_InitialSyncActiveScopes`.
+1,589/1,589 local tests on the tree being committed (unit 940, security 163, architecture 35, integration 451, the 9
+Service Bus emulator tests included); mutation and vacuity checks 43/43, 23/23, 15/16 with one equivalent mutant, and
+5/5; build with 0 warnings and 0 errors; both repository verifiers PASS; the six frozen documents byte-identical; no
+Azure action and no real monday activity. Before the closing commit, the clean build, the full suite in sequential
+batches, both verifiers, the frozen-document hashes, `git diff --check` and the line-ending check were repeated on the
+tree being committed; no production file changed after the last mutation runs, so the mutation evidence stands.
+
+**Rollout, when approved separately.** Azure Dev has none of the Gate 2B to 2F or Gate 3 migrations. Applying the three
+initial-sync migrations, and running the R3B-2 re-assertion recorded in "3F final owner review" after any bootstrap
+rerun, are owner approvals of their own.
+
+**Before 3G.** The pre-existing 3B gap recorded in "3E owner review and closure" stays open: a completion whose process
+dies, or whose final verifier deletion fails, after it consumed its OAuth transaction leaves that verifier behind. It
+must be resolved and verified, as its own maintenance item, before real monday or the 3G acceptance.
+
+**3G (real monday end-to-end acceptance and Gate closure) is NEXT / NOT STARTED** and begins only on its own
+authorization. Gate 3 stays IN PROGRESS. Premium Gates P1 to P11 are NOT STARTED.

@@ -69,4 +69,12 @@ public static class ProcessingErrors
     /// </summary>
     public static Error ReceiptContentExpired { get; } =
         Error.NotFound("processing.receipt.content_expired", "The receipt's raw content expired before it was processed.");
+
+    /// <summary>
+    /// The receipt's connection is in initial sync and not Live, and the receipt lies above its replay floor (Gate 3F,
+    /// decision D3F-12): nothing was decided, the receipt stays durable and unprocessed, and the sync generation replays it
+    /// before its cutover. A handled outcome: the transport completes the message, so nothing is redelivered.
+    /// </summary>
+    public static Error HeldForInitialSync { get; } =
+        Error.Conflict("processing.receipt.held_for_initial_sync", "The receipt is held until its connection's initial sync replays it.");
 }

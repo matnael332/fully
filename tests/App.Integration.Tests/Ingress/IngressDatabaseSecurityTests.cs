@@ -254,10 +254,16 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
 
         Assert.Equal(
             [
+                "connection_sync_scopes.no_delete_connection_sync_scopes",
+                "connection_sync_scopes.tenant_isolation_connection_sync_scopes",
+                "connection_syncs.no_delete_connection_syncs",
+                "connection_syncs.tenant_isolation_connection_syncs",
                 "connections.ingress_resolution_connections",
                 "connections.tenant_isolation_connections",
                 "connector_authorization_transactions.tenant_isolation_connector_authorization_transactions",
                 "connector_authorizations.tenant_isolation_connector_authorizations",
+                "connector_source_scopes.no_delete_connector_source_scopes",
+                "connector_source_scopes.tenant_isolation_connector_source_scopes",
                 "event_ledger.append_only_event_ledger_delete",
                 "event_ledger.append_only_event_ledger_update",
                 "event_ledger.tenant_isolation_event_ledger",
@@ -282,7 +288,8 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
             policies.Select(policy => $"{policy.Table}.{policy.Name}"));
 
         // The ledger's append-only policies (Gate 2D) only restrict: every update and delete, for everyone; and
-        // ordering state (Gate 2D), the Snapshot (Gate 2E) and reconciliation targets (Gate 3E) are never deleted.
+        // ordering state (Gate 2D), the Snapshot (Gate 2E), reconciliation targets (Gate 3E), and source scopes, sync
+        // state and sync scope progress (Gate 3F) are never deleted.
         var appendOnly = policies.Where(policy => policy.Name.StartsWith("append_only_", StringComparison.Ordinal)).ToList();
         Assert.Equal(4, appendOnly.Count);
         Assert.All(appendOnly, policy =>
@@ -297,7 +304,11 @@ public sealed class IngressDatabaseSecurityTests(DatabaseFixture fixture)
 
         var noDelete = policies.Where(policy => policy.Name.StartsWith("no_delete_", StringComparison.Ordinal)).ToList();
         Assert.Equal(
-            ["no_delete_field_ordering_states", "no_delete_reconciliation_targets", "no_delete_snapshot_fields", "no_delete_snapshot_objects"],
+            [
+                "no_delete_connection_sync_scopes", "no_delete_connection_syncs", "no_delete_connector_source_scopes",
+                "no_delete_field_ordering_states", "no_delete_reconciliation_targets", "no_delete_snapshot_fields",
+                "no_delete_snapshot_objects",
+            ],
             noDelete.Select(policy => policy.Name).Order(StringComparer.Ordinal));
         Assert.All(noDelete, policy =>
         {

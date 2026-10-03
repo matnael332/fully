@@ -158,7 +158,7 @@ public sealed partial class RetentionDatabaseSecurityTests(DatabaseFixture fixtu
                 transaction: null,
                 "SELECT column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'raw_receipts' AND column_name = 'received_at_utc';"));
 
-        // Exactly one trigger on the receipts, enabled, before every insert and every update of the receipt time.
+        // The receipt-time trigger is enabled, before every insert and every update of the receipt time.
         await using var command = new NpgsqlCommand(
             """
             SELECT t.tgname, pg_get_triggerdef(t.oid), t.tgenabled::text, p.oid::regprocedure::text, p.prosecdef,
@@ -181,7 +181,10 @@ public sealed partial class RetentionDatabaseSecurityTests(DatabaseFixture fixtu
             }
         }
 
-        var trigger = Assert.Single(triggers);
+        // Exactly the two reviewed triggers: this receipt-time stamp, and Gate 3F's ingress-position keeper, whose own
+        // checks are in InitialSyncDatabaseSecurityTests.
+        Assert.Equal(["keep_ingress_sequence_raw_receipts", Stamp], triggers.Select(candidate => candidate.Name).Order(StringComparer.Ordinal));
+        var trigger = Assert.Single(triggers, candidate => candidate.Name == Stamp);
         Assert.Equal(Stamp, trigger.Name);
         Assert.Contains(
             "BEFORE INSERT OR UPDATE OF received_at_utc ON public.raw_receipts FOR EACH ROW EXECUTE FUNCTION",
@@ -205,10 +208,10 @@ public sealed partial class RetentionDatabaseSecurityTests(DatabaseFixture fixtu
         // EXECUTE is revoked from PUBLIC: no role but the owner holds it, and a trigger needs no grant to fire.
         Assert.Equal([$"{trigger.Owner}:EXECUTE"], await GrantsAsync(connection, "public.stamp_receipt_time()"));
 
-        // Besides what extensions bring, the schema's only functions are the three approved tenant-less functions and
-        // this trigger's.
+        // Besides what extensions bring, the schema's only functions are the three approved tenant-less functions, this
+        // trigger's, and Gate 3F's ingress-position trigger's.
         Assert.Equal(
-            ["outbox_pending_tenants", "resolve_ingress_connection", "retention_expired_tenants", "stamp_receipt_time"],
+            ["keep_ingress_sequence", "outbox_pending_tenants", "resolve_ingress_connection", "retention_expired_tenants", "stamp_receipt_time"],
             await NamesAsync(
                 connection,
                 """

@@ -28,6 +28,8 @@ public sealed class IngressSecurityTests
         "src/App.Infrastructure/Persistence/Migrations/20260928171310_RawContentRetention.cs";
     private const string PurgeAgeMigrationFile =
         "src/App.Infrastructure/Persistence/Migrations/20260928235219_RawContentPurgeAge.cs";
+    private const string InitialSyncMigrationFile =
+        "src/App.Infrastructure/Persistence/Migrations/20261002140325_InitialSync.cs";
 
     [Fact]
     public void A_delivery_has_no_way_to_name_its_tenant()
@@ -130,8 +132,9 @@ public sealed class IngressSecurityTests
         // completes the three; the Gate 2F follow-up migration redefines that same function, without a cutoff, at
         // the 28-day purge age by the database's clock, and its Down restores the original. It also adds the
         // receipt-time trigger's function, which is no definer and reads nothing: it only stamps the inserted row's
-        // own receipt time with the database's clock. Any other must be added to this list deliberately, with its own
-        // pinned tests.
+        // own receipt time with the database's clock. Gate 3F adds the ingress-position trigger's function, likewise no
+        // definer and reading nothing: it only refuses a change to the row's own ingress position (its pinned tests are in
+        // InitialSyncSecurityTests). Any other must be added to this list deliberately, with its own pinned tests.
         var securityDefiner = new Regex(@"\bSECURITY\s+DEFINER\b", RegexOptions.IgnoreCase);
         var createsRoutine = new Regex(
             @"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b",
@@ -150,7 +153,7 @@ public sealed class IngressSecurityTests
             .Order(StringComparer.Ordinal)
             .ToArray();
         Assert.Equal(
-            [MigrationFile, RelayMigrationFile, RetentionMigrationFile, PurgeAgeMigrationFile, PurgeAgeMigrationFile, PurgeAgeMigrationFile],
+            [MigrationFile, RelayMigrationFile, RetentionMigrationFile, PurgeAgeMigrationFile, PurgeAgeMigrationFile, PurgeAgeMigrationFile, InitialSyncMigrationFile],
             routines);
     }
 

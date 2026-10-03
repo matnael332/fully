@@ -26,16 +26,17 @@ public sealed class EventProcessingOptions
 
 /// <summary>Hands validated transport messages to the processing pipeline and settles them by its outcome.</summary>
 /// <remarks>
-/// Every durable outcome, a quarantine and a duplicate included, is a handled message and completes it. A
-/// receipt that is not visible in the message's tenant, or a tenant mismatch, cannot be processed as delivered
-/// and is dead-lettered. A failure to commit is transient and retried.
+/// Every durable outcome, a quarantine and a duplicate included, is a handled message and completes it. So is a receipt
+/// held for its connection's initial sync: it stays durable, and the sync generation, not the transport, replays it. A
+/// receipt that is not visible in the message's tenant, or a tenant mismatch, cannot be processed as delivered and is
+/// dead-lettered. A failure to commit is transient and retried.
 /// </remarks>
 internal sealed class EventProcessingHandler(IEventProcessor processor) : ITransportMessageHandler
 {
     public async Task<TransportHandlingResult> HandleAsync(TransportEnvelope envelope, CancellationToken cancellationToken)
     {
         var processed = await processor.ProcessAsync(envelope, cancellationToken);
-        if (processed.IsSuccess)
+        if (processed.IsSuccess || processed.Error == ProcessingErrors.HeldForInitialSync)
         {
             return TransportHandlingResult.Succeeded;
         }
@@ -67,7 +68,9 @@ public static class EventProcessingRegistration
 
         services.AddSingleton(options);
         services.TryAddSingleton<EventBackboneMetrics>();
-        services.AddScoped<IEventProcessor, EventProcessor>();
+        // One processor per scope serves both the transport and initial sync's replay (Gate 3F).
+        services.AddScoped<EventProcessor>();
+        services.AddScoped<IEventProcessor>(provider => provider.GetRequiredService<EventProcessor>());
         services.AddScoped<ITransportMessageHandler, EventProcessingHandler>();
         return services;
     }

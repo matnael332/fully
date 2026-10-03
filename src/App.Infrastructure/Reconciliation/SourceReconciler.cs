@@ -161,7 +161,7 @@ internal sealed class SourceReconciler : ISourceReconciler
         if (claimed.Value.Count > 0)
         {
             var standing = await _database.ExecuteAsync(
-                (dbContext, token) => StandingAsync(dbContext, run, token),
+                (dbContext, token) => StandingAsync(dbContext, run.Tenant, run.ConnectionId, run.SourceSystem, token),
                 cancellationToken);
             if (standing.IsFailure)
             {
@@ -368,9 +368,8 @@ internal sealed class SourceReconciler : ISourceReconciler
             return ReconciliationOutcome.None;
         }
 
-        var workObject = target.WorkObject;
         var now = _clock.UtcNow;
-        var standing = await StandingAsync(dbContext, run, cancellationToken);
+        var standing = await StandingAsync(dbContext, run.Tenant, run.ConnectionId, run.SourceSystem, cancellationToken);
         if (standing.Refusal != ReconciliationOutcome.None)
         {
             return Record(row, claimId, standing.Refusal, resolvingEventId: null, now, retryAfter: null);
@@ -385,29 +384,59 @@ internal sealed class SourceReconciler : ISourceReconciler
         }
 
         var reading = read.ReadingFor(target);
+        var confirmed = await ConfirmAsync(
+            dbContext, run.Tenant, run.ConnectionId, target, reading, read.Identity, standing.Subject, correlation, now, _processing.ClockSkewTolerance, cancellationToken);
+        return Record(row, claimId, confirmed.Outcome, confirmed.ResolvingEventId, now, reading.State is null ? read.RetryAfter : null);
+    }
+
+    /// <summary>
+    /// Confirms one authoritative reading of one field in the caller's transaction, as reconciliation applies a read and as
+    /// initial sync (Gate 3F) applies its baseline: one path, so a value becomes <c>Confirmed</c> nowhere else.
+    /// </summary>
+    /// <remarks>
+    /// A refused reading is its own outcome. A reading bound to a state must come from the connection's delegated identity,
+    /// with the subject access found. A state the Snapshot already holds records nothing. Any other state is stored as its
+    /// evidence receipt and decided by the unchanged processing core as a <c>Confirmed</c> event, which alone may reach the
+    /// Snapshot. The caller holds the field's target, or the right to establish it, and has checked that access stands.
+    /// </remarks>
+    /// <returns>The outcome, and the confirmed ledger event when the outcome resolves the field.</returns>
+    internal static async Task<(ReconciliationOutcome Outcome, Guid? ResolvingEventId)> ConfirmAsync(
+        WorkContinuityDbContext dbContext,
+        TenantId tenant,
+        Guid connectionId,
+        ReconciliationTarget target,
+        TargetReading reading,
+        ConnectorIdentity? readIdentity,
+        string? subject,
+        CorrelationId correlation,
+        DateTimeOffset now,
+        TimeSpan clockSkewTolerance,
+        CancellationToken cancellationToken)
+    {
         if (reading.State is not { } state)
         {
-            return Record(row, claimId, reading.Refusal, resolvingEventId: null, now, read.RetryAfter);
+            return (reading.Refusal, null);
         }
 
         // Only a read under the connection's current delegated identity may confirm a value (D3E-8).
-        if (read.Identity is not { Kind: ConnectorIdentityKind.DelegatedUser } identity
-            || !identity.Serves(run.Tenant, run.ConnectionId)
-            || !string.Equals(identity.Subject, standing.Subject, StringComparison.Ordinal))
+        if (readIdentity is not { Kind: ConnectorIdentityKind.DelegatedUser } identity
+            || !identity.Serves(tenant, connectionId)
+            || !string.Equals(identity.Subject, subject, StringComparison.Ordinal))
         {
-            return Record(row, claimId, ReconciliationOutcome.IdentityMismatch, resolvingEventId: null, now, retryAfter: null);
+            return (ReconciliationOutcome.IdentityMismatch, null);
         }
 
-        if (await IsCurrentAsync(dbContext, run.Tenant, target, state, cancellationToken))
+        if (await IsCurrentAsync(dbContext, tenant, target, state, cancellationToken))
         {
-            return Record(row, claimId, ReconciliationOutcome.Current, resolvingEventId: null, now, retryAfter: null);
+            return (ReconciliationOutcome.Current, null);
         }
 
         // The read's evidence becomes its receipt, settled in this transaction: the database stamps its time, and no
         // outbox message is written, so the transport never sees it.
+        var workObject = target.WorkObject;
         var receipt = RawReceiptRecord.Receive(
             Guid.CreateVersion7(),
-            run.Tenant,
+            tenant,
             workObject.ConnectionReference,
             workObject.SourceSystem,
             sourceEventId: null,
@@ -430,7 +459,7 @@ internal sealed class SourceReconciler : ISourceReconciler
             target.SourceScope,
             SourceValueConfirmation.Confirmed);
         var result = await EventProcessor.DecideAndProjectAsync(
-            dbContext, receipt, confirmed, correlation, run.Tenant, now, _processing.ClockSkewTolerance, cancellationToken);
+            dbContext, receipt, confirmed, correlation, tenant, now, clockSkewTolerance, cancellationToken);
 
         // The ledger entry before the target names it.
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -446,13 +475,7 @@ internal sealed class SourceReconciler : ISourceReconciler
             _ => ReconciliationOutcome.Quarantined,
         };
 
-        return Record(
-            row,
-            claimId,
-            outcome,
-            ReconciliationOutcomes.DispositionOf(outcome) == ReconciliationDisposition.Resolve ? result.EventId.Value : null,
-            now,
-            retryAfter: null);
+        return (outcome, ReconciliationOutcomes.DispositionOf(outcome) == ReconciliationDisposition.Resolve ? result.EventId.Value : null);
     }
 
     // The target locked, if this run's claim on it still holds; null when the claim lapsed and another worker took it.
@@ -477,11 +500,16 @@ internal sealed class SourceReconciler : ISourceReconciler
         return row is not null && row.IsClaimedBy(claimId) ? row : null;
     }
 
-    // The tenant must be active, and the connection active, of the run's source, with an active authorization of an active
-    // user: the identity whose subject a read must have used. Anything else waits for access to stand again.
-    private static async Task<Standing> StandingAsync(
+    /// <summary>
+    /// Whether access stands, checked locally with no provider call, as reconciliation and initial sync (Gate 3F) both check
+    /// it: the tenant must be active, and the connection active, of the source, with an active authorization of an active
+    /// user, the identity whose subject a read must have used. Anything else waits for access to stand again.
+    /// </summary>
+    internal static async Task<Standing> StandingAsync(
         WorkContinuityDbContext dbContext,
-        ReconciliationRun run,
+        TenantId tenant,
+        Guid connectionId,
+        string sourceSystem,
         CancellationToken cancellationToken)
     {
         var rows = await dbContext.Database.SqlQuery<StandingRow>(
@@ -490,10 +518,10 @@ internal sealed class SourceReconciler : ISourceReconciler
                        a.state AS "AuthorizationState", a.provider_subject AS "ProviderSubject", u.is_active AS "UserActive",
                        a.authorized_at_utc AS "AuthorizedAtUtc"
                 FROM public.tenants AS t
-                LEFT JOIN public.connections AS c ON c.tenant_id = t.tenant_id AND c.connection_id = {run.ConnectionId}
+                LEFT JOIN public.connections AS c ON c.tenant_id = t.tenant_id AND c.connection_id = {connectionId}
                 LEFT JOIN public.connector_authorizations AS a ON a.tenant_id = c.tenant_id AND a.connection_id = c.connection_id
                 LEFT JOIN public.users AS u ON u.tenant_id = a.tenant_id AND u.user_id = a.canonical_user_id
-                WHERE t.tenant_id = {run.Tenant.Value}
+                WHERE t.tenant_id = {tenant.Value}
                 """)
             .ToListAsync(cancellationToken);
 
@@ -503,7 +531,7 @@ internal sealed class SourceReconciler : ISourceReconciler
         }
 
         var row = rows[0];
-        if (row.ConnectionStatus != nameof(ConnectionStatus.Active) || row.SourceSystem != run.SourceSystem)
+        if (row.ConnectionStatus != nameof(ConnectionStatus.Active) || row.SourceSystem != sourceSystem)
         {
             return new Standing(ReconciliationOutcome.ConnectionUnavailable, Subject: null);
         }
@@ -590,10 +618,12 @@ internal sealed class SourceReconciler : ISourceReconciler
         return bounded > backoff ? bounded : backoff;
     }
 
-    // Whether access stands, and when it does, the authorization it found: the delegated identity's subject and when the
-    // connection was last authorized. 3B sets that time only when the connection is authorized or authorized again (a
-    // renewal records its own time and keeps it), and only the connection's own delegating user may authorize it again.
-    private sealed record Standing(ReconciliationOutcome Refusal, string? Subject, DateTimeOffset? AuthorizedAt = null)
+    /// <summary>
+    /// Whether access stands, and when it does, the authorization it found: the delegated identity's subject and when the
+    /// connection was last authorized. 3B sets that time only when the connection is authorized or authorized again (a
+    /// renewal records its own time and keeps it), and only the connection's own delegating user may authorize it again.
+    /// </summary>
+    internal sealed record Standing(ReconciliationOutcome Refusal, string? Subject, DateTimeOffset? AuthorizedAt = null)
     {
         // The same authorization: the same identity, not authorized again since.
         public bool SameAuthorizationAs(Standing other) =>

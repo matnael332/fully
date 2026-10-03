@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using WorkContinuity.Core.Connectors;
 using WorkContinuity.Core.Events;
+using WorkContinuity.Core.InitialSync;
 
 namespace WorkContinuity.Connectors.Monday;
 
@@ -104,6 +105,89 @@ internal static class MondayResponseParser
             : ParseOutcome<MondayItemsPage>.Unsupported;
 
     /// <summary>
+    /// An initial-sync board validation (Gate 3F). Strict: anything but one board object with an id, a documented state, a
+    /// type and a hierarchy that are each a string or null, and a list of distinct columns each with an id and a type, is
+    /// unsupported. A board monday did not return is not found.
+    /// </summary>
+    internal static ParseOutcome<MondaySyncBoard> SyncBoard(JsonElement data)
+    {
+        if (!data.TryGetProperty("boards", out var boards) || boards.ValueKind != JsonValueKind.Array)
+        {
+            return ParseOutcome<MondaySyncBoard>.Unsupported;
+        }
+
+        switch (boards.GetArrayLength())
+        {
+            case 0:
+                return ParseOutcome<MondaySyncBoard>.NotFound;
+            case > 1:
+                return ParseOutcome<MondaySyncBoard>.Unsupported;
+        }
+
+        var board = boards[0];
+        if (board.ValueKind != JsonValueKind.Object
+            || Identifier(board, "id") is not { } id
+            || !TryState(board, out var state)
+            || !TryNullableIdentifier(board, "type", out var type)
+            || !TryNullableIdentifier(board, "hierarchy_type", out var hierarchyType)
+            || !board.TryGetProperty("columns", out var list)
+            || list.ValueKind != JsonValueKind.Array)
+        {
+            return ParseOutcome<MondaySyncBoard>.Unsupported;
+        }
+
+        var columns = new List<MondaySyncColumn>(list.GetArrayLength());
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in list.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object
+                || Identifier(entry, "id") is not { } columnId
+                || Identifier(entry, "type") is not { } columnType
+                || !seen.Add(columnId))
+            {
+                return ParseOutcome<MondaySyncBoard>.Unsupported;
+            }
+
+            columns.Add(new MondaySyncColumn(columnId, columnType));
+        }
+
+        return ParseOutcome<MondaySyncBoard>.Parsed(new MondaySyncBoard(id, state, type, hierarchyType, columns));
+    }
+
+    /// <summary>
+    /// The first page of an initial-sync status listing (Gate 3F): one board object with its id and its items page. A board
+    /// monday did not return is not found.
+    /// </summary>
+    internal static ParseOutcome<MondayStatusPage> SyncStatusPage(JsonElement data, int limit, IReadOnlyCollection<string> requestedColumns)
+    {
+        if (!data.TryGetProperty("boards", out var boards) || boards.ValueKind != JsonValueKind.Array)
+        {
+            return ParseOutcome<MondayStatusPage>.Unsupported;
+        }
+
+        switch (boards.GetArrayLength())
+        {
+            case 0:
+                return ParseOutcome<MondayStatusPage>.NotFound;
+            case > 1:
+                return ParseOutcome<MondayStatusPage>.Unsupported;
+        }
+
+        var board = boards[0];
+        return board.ValueKind == JsonValueKind.Object
+            && Identifier(board, "id") is { } boardId
+            && board.TryGetProperty("items_page", out var page)
+                ? StatusPage(page, boardId, limit, requestedColumns)
+                : ParseOutcome<MondayStatusPage>.Unsupported;
+    }
+
+    /// <summary>The next page of an initial-sync status listing (Gate 3F).</summary>
+    internal static ParseOutcome<MondayStatusPage> NextSyncStatusPage(JsonElement data, int limit, IReadOnlyCollection<string> requestedColumns) =>
+        data.TryGetProperty("next_items_page", out var page)
+            ? StatusPage(page, boardId: null, limit, requestedColumns)
+            : ParseOutcome<MondayStatusPage>.Unsupported;
+
+    /// <summary>
     /// The delegating user and account of <c>me { id account { id } }</c>: both must be monday's numeric ids, so no
     /// email address or display name can become an identity.
     /// </summary>
@@ -124,6 +208,48 @@ internal static class MondayResponseParser
 
     private static string? NumericId(JsonElement parent, string name) =>
         Identifier(parent, name) is { Length: <= 20 } id && id.All(char.IsAsciiDigit) ? id : null;
+
+    // A page of an initial-sync listing: at most the limit of distinct items, each parsed as strictly as a 3E reread, and a
+    // cursor that is null or a continuation, never interpreted.
+    private static ParseOutcome<MondayStatusPage> StatusPage(JsonElement page, string? boardId, int limit, IReadOnlyCollection<string> requestedColumns)
+    {
+        if (page.ValueKind != JsonValueKind.Object
+            || !page.TryGetProperty("items", out var items)
+            || items.ValueKind != JsonValueKind.Array
+            || items.GetArrayLength() > limit
+            || !page.TryGetProperty("cursor", out var cursorElement))
+        {
+            return ParseOutcome<MondayStatusPage>.Unsupported;
+        }
+
+        string? cursor;
+        switch (cursorElement.ValueKind)
+        {
+            case JsonValueKind.Null:
+                cursor = null;
+                break;
+            case JsonValueKind.String when ScopeContinuation.IsValid(cursorElement.GetString()):
+                cursor = cursorElement.GetString();
+                break;
+            default:
+                return ParseOutcome<MondayStatusPage>.Unsupported;
+        }
+
+        var wantedColumns = new HashSet<string>(requestedColumns, StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var parsed = new List<MondayItemStatus>(items.GetArrayLength());
+        foreach (var element in items.EnumerateArray())
+        {
+            if (ItemStatus(element, wantedColumns) is not { } item || !seen.Add(item.Id))
+            {
+                return ParseOutcome<MondayStatusPage>.Unsupported;
+            }
+
+            parsed.Add(item);
+        }
+
+        return ParseOutcome<MondayStatusPage>.Parsed(new MondayStatusPage(boardId, cursor, parsed));
+    }
 
     private static ParseOutcome<MondayItemsPage> Page(JsonElement page, int limit)
     {
@@ -348,6 +474,26 @@ internal static class MondayResponseParser
             case JsonValueKind.Null:
                 return true;
             case JsonValueKind.String:
+                value = property.GetString();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryNullableIdentifier(JsonElement parent, string name, out string? value)
+    {
+        value = null;
+        if (!parent.TryGetProperty(name, out var property))
+        {
+            return false;
+        }
+
+        switch (property.ValueKind)
+        {
+            case JsonValueKind.Null:
+                return true;
+            case JsonValueKind.String when EventText.IsIdentifier(property.GetString()):
                 value = property.GetString();
                 return true;
             default:

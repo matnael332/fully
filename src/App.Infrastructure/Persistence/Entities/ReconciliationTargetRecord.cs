@@ -31,6 +31,9 @@ public enum ReconciliationRequestKind
 
     /// <summary>A missed-webhook sweep asked to verify a field already reconciled.</summary>
     Sweep = 2,
+
+    /// <summary>Initial sync established the field from an authoritative read of its scope (Gate 3F, decision D3F-8).</summary>
+    Sync = 3,
 }
 
 /// <summary>
@@ -83,6 +86,12 @@ public sealed class ReconciliationTargetRecord : ITenantOwned
 
     /// <summary>Gets the source scope the field id belongs to, when its source has one. Never replaced once stored.</summary>
     public string? SourceScope { get; private set; }
+
+    /// <summary>
+    /// Gets the connection's scope-set version at which the field's scope was enabled after the field was known, or null:
+    /// until a baseline read of the scope confirms the field again, its earlier state is not current (Gate 3F).
+    /// </summary>
+    public long? AwaitingBaselineVersion { get; private set; }
 
     /// <summary>Gets the lifecycle state.</summary>
     public ReconciliationTargetState State { get; private set; }

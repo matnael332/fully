@@ -108,7 +108,7 @@ public sealed class ReconciliationSecurityTests
         var properties = typeof(ReconciliationTargetRecord).GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(property => property.Name).Order(StringComparer.Ordinal);
         Assert.Equal(
             [
-                "Attempts", "ClaimId", "ClaimedGeneration", "ClaimedUntilUtc", "CreatedAtUtc", "DataType", "Field", "Generation",
+                "Attempts", "AwaitingBaselineVersion", "ClaimId", "ClaimedGeneration", "ClaimedUntilUtc", "CreatedAtUtc", "DataType", "Field", "Generation",
                 "LastAttemptedAtUtc", "LastOutcome", "NextAttemptAtUtc", "ObjectConnection", "ObjectId", "ObjectSystem", "ObjectType",
                 "RequestKind", "RequestedAtUtc", "RequestedByEventId", "ResolvedAtUtc", "ResolvedByEventId", "ResolvedGeneration",
                 "SourceScope", "State", "TenantId", "VerifiedAtUtc",

@@ -145,9 +145,11 @@ public sealed class ProcessingSecurityTests
             .Select(property => (Core.Results.Error)property.GetValue(null)!)
             .ToList();
 
-        // Gate 3D added exactly one: the reason an unconfirmed change is held for reconciliation.
-        Assert.Equal(14, errors.Count);
+        // Gate 3D added exactly one: the reason an unconfirmed change is held for reconciliation. Gate 3F added exactly one:
+        // a receipt held for its connection's initial sync.
+        Assert.Equal(15, errors.Count);
         Assert.Contains(ProcessingErrors.UnconfirmedSourceValues, errors);
+        Assert.Contains(ProcessingErrors.HeldForInitialSync, errors);
         Assert.Equal(errors.Count, errors.Select(error => error.Code).Distinct(StringComparer.Ordinal).Count());
         Assert.All(errors, error =>
         {

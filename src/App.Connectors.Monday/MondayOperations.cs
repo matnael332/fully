@@ -59,6 +59,36 @@ public static class MondayOperations
         "monday.board");
 
     /// <summary>
+    /// Reads one configured board's id, state, type and hierarchy and the ids and types of its columns, to validate it as an
+    /// initial-sync scope (Gate 3F): never a name, a title or an item.
+    /// </summary>
+    public static ConnectorOperationDescriptor ReadSyncBoard { get; } = Read(
+        "monday.board.read-sync-scope",
+        "Read one monday board's id, state, type, hierarchy and column ids and types, to validate it as an initial-sync scope.",
+        "monday.board-id.v1",
+        "monday.sync-board.v1",
+        "monday.board");
+
+    /// <summary>
+    /// Reads the first page of one configured board's active items for initial sync (Gate 3F): each item's id, state and
+    /// board, and the typed <c>StatusValue</c> fields of the named status columns only.
+    /// </summary>
+    public static ConnectorOperationDescriptor ReadSyncStatusPage { get; } = Read(
+        "monday.board.read-sync-status-page",
+        "Read the first page of one monday board's items for initial sync: ids, states, boards and the named status values.",
+        "monday.sync-status-page-request.v1",
+        "monday.sync-status-page.v1",
+        "monday.board");
+
+    /// <summary>Reads the next page of an initial-sync status listing by its cursor (Gate 3F).</summary>
+    public static ConnectorOperationDescriptor ReadNextSyncStatusPage { get; } = Read(
+        "monday.items.read-next-sync-status-page",
+        "Read the next page of a monday initial-sync status listing by its cursor.",
+        "monday.sync-status-cursor.v1",
+        "monday.sync-status-page.v1",
+        "monday.board");
+
+    /// <summary>
     /// Reads the monday user and account a newly issued token acts for, so the connection's delegated identity is
     /// verified rather than assumed (Gate 3B). One attempt: it runs inside an authorization that is never retried.
     /// </summary>
@@ -77,7 +107,10 @@ public static class MondayOperations
 
     /// <summary>Every operation of the connector.</summary>
     public static IReadOnlyList<ConnectorOperationDescriptor> All { get; } =
-        [ReadItemsById, ReadItemStatusesById, ReadBoardItemsPage, ReadNextItemsPage, ReadAuthorizingIdentity];
+    [
+        ReadItemsById, ReadItemStatusesById, ReadBoardItemsPage, ReadNextItemsPage, ReadSyncBoard, ReadSyncStatusPage,
+        ReadNextSyncStatusPage, ReadAuthorizingIdentity,
+    ];
 
     private static ConnectorOperationDescriptor Read(
         string name,
@@ -112,6 +145,9 @@ public static class MondayQueries
     private const string ItemFields =
         "id name state created_at updated_at board { id } group { id } column_values { id type text value }";
 
+    private const string SyncStatusItemFields =
+        "id state board { id } column_values(ids: $columns) { id type ... on StatusValue { label index updated_at } }";
+
     /// <summary>The per-item reread. <c>limit</c> is always the number of ids, since monday's default is 25.</summary>
     public const string ReadItemsById =
         "query ReadItemsById($ids: [ID!]!, $limit: Int!) { items(ids: $ids, limit: $limit) { " + ItemFields + " } }";
@@ -136,10 +172,35 @@ public static class MondayQueries
         "query ReadNextItemsPage($cursor: String!, $limit: Int!) { next_items_page(cursor: $cursor, limit: $limit) { cursor items { "
         + ItemFields + " } } }";
 
+    /// <summary>
+    /// The initial-sync validation of one configured board (Gate 3F): its id, its state in every state, so an archived or
+    /// deleted board is reported as such rather than missing, its type and hierarchy, and only the ids and types of its
+    /// columns. Never a name, a title, a description or an item.
+    /// </summary>
+    public const string ReadSyncBoard =
+        "query ReadSyncBoard($boardId: ID!) { boards(ids: [$boardId], state: all) { id state type hierarchy_type columns { id type } } }";
+
+    /// <summary>
+    /// The first initial-sync page of one configured board (Gate 3F): the board's id, so the page binds to it, and its active
+    /// items, each with only its id, state and board and the named status columns' id, type and typed <c>StatusValue</c>
+    /// fields. No name, text or value, and not the item's own update time.
+    /// </summary>
+    public const string ReadSyncStatusPage =
+        "query ReadSyncStatusPage($boardId: ID!, $limit: Int!, $columns: [String!]!) { boards(ids: [$boardId]) { id items_page(limit: $limit) { cursor items { "
+        + SyncStatusItemFields + " } } } }";
+
+    /// <summary>The next initial-sync page, by the cursor of the previous one, with the same item fields.</summary>
+    public const string ReadNextSyncStatusPage =
+        "query ReadNextSyncStatusPage($cursor: String!, $limit: Int!, $columns: [String!]!) { next_items_page(cursor: $cursor, limit: $limit) { cursor items { "
+        + SyncStatusItemFields + " } } }";
+
     /// <summary>The delegating user and account of a token: their numeric ids only, never an email address or a name.</summary>
     public const string ReadAuthorizingIdentity = "query ReadAuthorizingIdentity { me { id account { id } } }";
 
     /// <summary>Every document the connector sends.</summary>
     public static IReadOnlyList<string> All { get; } =
-        [ReadItemsById, ReadItemStatusesById, ReadBoardItemsPage, ReadNextItemsPage, ReadAuthorizingIdentity];
+    [
+        ReadItemsById, ReadItemStatusesById, ReadBoardItemsPage, ReadNextItemsPage, ReadSyncBoard, ReadSyncStatusPage,
+        ReadNextSyncStatusPage, ReadAuthorizingIdentity,
+    ];
 }

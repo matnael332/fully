@@ -31,7 +31,8 @@ public static class WorkContinuityModel
         [
             "tenants", "users", "raw_receipts", "outbox_messages", "connections", "event_ledger", "event_ledger_fields",
             "field_ordering_states", "snapshot_objects", "snapshot_fields", "connector_authorizations",
-            "connector_authorization_transactions", "reconciliation_targets",
+            "connector_authorization_transactions", "reconciliation_targets", "connector_source_scopes", "connection_syncs",
+            "connection_sync_scopes",
         ];
 
     /// <summary>Applies the schema to a model builder.</summary>
@@ -155,6 +156,15 @@ public static class WorkContinuityModel
                 .IsRequired();
             receivedAt.Metadata.SetBeforeSaveBehavior(PropertySaveBehavior.Ignore);
             receivedAt.Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
+
+            // The local ingress sequence (Gate 3F, decision D3F-2): an identity the database generates at insert and a
+            // trigger keeps from ever changing. It only fences initial sync's held receipts; it never orders business state.
+            var ingressSequence = entity.Property(record => record.IngressSequence)
+                .HasColumnName("ingress_sequence")
+                .UseIdentityAlwaysColumn()
+                .IsRequired();
+            ingressSequence.Metadata.SetBeforeSaveBehavior(PropertySaveBehavior.Ignore);
+            ingressSequence.Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
             entity.Property(record => record.Payload)
                 .HasColumnName("payload")
                 .HasColumnType("jsonb");
@@ -191,6 +201,11 @@ public static class WorkContinuityModel
             entity.HasIndex(record => new { record.TenantId, record.ReceivedAtUtc })
                 .HasDatabaseName("ix_raw_receipts_tenant_content_received")
                 .HasFilter("payload IS NOT NULL");
+
+            // Supports initial sync's fences and replay: a connection's receipts by ingress position.
+            entity.HasIndex(record => new { record.TenantId, record.ConnectionReference, record.IngressSequence })
+                .HasDatabaseName("ix_raw_receipts_tenant_connection_ingress")
+                .IsUnique();
         });
 
         modelBuilder.Entity<OutboxMessageRecord>(entity =>
@@ -270,6 +285,7 @@ public static class WorkContinuityModel
         ConfigureSnapshot(modelBuilder, tenantIdConverter);
         ConfigureConnectorAuthorizations(modelBuilder, tenantIdConverter, userIdConverter);
         ConfigureReconciliation(modelBuilder, tenantIdConverter);
+        ConfigureInitialSync(modelBuilder, tenantIdConverter);
     }
 
     // The Gate 3E reconciliation targets (decision D3E-11): identifiers, the source scope and the lifecycle only. No column
@@ -281,10 +297,10 @@ public static class WorkContinuityModel
             entity.ToTable("reconciliation_targets", table =>
             {
                 table.HasCheckConstraint("ck_reconciliation_targets_state", "state IN ('Pending', 'Resolved', 'Held')");
-                table.HasCheckConstraint("ck_reconciliation_targets_request_kind", "request_kind IN ('Event', 'Sweep')");
+                table.HasCheckConstraint("ck_reconciliation_targets_request_kind", "request_kind IN ('Event', 'Sweep', 'Sync')");
                 table.HasCheckConstraint(
                     "ck_reconciliation_targets_requester",
-                    "(request_kind = 'Sweep') = (requested_by_event_id IS NULL)");
+                    "(request_kind = 'Event') = (requested_by_event_id IS NOT NULL)");
                 table.HasCheckConstraint(
                     "ck_reconciliation_targets_generation",
                     "generation >= 1 AND (resolved_generation IS NULL OR resolved_generation BETWEEN 1 AND generation)");
@@ -297,6 +313,7 @@ public static class WorkContinuityModel
                     + "AND (claimed_generation IS NULL OR claimed_generation BETWEEN 1 AND generation)");
                 table.HasCheckConstraint("ck_reconciliation_targets_attempts", "attempts >= 0");
                 table.HasCheckConstraint("ck_reconciliation_targets_scope", "source_scope IS NULL OR source_scope <> ''");
+                table.HasCheckConstraint("ck_reconciliation_targets_awaiting_baseline", "awaiting_baseline_version IS NULL OR awaiting_baseline_version >= 1");
                 table.HasCheckConstraint("ck_reconciliation_targets_data_type", $"data_type IN ({DefinedNames<FactDataType>()})");
             });
             entity.HasKey(record => new
@@ -316,6 +333,7 @@ public static class WorkContinuityModel
             entity.Property(record => record.Field).HasColumnName("field").HasMaxLength(64);
             entity.Property(record => record.DataType).HasColumnName("data_type").HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(record => record.SourceScope).HasColumnName("source_scope").HasMaxLength(EventText.MaxIdentifierLength);
+            entity.Property(record => record.AwaitingBaselineVersion).HasColumnName("awaiting_baseline_version");
             entity.Property(record => record.State).HasColumnName("state").HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(record => record.Generation).HasColumnName("generation").IsRequired();
             entity.Property(record => record.ResolvedGeneration).HasColumnName("resolved_generation");
@@ -355,6 +373,146 @@ public static class WorkContinuityModel
                 .HasDatabaseName("ix_reconciliation_targets_tenant_requested_by");
             entity.HasIndex(record => new { record.TenantId, record.ResolvedByEventId })
                 .HasDatabaseName("ix_reconciliation_targets_tenant_resolved_by");
+        });
+    }
+
+    // Gate 3F initial sync: configured source scopes, each connection's sync state and each generation's scope progress.
+    // Identifiers, flags, fences, counts and outcome codes only: no column can hold a value, a label, a continuation, a
+    // credential or a provider response. Every foreign key includes the tenant.
+    private static void ConfigureInitialSync(ModelBuilder modelBuilder, ValueConverter<TenantId, Guid> tenantIdConverter)
+    {
+        modelBuilder.Entity<ConnectorSourceScopeRecord>(entity =>
+        {
+            entity.ToTable("connector_source_scopes", table =>
+            {
+                table.HasCheckConstraint("ck_connector_source_scopes_source", "source_system <> ''");
+                table.HasCheckConstraint("ck_connector_source_scopes_resource", "resource_id <> ''");
+
+                // A disabled scope never has a current baseline.
+                table.HasCheckConstraint(
+                    "ck_connector_source_scopes_baseline",
+                    "baseline_generation IS NULL OR (enabled AND baseline_generation >= 1)");
+            });
+            entity.HasKey(record => new { record.TenantId, record.ConnectionId, record.ResourceId });
+            entity.Property(record => record.TenantId).HasColumnName("tenant_id").HasConversion(tenantIdConverter);
+            entity.Property(record => record.ConnectionId).HasColumnName("connection_id");
+            entity.Property(record => record.SourceSystem).HasColumnName("source_system").HasMaxLength(64).IsRequired();
+            entity.Property(record => record.ResourceId).HasColumnName("resource_id").HasMaxLength(EventText.MaxIdentifierLength);
+            entity.Property(record => record.Enabled).HasColumnName("enabled").IsRequired();
+            entity.Property(record => record.BaselineGeneration).HasColumnName("baseline_generation");
+            entity.Property(record => record.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamptz").IsRequired();
+            entity.Property(record => record.UpdatedAtUtc).HasColumnName("updated_at_utc").HasColumnType("timestamptz").IsRequired();
+            entity.HasOne<ConnectionRecord>()
+                .WithMany()
+                .HasForeignKey(record => new { record.TenantId, record.ConnectionId })
+                .HasPrincipalKey(connection => new { connection.TenantId, connection.ConnectionId })
+                .HasConstraintName("fk_connector_source_scopes_connection")
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ConnectionSyncRecord>(entity =>
+        {
+            entity.ToTable("connection_syncs", table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_connection_syncs_state",
+                    "state IN ('NotStarted', 'Buffering', 'Reading', 'Replaying', 'Live', 'Failed', 'RequiresRestart')");
+                table.HasCheckConstraint("ck_connection_syncs_generation", "generation >= 0 AND (state = 'NotStarted') = (generation = 0)");
+
+                // A connection not yet started has no generation, so no authority, start or scope-set version of one.
+                table.HasCheckConstraint(
+                    "ck_connection_syncs_not_started",
+                    "(state = 'NotStarted') = (provider_subject IS NULL) AND (state = 'NotStarted') = (authorized_at_utc IS NULL) "
+                    + "AND (state = 'NotStarted') = (started_at_utc IS NULL) AND (state = 'NotStarted') = (generation_scope_version IS NULL)");
+
+                // A generation reads one version of the scope set, and is Live only while that version is current.
+                table.HasCheckConstraint(
+                    "ck_connection_syncs_scope_version",
+                    "scope_version >= 1 AND (generation_scope_version IS NULL OR generation_scope_version BETWEEN 1 AND scope_version) "
+                    + "AND (state <> 'Live' OR generation_scope_version = scope_version)");
+                table.HasCheckConstraint(
+                    "ck_connection_syncs_fences",
+                    "replay_floor >= 0 AND replay_floor <= buffer_start_fence "
+                    + "AND (replay_fence IS NULL OR replay_fence >= replay_floor) "
+                    + "AND (cutover_fence IS NULL OR cutover_fence >= COALESCE(replay_fence, replay_floor))");
+                table.HasCheckConstraint(
+                    "ck_connection_syncs_live",
+                    "(state = 'Live') = (cutover_fence IS NOT NULL AND live_at_utc IS NOT NULL)");
+                table.HasCheckConstraint("ck_connection_syncs_claim", "(claim_id IS NULL) = (claimed_until_utc IS NULL)");
+                table.HasCheckConstraint("ck_connection_syncs_attempts", "attempts >= 0");
+                table.HasCheckConstraint("ck_connection_syncs_subject", "provider_subject <> ''");
+            });
+            entity.HasKey(record => new { record.TenantId, record.ConnectionId });
+            entity.Property(record => record.TenantId).HasColumnName("tenant_id").HasConversion(tenantIdConverter);
+            entity.Property(record => record.ConnectionId).HasColumnName("connection_id");
+            entity.Property(record => record.SourceSystem).HasColumnName("source_system").HasMaxLength(64).IsRequired();
+            entity.Property(record => record.Generation).HasColumnName("generation").IsRequired();
+            entity.Property(record => record.State).HasColumnName("state").HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(record => record.ProviderSubject).HasColumnName("provider_subject").HasMaxLength(EventText.MaxIdentifierLength);
+            entity.Property(record => record.AuthorizedAtUtc).HasColumnName("authorized_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.ScopeVersion).HasColumnName("scope_version").IsRequired();
+            entity.Property(record => record.GenerationScopeVersion).HasColumnName("generation_scope_version");
+            entity.Property(record => record.ReplayFloor).HasColumnName("replay_floor").IsRequired();
+            entity.Property(record => record.BufferStartFence).HasColumnName("buffer_start_fence").IsRequired();
+            entity.Property(record => record.ReplayFence).HasColumnName("replay_fence");
+            entity.Property(record => record.CutoverFence).HasColumnName("cutover_fence");
+            entity.Property(record => record.ClaimId).HasColumnName("claim_id");
+            entity.Property(record => record.ClaimedUntilUtc).HasColumnName("claimed_until_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.Attempts).HasColumnName("attempts").IsRequired();
+            entity.Property(record => record.NextAttemptAtUtc).HasColumnName("next_attempt_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.LastOutcome).HasColumnName("last_outcome").HasMaxLength(ConnectionSyncRecord.MaxOutcomeLength);
+            entity.Property(record => record.StartedAtUtc).HasColumnName("started_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.LiveAtUtc).HasColumnName("live_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.UpdatedAtUtc).HasColumnName("updated_at_utc").HasColumnType("timestamptz").IsRequired();
+            entity.HasOne<ConnectionRecord>()
+                .WithMany()
+                .HasForeignKey(record => new { record.TenantId, record.ConnectionId })
+                .HasPrincipalKey(connection => new { connection.TenantId, connection.ConnectionId })
+                .HasConstraintName("fk_connection_syncs_connection")
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ConnectionSyncScopeRecord>(entity =>
+        {
+            entity.ToTable("connection_sync_scopes", table =>
+            {
+                table.HasCheckConstraint("ck_connection_sync_scopes_state", "state IN ('Pending', 'Completed', 'Held')");
+                table.HasCheckConstraint("ck_connection_sync_scopes_generation", "generation >= 1");
+                table.HasCheckConstraint(
+                    "ck_connection_sync_scopes_counts",
+                    "attempts >= 0 AND pages_read >= 0 AND objects_read >= 0 AND fields_applied >= 0");
+                table.HasCheckConstraint(
+                    "ck_connection_sync_scopes_completed",
+                    "(state = 'Completed') = (completed_at_utc IS NOT NULL)");
+            });
+            entity.HasKey(record => new { record.TenantId, record.ConnectionId, record.Generation, record.ResourceId });
+            entity.Property(record => record.TenantId).HasColumnName("tenant_id").HasConversion(tenantIdConverter);
+            entity.Property(record => record.ConnectionId).HasColumnName("connection_id");
+            entity.Property(record => record.Generation).HasColumnName("generation");
+            entity.Property(record => record.ResourceId).HasColumnName("resource_id").HasMaxLength(EventText.MaxIdentifierLength);
+            entity.Property(record => record.State).HasColumnName("state").HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(record => record.Attempts).HasColumnName("attempts").IsRequired();
+            entity.Property(record => record.LastOutcome).HasColumnName("last_outcome").HasMaxLength(ConnectionSyncRecord.MaxOutcomeLength);
+            entity.Property(record => record.PagesRead).HasColumnName("pages_read").IsRequired();
+            entity.Property(record => record.ObjectsRead).HasColumnName("objects_read").IsRequired();
+            entity.Property(record => record.FieldsApplied).HasColumnName("fields_applied").IsRequired();
+            entity.Property(record => record.CompletedAtUtc).HasColumnName("completed_at_utc").HasColumnType("timestamptz");
+
+            // A generation's scopes are its connection's configured scopes, and belong to its sync row.
+            entity.HasIndex(record => new { record.TenantId, record.ConnectionId, record.ResourceId })
+                .HasDatabaseName("ix_connection_sync_scopes_scope");
+            entity.HasOne<ConnectorSourceScopeRecord>()
+                .WithMany()
+                .HasForeignKey(record => new { record.TenantId, record.ConnectionId, record.ResourceId })
+                .HasPrincipalKey(scope => new { scope.TenantId, scope.ConnectionId, scope.ResourceId })
+                .HasConstraintName("fk_connection_sync_scopes_scope")
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ConnectionSyncRecord>()
+                .WithMany()
+                .HasForeignKey(record => new { record.TenantId, record.ConnectionId })
+                .HasPrincipalKey(sync => new { sync.TenantId, sync.ConnectionId })
+                .HasConstraintName("fk_connection_sync_scopes_sync")
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 

@@ -146,25 +146,30 @@ public sealed class MondayStatusReader : IAuthoritativeSourceReader
                 ? ReconciliationOutcome.ScopeMissing
                 : null;
 
-    private static TargetReading Bind(ReconciliationTarget target, Dictionary<string, MondayItemStatus> items)
-    {
-        if (!items.TryGetValue(target.WorkObject.SourceObjectId, out var item))
-        {
-            return TargetReading.Refused(ReconciliationOutcome.ObjectMissing);
-        }
+    private static TargetReading Bind(ReconciliationTarget target, Dictionary<string, MondayItemStatus> items) =>
+        items.TryGetValue(target.WorkObject.SourceObjectId, out var item)
+            ? ReadStatus(item, target.SourceScope, target.Field, MondayOperations.ReadItemStatusesById)
+            : TargetReading.Refused(ReconciliationOutcome.ObjectMissing);
 
+    /// <summary>
+    /// One status field of one returned item, bound to what was asked, as the 3E reread and the 3F initial sync both read it:
+    /// the item active and on the expected board, the column of monday's status type with the typed <c>StatusValue</c>
+    /// fields, and a canonical label; the evidence names the operation that read it.
+    /// </summary>
+    internal static TargetReading ReadStatus(MondayItemStatus item, string? board, string field, ConnectorOperationDescriptor operation)
+    {
         if (item.State != MondayItemState.Active)
         {
             return TargetReading.Refused(ReconciliationOutcome.ObjectInactive);
         }
 
         // The same item on another board is not the same field: never remapped to whatever monday returned.
-        if (item.BoardId is null || !string.Equals(item.BoardId, target.SourceScope, StringComparison.Ordinal))
+        if (item.BoardId is null || !string.Equals(item.BoardId, board, StringComparison.Ordinal))
         {
             return TargetReading.Refused(ReconciliationOutcome.BindingMismatch);
         }
 
-        var column = item.Columns.SingleOrDefault(candidate => string.Equals(candidate.ColumnId, target.Field, StringComparison.Ordinal));
+        var column = item.Columns.SingleOrDefault(candidate => string.Equals(candidate.ColumnId, field, StringComparison.Ordinal));
         if (column is null)
         {
             return TargetReading.Refused(ReconciliationOutcome.FieldMissing);
@@ -182,7 +187,7 @@ public sealed class MondayStatusReader : IAuthoritativeSourceReader
             return TargetReading.Refused(ReconciliationOutcome.ValueInvalid);
         }
 
-        return TargetReading.Observed(new AuthoritativeFieldState(status.Label, UpdatedAt(status.UpdatedAt), Evidence(item, column, status)));
+        return TargetReading.Observed(new AuthoritativeFieldState(status.Label, UpdatedAt(status.UpdatedAt), Evidence(operation, item, column, status)));
     }
 
     private static DateTimeOffset? UpdatedAt(string? text) =>
@@ -192,14 +197,19 @@ public sealed class MondayStatusReader : IAuthoritativeSourceReader
             ? parsed.ToUniversalTime()
             : null;
 
-    // Exactly the provider values consumed, each copied from monday's own JSON text, in the response's own shape.
-    private static ObservationEvidence Evidence(MondayItemStatus item, MondayStatusColumn column, MondayStatusFields status)
+    // Exactly the provider values consumed, each copied from monday's own JSON text, in the response's own shape, under the
+    // name of the operation that read them.
+    private static ObservationEvidence Evidence(
+        ConnectorOperationDescriptor operation,
+        MondayItemStatus item,
+        MondayStatusColumn column,
+        MondayStatusFields status)
     {
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer))
         {
             writer.WriteStartObject();
-            writer.WriteString("operation", MondayOperations.ReadItemStatusesById.Name);
+            writer.WriteString("operation", operation.Name);
             writer.WriteString("api_version", MondayApiVersion.Pinned);
             writer.WriteStartObject("item");
             writer.WritePropertyName("id");

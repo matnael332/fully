@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using WorkContinuity.Core.Connectors;
 using WorkContinuity.Core.Events;
+using WorkContinuity.Core.InitialSync;
 using WorkContinuity.Core.Results;
 using WorkContinuity.Core.Time;
 
@@ -186,8 +187,100 @@ public sealed class MondayReadClient
         return ExecuteAsync(context, operation, request, data => MondayResponseParser.NextItemsPage(data, limit), cancellationToken);
     }
 
+    /// <summary>
+    /// Reads one board's id, state, type and hierarchy and the ids and types of its columns, to validate it as an initial-sync
+    /// scope (Gate 3F). The board is read in every state, so an archived or deleted board is reported as such.
+    /// </summary>
+    /// <param name="context">The call's tenant, connection and correlation.</param>
+    /// <param name="boardId">The configured monday board id.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    public Task<ConnectorCallResult<MondaySyncBoard>> ReadSyncBoardAsync(
+        MondayRequestContext context,
+        string boardId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var operation = MondayOperations.ReadSyncBoard;
+
+        if (!IsMondayId(boardId))
+        {
+            return Task.FromResult(Invalid<MondaySyncBoard>(operation));
+        }
+
+        var request = new MondayGraphQlRequest(MondayQueries.ReadSyncBoard).With("boardId", boardId);
+        return ExecuteAsync(context, operation, request, MondayResponseParser.SyncBoard, cancellationToken);
+    }
+
+    /// <summary>
+    /// Reads the first initial-sync page of one board (Gate 3F): its active items' ids, states and boards, and the named
+    /// columns' typed <c>StatusValue</c> fields.
+    /// </summary>
+    /// <param name="context">The call's tenant, connection and correlation.</param>
+    /// <param name="boardId">The configured monday board id.</param>
+    /// <param name="limit">The page size: 1 to 500.</param>
+    /// <param name="columnIds">The status column ids: 1 to 100 distinct column tokens.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    public Task<ConnectorCallResult<MondayStatusPage>> ReadSyncStatusPageAsync(
+        MondayRequestContext context,
+        string boardId,
+        int limit,
+        IReadOnlyCollection<string> columnIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var operation = MondayOperations.ReadSyncStatusPage;
+
+        if (!IsMondayId(boardId) || limit is < 1 or > MondayOperations.MaxPageSize || !AreColumns(columnIds))
+        {
+            return Task.FromResult(Invalid<MondayStatusPage>(operation));
+        }
+
+        var columns = columnIds.ToArray();
+        var request = new MondayGraphQlRequest(MondayQueries.ReadSyncStatusPage)
+            .With("boardId", boardId)
+            .With("limit", limit)
+            .With("columns", columns);
+
+        return ExecuteAsync(context, operation, request, data => MondayResponseParser.SyncStatusPage(data, limit, columns), cancellationToken);
+    }
+
+    /// <summary>Reads the next initial-sync page by the cursor of the previous one (Gate 3F).</summary>
+    /// <param name="context">The call's tenant, connection and correlation.</param>
+    /// <param name="cursor">The cursor monday returned with the previous page.</param>
+    /// <param name="limit">The page size: 1 to 500.</param>
+    /// <param name="columnIds">The status column ids: 1 to 100 distinct column tokens.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    public Task<ConnectorCallResult<MondayStatusPage>> ReadNextSyncStatusPageAsync(
+        MondayRequestContext context,
+        string cursor,
+        int limit,
+        IReadOnlyCollection<string> columnIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var operation = MondayOperations.ReadNextSyncStatusPage;
+
+        if (!ScopeContinuation.IsValid(cursor) || limit is < 1 or > MondayOperations.MaxPageSize || !AreColumns(columnIds))
+        {
+            return Task.FromResult(Invalid<MondayStatusPage>(operation));
+        }
+
+        var columns = columnIds.ToArray();
+        var request = new MondayGraphQlRequest(MondayQueries.ReadNextSyncStatusPage)
+            .With("cursor", cursor)
+            .With("limit", limit)
+            .With("columns", columns);
+
+        return ExecuteAsync(context, operation, request, data => MondayResponseParser.NextSyncStatusPage(data, limit, columns), cancellationToken);
+    }
+
     private static bool IsMondayId(string? value) =>
         value is { Length: > 0 and <= 20 } && value.All(char.IsAsciiDigit);
+
+    private static bool AreColumns(IReadOnlyCollection<string>? columnIds) =>
+        columnIds is { Count: > 0 and <= MondayOperations.MaxColumnsPerRead }
+        && columnIds.All(EventText.IsToken)
+        && columnIds.Distinct(StringComparer.Ordinal).Count() == columnIds.Count;
 
     private static ConnectorCallResult<TValue> Invalid<TValue>(ConnectorOperationDescriptor operation) =>
         ConnectorCallResult<TValue>.Failed(

@@ -59,6 +59,189 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                     b.ToTable("connections", (string)null);
                 });
 
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ConnectionSyncRecord", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("connection_id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<DateTimeOffset?>("AuthorizedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("authorized_at_utc");
+
+                    b.Property<long>("BufferStartFence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("buffer_start_fence");
+
+                    b.Property<Guid?>("ClaimId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("claim_id");
+
+                    b.Property<DateTimeOffset?>("ClaimedUntilUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("claimed_until_utc");
+
+                    b.Property<long?>("CutoverFence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("cutover_fence");
+
+                    b.Property<long>("Generation")
+                        .HasColumnType("bigint")
+                        .HasColumnName("generation");
+
+                    b.Property<long?>("GenerationScopeVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("generation_scope_version");
+
+                    b.Property<string>("LastOutcome")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_outcome");
+
+                    b.Property<DateTimeOffset?>("LiveAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("live_at_utc");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("next_attempt_at_utc");
+
+                    b.Property<string>("ProviderSubject")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("provider_subject");
+
+                    b.Property<long?>("ReplayFence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("replay_fence");
+
+                    b.Property<long>("ReplayFloor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("replay_floor");
+
+                    b.Property<long>("ScopeVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("scope_version");
+
+                    b.Property<string>("SourceSystem")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("source_system");
+
+                    b.Property<DateTimeOffset?>("StartedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("started_at_utc");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("state");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("TenantId", "ConnectionId");
+
+                    b.ToTable("connection_syncs", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_connection_syncs_attempts", "attempts >= 0");
+
+                            t.HasCheckConstraint("ck_connection_syncs_claim", "(claim_id IS NULL) = (claimed_until_utc IS NULL)");
+
+                            t.HasCheckConstraint("ck_connection_syncs_fences", "replay_floor >= 0 AND replay_floor <= buffer_start_fence AND (replay_fence IS NULL OR replay_fence >= replay_floor) AND (cutover_fence IS NULL OR cutover_fence >= COALESCE(replay_fence, replay_floor))");
+
+                            t.HasCheckConstraint("ck_connection_syncs_generation", "generation >= 0 AND (state = 'NotStarted') = (generation = 0)");
+
+                            t.HasCheckConstraint("ck_connection_syncs_live", "(state = 'Live') = (cutover_fence IS NOT NULL AND live_at_utc IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_connection_syncs_not_started", "(state = 'NotStarted') = (provider_subject IS NULL) AND (state = 'NotStarted') = (authorized_at_utc IS NULL) AND (state = 'NotStarted') = (started_at_utc IS NULL) AND (state = 'NotStarted') = (generation_scope_version IS NULL)");
+
+                            t.HasCheckConstraint("ck_connection_syncs_scope_version", "scope_version >= 1 AND (generation_scope_version IS NULL OR generation_scope_version BETWEEN 1 AND scope_version) AND (state <> 'Live' OR generation_scope_version = scope_version)");
+
+                            t.HasCheckConstraint("ck_connection_syncs_state", "state IN ('NotStarted', 'Buffering', 'Reading', 'Replaying', 'Live', 'Failed', 'RequiresRestart')");
+
+                            t.HasCheckConstraint("ck_connection_syncs_subject", "provider_subject <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ConnectionSyncScopeRecord", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("connection_id");
+
+                    b.Property<long>("Generation")
+                        .HasColumnType("bigint")
+                        .HasColumnName("generation");
+
+                    b.Property<string>("ResourceId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("resource_id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("completed_at_utc");
+
+                    b.Property<int>("FieldsApplied")
+                        .HasColumnType("integer")
+                        .HasColumnName("fields_applied");
+
+                    b.Property<string>("LastOutcome")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_outcome");
+
+                    b.Property<int>("ObjectsRead")
+                        .HasColumnType("integer")
+                        .HasColumnName("objects_read");
+
+                    b.Property<int>("PagesRead")
+                        .HasColumnType("integer")
+                        .HasColumnName("pages_read");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("state");
+
+                    b.HasKey("TenantId", "ConnectionId", "Generation", "ResourceId");
+
+                    b.HasIndex("TenantId", "ConnectionId", "ResourceId")
+                        .HasDatabaseName("ix_connection_sync_scopes_scope");
+
+                    b.ToTable("connection_sync_scopes", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_connection_sync_scopes_completed", "(state = 'Completed') = (completed_at_utc IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_connection_sync_scopes_counts", "attempts >= 0 AND pages_read >= 0 AND objects_read >= 0 AND fields_applied >= 0");
+
+                            t.HasCheckConstraint("ck_connection_sync_scopes_generation", "generation >= 1");
+
+                            t.HasCheckConstraint("ck_connection_sync_scopes_state", "state IN ('Pending', 'Completed', 'Held')");
+                        });
+                });
+
             modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ConnectorAuthorizationRecord", b =>
                 {
                     b.Property<Guid>("ConnectionId")
@@ -241,6 +424,55 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("ck_connector_authorization_transactions_purpose", "purpose IN ('Connect', 'Reauthorize')");
 
                             t.HasCheckConstraint("ck_connector_authorization_transactions_scopes", "requested_scopes <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ConnectorSourceScopeRecord", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("connection_id");
+
+                    b.Property<string>("ResourceId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("resource_id");
+
+                    b.Property<long?>("BaselineGeneration")
+                        .HasColumnType("bigint")
+                        .HasColumnName("baseline_generation");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("SourceSystem")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("source_system");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("TenantId", "ConnectionId", "ResourceId");
+
+                    b.ToTable("connector_source_scopes", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_connector_source_scopes_baseline", "baseline_generation IS NULL OR (enabled AND baseline_generation >= 1)");
+
+                            t.HasCheckConstraint("ck_connector_source_scopes_resource", "resource_id <> ''");
+
+                            t.HasCheckConstraint("ck_connector_source_scopes_source", "source_system <> ''");
                         });
                 });
 
@@ -541,6 +773,13 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("connection_reference");
 
+                    b.Property<long>("IngressSequence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("ingress_sequence");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("IngressSequence"));
+
                     b.Property<string>("Payload")
                         .HasColumnType("jsonb")
                         .HasColumnName("payload");
@@ -592,6 +831,10 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_raw_receipts_tenant_content_received")
                         .HasFilter("payload IS NOT NULL");
 
+                    b.HasIndex("TenantId", "ConnectionReference", "IngressSequence")
+                        .IsUnique()
+                        .HasDatabaseName("ix_raw_receipts_tenant_connection_ingress");
+
                     b.HasIndex("TenantId", "ConnectionReference", "PayloadFingerprint")
                         .HasDatabaseName("ix_raw_receipts_tenant_connection_fingerprint")
                         .HasFilter("source_event_id IS NULL");
@@ -641,6 +884,10 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                     b.Property<int>("Attempts")
                         .HasColumnType("integer")
                         .HasColumnName("attempts");
+
+                    b.Property<long?>("AwaitingBaselineVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("awaiting_baseline_version");
 
                     b.Property<Guid?>("ClaimId")
                         .HasColumnType("uuid")
@@ -740,15 +987,17 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_reconciliation_targets_attempts", "attempts >= 0");
 
+                            t.HasCheckConstraint("ck_reconciliation_targets_awaiting_baseline", "awaiting_baseline_version IS NULL OR awaiting_baseline_version >= 1");
+
                             t.HasCheckConstraint("ck_reconciliation_targets_claim", "(claim_id IS NULL) = (claimed_generation IS NULL) AND (claim_id IS NULL) = (claimed_until_utc IS NULL) AND (claimed_generation IS NULL OR claimed_generation BETWEEN 1 AND generation)");
 
                             t.HasCheckConstraint("ck_reconciliation_targets_data_type", "data_type IN ('TaskStatus', 'PcActivity', 'ApprovalDecision', 'IdentityAndPermissions', 'Deadline', 'ActionResult')");
 
                             t.HasCheckConstraint("ck_reconciliation_targets_generation", "generation >= 1 AND (resolved_generation IS NULL OR resolved_generation BETWEEN 1 AND generation)");
 
-                            t.HasCheckConstraint("ck_reconciliation_targets_request_kind", "request_kind IN ('Event', 'Sweep')");
+                            t.HasCheckConstraint("ck_reconciliation_targets_request_kind", "request_kind IN ('Event', 'Sweep', 'Sync')");
 
-                            t.HasCheckConstraint("ck_reconciliation_targets_requester", "(request_kind = 'Sweep') = (requested_by_event_id IS NULL)");
+                            t.HasCheckConstraint("ck_reconciliation_targets_requester", "(request_kind = 'Event') = (requested_by_event_id IS NOT NULL)");
 
                             t.HasCheckConstraint("ck_reconciliation_targets_resolved", "state <> 'Resolved' OR resolved_generation = generation");
 
@@ -992,6 +1241,34 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ConnectionSyncRecord", b =>
+                {
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.ConnectionRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ConnectionId")
+                        .HasPrincipalKey("TenantId", "ConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_connection_syncs_connection");
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ConnectionSyncScopeRecord", b =>
+                {
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.ConnectionSyncRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_connection_sync_scopes_sync");
+
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.ConnectorSourceScopeRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ConnectionId", "ResourceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_connection_sync_scopes_scope");
+                });
+
             modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ConnectorAuthorizationRecord", b =>
                 {
                     b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.UserRecord", null)
@@ -1020,6 +1297,17 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_connector_authorization_transactions_user");
+                });
+
+            modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.ConnectorSourceScopeRecord", b =>
+                {
+                    b.HasOne("WorkContinuity.Infrastructure.Persistence.Entities.ConnectionRecord", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ConnectionId")
+                        .HasPrincipalKey("TenantId", "ConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_connector_source_scopes_connection");
                 });
 
             modelBuilder.Entity("WorkContinuity.Infrastructure.Persistence.Entities.EventLedgerFieldRecord", b =>

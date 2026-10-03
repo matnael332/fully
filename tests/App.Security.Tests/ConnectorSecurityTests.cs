@@ -246,9 +246,14 @@ public sealed class ConnectorSecurityTests
     [Fact]
     public void Every_connector_operation_is_a_declared_low_risk_read_with_a_single_read_query()
     {
-        // Gate 3E added the status reread, the only fifth operation, and it is a read like every other.
-        Assert.Equal(5, MondayOperations.All.Count);
+        // Gate 3E added the status reread, the only fifth operation; Gate 3F added exactly three initial-sync reads. Each is
+        // a read like every other.
+        Assert.Equal(8, MondayOperations.All.Count);
         Assert.Contains(MondayOperations.ReadItemStatusesById, MondayOperations.All);
+        Assert.Contains(MondayOperations.ReadSyncBoard, MondayOperations.All);
+        Assert.Contains(MondayOperations.ReadSyncStatusPage, MondayOperations.All);
+        Assert.Contains(MondayOperations.ReadNextSyncStatusPage, MondayOperations.All);
+        Assert.Equal(MondayOperations.All.Count, MondayOperations.All.Select(operation => operation.Name).Distinct(StringComparer.Ordinal).Count());
         Assert.All(MondayOperations.All, operation =>
         {
             Assert.True(operation.IsReadOnly, operation.Name);

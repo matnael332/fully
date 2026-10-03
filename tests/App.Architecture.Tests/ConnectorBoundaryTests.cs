@@ -24,6 +24,7 @@ public sealed class ConnectorBoundaryTests
     private const string VerifierFile = "src/App.Connectors.Monday/MondayWebhookVerifier.cs";
     private const string NormalizerFile = "src/App.Connectors.Monday/MondayWebhookNormalizer.cs";
     private const string ReaderFile = "src/App.Connectors.Monday/MondayStatusReader.cs";
+    private const string InitialSyncReaderFile = "src/App.Connectors.Monday/MondayInitialSyncReader.cs";
     private const string WebEndpointFile = "src/App.Web/Connectors/MondayWebhookEndpoint.cs";
     private const string WebRegistrationFile = "src/App.Web/Connectors/MondayWebhookRegistration.cs";
 
@@ -142,13 +143,14 @@ public sealed class ConnectorBoundaryTests
     {
         // Gate 3C brought webhook intake and 3D its normalization. Every connector file that mentions a webhook is an
         // intake or normalization file, the scope allowlist (monday's read scope names one), the secret-name catalogue,
-        // or the 3E status reader, which reads the surface the normalizer maps, with the normalizer's own object type.
+        // the 3E status reader or the 3F initial-sync reader, which read the surface the normalizer maps, with the
+        // normalizer's own object type.
         var webhook = MondaySources()
             .Where(file => File.ReadAllText(file.FullName).Contains("webhook", StringComparison.OrdinalIgnoreCase))
             .Select(RepositoryLayout.RelativePath)
             .Order(StringComparer.Ordinal)
             .ToList();
-        Assert.Equal(WebhookFiles.Concat([ScopePolicyFile, SecretStoreFile, ReaderFile]).Order(StringComparer.Ordinal), webhook);
+        Assert.Equal(WebhookFiles.Concat([ScopePolicyFile, SecretStoreFile, ReaderFile, InitialSyncReaderFile]).Order(StringComparer.Ordinal), webhook);
 
         // The connector supplies the source verifier, the normalizer and the authoritative reader, each in its own file,
         // and builds submissions. It never calls ingress, the connection check or reconciliation itself.
@@ -160,8 +162,15 @@ public sealed class ConnectorBoundaryTests
         Assert.Equal(new[] { ReaderFile }, MondayHolders("AuthoritativeFieldState"));
         Assert.Equal(new[] { ReaderFile }, MondayHolders("ObservationEvidence"));
 
-        // The reader reports what the source holds; whether a value is confirmed is never the connector's to declare there.
+        // The readers report what the source holds; whether a value is confirmed is never the connector's to declare there.
         Assert.DoesNotContain("SourceValueConfirmation", File.ReadAllText(Path.Combine(RepositoryLayout.Root.FullName, ReaderFile)), StringComparison.Ordinal);
+        Assert.DoesNotContain("SourceValueConfirmation", File.ReadAllText(Path.Combine(RepositoryLayout.Root.FullName, InitialSyncReaderFile)), StringComparison.Ordinal);
+
+        // Gate 3F: the connector supplies the initial-sync reader, in its own file, and never runs a sync, configures a
+        // scope or reaches the sync state itself.
+        Assert.Equal(new[] { InitialSyncReaderFile }, MondayHolders("IInitialSyncReader"));
+        var neverRun = new Regex(@"\b(IInitialSync|InitialSyncRun|IConnectorSourceScopes|ConnectorSourceScope|InitialSyncState|connection_syncs|connector_source_scopes)\b", RegexOptions.CultureInvariant);
+        Assert.DoesNotContain(MondaySources(), file => neverRun.IsMatch(File.ReadAllText(file.FullName)));
 
         foreach (var port in new[]
                  {
@@ -209,6 +218,36 @@ public sealed class ConnectorBoundaryTests
         {
             var text = File.ReadAllText(file.FullName);
             foreach (var specific in new[] { "monday", "Monday", "board", "Board", "pulse", "StatusValue", "columnId", "BatteryValue" })
+            {
+                Assert.DoesNotContain(specific, text, StringComparison.Ordinal);
+            }
+        });
+    }
+
+    [Fact]
+    public void Initial_sync_its_state_and_its_migration_are_provider_neutral()
+    {
+        // Gate 3F: Core's initial-sync contract, the engine, scope configuration, the processing gate, the scope and sync
+        // records and their migration name no provider and no provider concept; only the monday reader knows that a monday
+        // scope is a board, and what its cursor is.
+        var root = RepositoryLayout.Root.FullName;
+        var entities = new DirectoryInfo(Path.Combine(root, "src", "App.Infrastructure", "Persistence", "Entities"));
+        var files = new DirectoryInfo(Path.Combine(root, "src", "App.Core", "InitialSync")).EnumerateFiles("*.cs")
+            .Concat(new DirectoryInfo(Path.Combine(root, "src", "App.Infrastructure", "InitialSync")).EnumerateFiles("*.cs"))
+            .Concat(new DirectoryInfo(Path.Combine(root, "src", "App.Infrastructure", "Processing")).EnumerateFiles("InitialSync*.cs"))
+            .Concat(entities.EnumerateFiles("ConnectionSync*.cs"))
+            .Concat(entities.EnumerateFiles("ConnectorSourceScope*.cs"))
+            .Concat(new DirectoryInfo(Path.Combine(root, "src", "App.Infrastructure", "Persistence", "Migrations")).EnumerateFiles("*_InitialSync.cs"))
+            .Concat(new DirectoryInfo(Path.Combine(root, "src", "App.Infrastructure", "Persistence", "Migrations")).EnumerateFiles("*_InitialSyncScopeVersions.cs"))
+            .Concat(new DirectoryInfo(Path.Combine(root, "src", "App.Infrastructure", "Persistence", "Migrations")).EnumerateFiles("*_InitialSyncActiveScopes.cs"))
+            .ToList();
+
+        // Core's contract and outcomes; the engine, scope configuration and registration; the gate; three records; three migrations.
+        Assert.Equal(12, files.Count);
+        Assert.All(files, file =>
+        {
+            var text = File.ReadAllText(file.FullName);
+            foreach (var specific in new[] { "monday", "Monday", "board", "Board", "pulse", "StatusValue", "columnId", "BatteryValue", "items_page", "next_items_page" })
             {
                 Assert.DoesNotContain(specific, text, StringComparison.Ordinal);
             }

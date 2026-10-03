@@ -11,9 +11,13 @@ public sealed class MondayQueryGuardTests
     [Fact]
     public void Every_document_the_connector_sends_is_a_single_read_query()
     {
-        // Gate 3E added the status reread, the only fifth document.
-        Assert.Equal(5, MondayQueries.All.Count);
+        // Gate 3E added the status reread, the only fifth document; Gate 3F added exactly three initial-sync reads.
+        Assert.Equal(8, MondayQueries.All.Count);
         Assert.Contains(MondayQueries.ReadItemStatusesById, MondayQueries.All);
+        Assert.Contains(MondayQueries.ReadSyncBoard, MondayQueries.All);
+        Assert.Contains(MondayQueries.ReadSyncStatusPage, MondayQueries.All);
+        Assert.Contains(MondayQueries.ReadNextSyncStatusPage, MondayQueries.All);
+        Assert.Equal(MondayQueries.All.Count, MondayQueries.All.Distinct(StringComparer.Ordinal).Count());
         Assert.All(MondayQueries.All, document => Assert.True(MondayQueryGuard.IsSingleReadQuery(document), document));
     }
 

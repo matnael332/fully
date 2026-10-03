@@ -57,6 +57,15 @@ public sealed class WorkContinuityDbContext(DbContextOptions<WorkContinuityDbCon
     /// <summary>Gets the reconciliation targets (Gate 3E): identifiers, scope and lifecycle, never a value.</summary>
     public DbSet<ReconciliationTargetRecord> ReconciliationTargets => Set<ReconciliationTargetRecord>();
 
+    /// <summary>Gets the configured source scopes of connections (Gate 3F): resource ids and flags only.</summary>
+    public DbSet<ConnectorSourceScopeRecord> ConnectorSourceScopes => Set<ConnectorSourceScopeRecord>();
+
+    /// <summary>Gets each connection's initial-sync state (Gate 3F): generation, fences and lease, never content.</summary>
+    public DbSet<ConnectionSyncRecord> ConnectionSyncs => Set<ConnectionSyncRecord>();
+
+    /// <summary>Gets each initial-sync generation's scopes and progress (Gate 3F): counts and outcomes only.</summary>
+    public DbSet<ConnectionSyncScopeRecord> ConnectionSyncScopes => Set<ConnectionSyncScopeRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         WorkContinuityModel.Configure(modelBuilder);
 }

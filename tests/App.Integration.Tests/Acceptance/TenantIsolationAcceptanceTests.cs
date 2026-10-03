@@ -102,7 +102,11 @@ public sealed class TenantIsolationAcceptanceTests(DatabaseFixture fixture)
             await SeedUserAsync(tenant);
 
             // Gate 3B: an authorization and a started authorization of the tenant, through the real store.
-            await ConnectorAuthorizationData.SeedAuthorizationRowsAsync(fixture, tenant, Token);
+            var grant = await ConnectorAuthorizationData.SeedAuthorizationRowsAsync(fixture, tenant, Token);
+
+            // Gate 3F: a configured source scope of the tenant's monday connection and a started initial sync, through
+            // the real path, which reads nothing from monday.
+            await InitialSync.InitialSyncData.SeedStartedAsync(fixture, tenant, grant.ConnectionId);
             foreach (var stated in Shared(label))
             {
                 await path.SubmitAcceptedAsync(connection, stated);
@@ -134,7 +138,9 @@ public sealed class TenantIsolationAcceptanceTests(DatabaseFixture fixture)
                     ("update another tenant's rows", $"UPDATE {table} SET tenant_id = tenant_id WHERE tenant_id = @other;"),
                     ("delete another tenant's rows", $"DELETE FROM {table} WHERE tenant_id = @other;"),
                     ("move its own rows to another tenant", $"UPDATE {table} SET tenant_id = @other WHERE tenant_id = @self;"),
-                    ("write a row labelled with another tenant", $"INSERT INTO {table} SELECT (jsonb_populate_record(NULL::{table}, to_jsonb(r) || jsonb_build_object('tenant_id', @other))).* FROM {table} r WHERE r.tenant_id = @self LIMIT 1;"),
+                    // OVERRIDING SYSTEM VALUE copies an identity column too (Gate 3F's ingress position), so the row reaches
+                    // row-level security instead of stopping at the identity; on a table without one it changes nothing.
+                    ("write a row labelled with another tenant", $"INSERT INTO {table} OVERRIDING SYSTEM VALUE SELECT (jsonb_populate_record(NULL::{table}, to_jsonb(r) || jsonb_build_object('tenant_id', @other))).* FROM {table} r WHERE r.tenant_id = @self LIMIT 1;"),
                 })
                 {
                     // Refused either by row-level security, as nothing visible or a violated policy, or by a missing

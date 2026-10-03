@@ -104,17 +104,18 @@ internal static class ConnectorAuthorizationData
 
     /// <summary>
     /// Rows of the tenant in both Gate 3B tables, written through the real store: an active authorization of a new
-    /// connection and an open transaction.
+    /// connection and an open transaction. Returns the active authorization's grant.
     /// </summary>
-    internal static async Task SeedAuthorizationRowsAsync(DatabaseFixture fixture, TenantId tenant, CancellationToken cancellationToken)
+    internal static async Task<ConnectorAuthorizationGrant> SeedAuthorizationRowsAsync(DatabaseFixture fixture, TenantId tenant, CancellationToken cancellationToken)
     {
-        var (user, _) = await SeedActiveAsync(fixture, tenant, cancellationToken);
+        var (user, grant) = await SeedActiveAsync(fixture, tenant, cancellationToken);
         await using var scoped = Store(fixture, tenant);
         var opened = await scoped.Store.OpenTransactionAsync(
             Transaction(user, "state-secret-" + Guid.NewGuid().ToString("N")),
             ConnectorAuthorizationTransaction.MaxLifetime,
             cancellationToken);
         Assert.True(opened.IsSuccess && opened.Value, opened.IsSuccess ? "not opened" : opened.Error.Code);
+        return grant;
     }
 
     internal static byte[] Hash(string text) => SHA256.HashData(Encoding.UTF8.GetBytes(text));
