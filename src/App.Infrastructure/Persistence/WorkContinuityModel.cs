@@ -601,6 +601,11 @@ public static class WorkContinuityModel
                     "ck_connector_authorization_transactions_consumed",
                     "consumed_at_utc IS NULL OR consumed_at_utc >= created_at_utc");
                 table.HasCheckConstraint("ck_connector_authorization_transactions_scopes", "requested_scopes <> ''");
+
+                // A verifier is confirmed gone only once its transaction was consumed or closed.
+                table.HasCheckConstraint(
+                    "ck_connector_authorization_transactions_verifier_deleted",
+                    "verifier_deleted_at_utc IS NULL OR (consumed_at_utc IS NOT NULL AND verifier_deleted_at_utc >= consumed_at_utc)");
             });
             entity.HasKey(record => record.TransactionId);
             entity.Property(record => record.TransactionId).HasColumnName("transaction_id").ValueGeneratedNever();
@@ -615,6 +620,7 @@ public static class WorkContinuityModel
             entity.Property(record => record.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamptz").IsRequired();
             entity.Property(record => record.ExpiresAtUtc).HasColumnName("expires_at_utc").HasColumnType("timestamptz").IsRequired();
             entity.Property(record => record.ConsumedAtUtc).HasColumnName("consumed_at_utc").HasColumnType("timestamptz");
+            entity.Property(record => record.VerifierDeletedAtUtc).HasColumnName("verifier_deleted_at_utc").HasColumnType("timestamptz");
             entity.HasOne<UserRecord>()
                 .WithMany()
                 .HasForeignKey(record => new { record.TenantId, record.CanonicalUserId })
@@ -628,6 +634,11 @@ public static class WorkContinuityModel
             entity.HasIndex(record => new { record.TenantId, record.ExpiresAtUtc })
                 .HasDatabaseName("ix_connector_authorization_transactions_open")
                 .HasFilter("consumed_at_utc IS NULL");
+
+            // Finds a tenant's closed or consumed transactions whose verifier's deletion is not yet recorded.
+            entity.HasIndex(record => new { record.TenantId, record.ConsumedAtUtc })
+                .HasDatabaseName("ix_connector_authorization_transactions_verifier_pending")
+                .HasFilter("verifier_deleted_at_utc IS NULL AND consumed_at_utc IS NOT NULL");
         });
     }
 

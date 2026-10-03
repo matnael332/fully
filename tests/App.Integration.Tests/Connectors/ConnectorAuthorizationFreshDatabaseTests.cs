@@ -58,6 +58,13 @@ public sealed class ConnectorAuthorizationFreshDatabaseTests(DatabaseFixture fix
             await fresh.ScalarsAsync(
                 "SELECT tablename || '.' || policyname || ':' || permissive || ':' || cmd FROM pg_policies WHERE tablename IN ('connector_authorizations', 'connector_authorization_transactions') ORDER BY (tablename || '.' || policyname) COLLATE \"C\";",
                 Token));
+
+        // Pre-3G maintenance: a verifier's deletion is recordable only once its transaction is consumed or closed.
+        Assert.Equal(
+            "CHECK (((verifier_deleted_at_utc IS NULL) OR ((consumed_at_utc IS NOT NULL) AND (verifier_deleted_at_utc >= consumed_at_utc))))",
+            await fresh.ScalarsAsync(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ck_connector_authorization_transactions_verifier_deleted';",
+                Token));
     }
 
     [Fact]

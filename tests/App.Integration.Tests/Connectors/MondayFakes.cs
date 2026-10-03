@@ -95,6 +95,9 @@ internal sealed class MemorySecrets : IMondaySecretStore
 
     internal IReadOnlyCollection<string> Names => _values.Keys.ToArray();
 
+    /// <summary>Answers a deletion with this status instead, as a storage outage would, when it returns one.</summary>
+    internal Func<MondaySecretName, MondaySecretStoreStatus?> DeleteOverride { get; set; } = _ => null;
+
     internal void Put(MondaySecretName name, string value) => _values[name.Value] = Encoding.ASCII.GetBytes(value);
 
     internal string Text(string name) => Encoding.UTF8.GetString(_values[name]);
@@ -109,7 +112,9 @@ internal sealed class MemorySecrets : IMondaySecretStore
         ValueTask.FromResult(_values.TryGetValue(name.Value, out var value) ? MondaySecretLookup.Found(value) : MondaySecretLookup.Missing());
 
     public ValueTask<MondaySecretStoreStatus> DeleteAsync(MondaySecretName name, CancellationToken cancellationToken) =>
-        ValueTask.FromResult(_values.TryRemove(name.Value, out _) ? MondaySecretStoreStatus.Succeeded : MondaySecretStoreStatus.NotFound);
+        DeleteOverride(name) is { } forced
+            ? ValueTask.FromResult(forced)
+            : ValueTask.FromResult(_values.TryRemove(name.Value, out _) ? MondaySecretStoreStatus.Succeeded : MondaySecretStoreStatus.NotFound);
 }
 
 /// <summary>A clock the test moves.</summary>

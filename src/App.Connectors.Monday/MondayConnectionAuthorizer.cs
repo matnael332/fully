@@ -32,6 +32,16 @@ namespace WorkContinuity.Connectors.Monday;
 /// tokens revokes them and fails closed.
 /// </para>
 /// <para>
+/// A transaction's PKCE verifier is deleted durably. The completion that consumed the transaction deletes it when it
+/// finishes and records the deletion; until a deletion is recorded the database keeps the transaction due for cleanup,
+/// so a completion whose process died, or whose deletion failed, leaves no verifier behind for good. A cleanup lists
+/// only verifiers that can no longer be used, those of transactions closed unconsumed after their expiry and of
+/// transactions consumed at least the provider's 10-minute code validity ago, so it never removes one a completion may
+/// still read; it deletes each by its own transaction's name and records only a deletion the storage confirmed, so a
+/// failure is retried by the next cleanup. Starting an authorization runs a cleanup, and a host can run one on its own.
+/// Neither touches whether a transaction was consumed: no code becomes usable again, and no binding changes.
+/// </para>
+/// <para>
 /// Disconnecting first makes the connection unusable in one database transaction (authorization revoked, connection
 /// disabled), then revokes each held token at monday once and destroys every stored version. A monday outage leaves the
 /// connection just as unusable and is recorded as an unconfirmed revocation. Nothing re-enables a disconnected
@@ -46,8 +56,11 @@ public sealed class MondayConnectionAuthorizer
     /// <summary>The longest authorization code accepted.</summary>
     internal const int MaxCodeLength = 2048;
 
-    /// <summary>How many expired transactions each start closes, so abandoned verifiers do not accumulate.</summary>
-    internal const int ExpiredTransactionsClosedPerStart = 20;
+    /// <summary>How many expired transactions each start closes, and how many due verifiers it deletes.</summary>
+    internal const int CleanedPerStart = 20;
+
+    /// <summary>How many expired transactions a host's cleanup closes, and how many due verifiers it deletes.</summary>
+    internal const int CleanedPerCleanup = 100;
 
     private readonly IConnectorAuthorizationStore _store;
     private readonly IMondaySecretStore _secrets;
@@ -114,7 +127,7 @@ public sealed class MondayConnectionAuthorizer
         }
 
         var user = principal.UserId;
-        await CloseExpiredTransactionsAsync(tenant, cancellationToken).ConfigureAwait(false);
+        _ = await CleanUpVerifiersAsync(tenant, CleanedPerStart, cancellationToken).ConfigureAwait(false);
 
         var purpose = ConnectorAuthorizationPurpose.Connect;
         var connectionId = Guid.CreateVersion7();
@@ -242,8 +255,27 @@ public sealed class MondayConnectionAuthorizer
         }
         finally
         {
-            await _keeper.DeleteQuietlyAsync(verifierName).ConfigureAwait(false);
+            // This completion owned the verifier and needs it no more. A deletion not confirmed, or not recorded,
+            // leaves the transaction due, and a cleanup finishes it.
+            _ = await DeleteVerifierAsync(tenant, transactionId).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Deletes the PKCE verifiers of the trusted tenant's closed or consumed transactions that may still be stored but
+    /// can no longer be used, and records each deletion. One whose deletion fails stays due, and the next cleanup
+    /// retries it. For a host to run on its own, so no verifier waits for another authorization to start.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the cleanup between verifiers.</param>
+    /// <returns>How many verifiers were deleted, and how many remain due.</returns>
+    public async Task<Result<MondayVerifierCleanup>> CleanUpVerifiersAsync(CancellationToken cancellationToken)
+    {
+        if (!_tenantContext.Current.TryGetTenantId(out var tenant))
+        {
+            return Result<MondayVerifierCleanup>.Failure(ConnectorAuthorizationErrors.TenantUnresolved);
+        }
+
+        return await CleanUpVerifiersAsync(tenant, CleanedPerCleanup, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Disconnects a connection: unusable locally first, then its tokens revoked at monday and destroyed.</summary>
@@ -488,17 +520,45 @@ public sealed class MondayConnectionAuthorizer
         return confirmed;
     }
 
-    private async Task CloseExpiredTransactionsAsync(TenantId tenant, CancellationToken cancellationToken)
+    // Closes the tenant's expired, unconsumed transactions, then deletes the verifiers the store lists as due, each by
+    // its own transaction's name, recording each confirmed deletion.
+    private async Task<Result<MondayVerifierCleanup>> CleanUpVerifiersAsync(TenantId tenant, int limit, CancellationToken cancellationToken)
     {
-        // Best effort: an abandoned authorization's verifier is useless after expiry, but it is not kept.
-        var closed = await _store.CloseExpiredTransactionsAsync(ExpiredTransactionsClosedPerStart, cancellationToken).ConfigureAwait(false);
-        if (closed.IsSuccess)
+        _ = await _store.CloseExpiredTransactionsAsync(limit, cancellationToken).ConfigureAwait(false);
+        var due = await _store.ListVerifierCleanupAsync(limit, cancellationToken).ConfigureAwait(false);
+        if (due.IsFailure)
         {
-            foreach (var transactionId in closed.Value)
+            return Result<MondayVerifierCleanup>.Failure(ConnectorAuthorizationErrors.StorageFailed);
+        }
+
+        var deleted = 0;
+        foreach (var transactionId in due.Value)
+        {
+            if (cancellationToken.IsCancellationRequested)
             {
-                await _keeper.DeleteQuietlyAsync(MondaySecretName.ForVerifier(tenant, transactionId)).ConfigureAwait(false);
+                break;
+            }
+
+            if (await DeleteVerifierAsync(tenant, transactionId).ConfigureAwait(false))
+            {
+                deleted++;
             }
         }
+
+        return Result<MondayVerifierCleanup>.Success(new MondayVerifierCleanup(deleted, due.Value.Count - deleted));
+    }
+
+    // Deletes one transaction's verifier and records the deletion once the storage confirms the verifier is gone.
+    // Whether the transaction was consumed never changes here.
+    private async Task<bool> DeleteVerifierAsync(TenantId tenant, Guid transactionId)
+    {
+        if (!await _keeper.DeleteConfirmedAsync(MondaySecretName.ForVerifier(tenant, transactionId)).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        var recorded = await _store.RecordVerifierDeletedAsync(transactionId, CancellationToken.None).ConfigureAwait(false);
+        return recorded.IsSuccess;
     }
 
     private Uri AuthorizationAddress(string state, string challenge)

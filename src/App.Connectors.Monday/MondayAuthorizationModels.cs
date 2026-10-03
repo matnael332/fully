@@ -68,6 +68,11 @@ public sealed class MondayAuthorizationCallback
 /// <param name="ProviderRevocationConfirmed">Whether monday confirmed the revocation of every token that was held.</param>
 public sealed record MondayDisconnection(Guid ConnectionId, bool WasAlreadyDisconnected, bool ProviderRevocationConfirmed);
 
+/// <summary>What one PKCE verifier cleanup did, by counts only.</summary>
+/// <param name="Deleted">Verifiers confirmed gone and recorded.</param>
+/// <param name="Remaining">Verifiers whose deletion failed or was not recorded; the next cleanup retries them.</param>
+public sealed record MondayVerifierCleanup(int Deleted, int Remaining);
+
 /// <summary>Refuses to serialize or deserialize a callback, so a code or state can never be written by accident.</summary>
 internal sealed class MondayAuthorizationCallbackRefusingConverter : JsonConverter<MondayAuthorizationCallback>
 {

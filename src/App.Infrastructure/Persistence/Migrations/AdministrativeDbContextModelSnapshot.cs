@@ -404,10 +404,18 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
 
+                    b.Property<DateTimeOffset?>("VerifierDeletedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("verifier_deleted_at_utc");
+
                     b.HasKey("TransactionId");
 
                     b.HasIndex("TenantId", "CanonicalUserId")
                         .HasDatabaseName("ix_connector_authorization_transactions_tenant_user");
+
+                    b.HasIndex("TenantId", "ConsumedAtUtc")
+                        .HasDatabaseName("ix_connector_authorization_transactions_verifier_pending")
+                        .HasFilter("verifier_deleted_at_utc IS NULL AND consumed_at_utc IS NOT NULL");
 
                     b.HasIndex("TenantId", "ExpiresAtUtc")
                         .HasDatabaseName("ix_connector_authorization_transactions_open")
@@ -424,6 +432,8 @@ namespace WorkContinuity.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("ck_connector_authorization_transactions_purpose", "purpose IN ('Connect', 'Reauthorize')");
 
                             t.HasCheckConstraint("ck_connector_authorization_transactions_scopes", "requested_scopes <> ''");
+
+                            t.HasCheckConstraint("ck_connector_authorization_transactions_verifier_deleted", "verifier_deleted_at_utc IS NULL OR (consumed_at_utc IS NOT NULL AND verifier_deleted_at_utc >= consumed_at_utc)");
                         });
                 });
 

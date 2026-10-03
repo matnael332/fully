@@ -131,9 +131,14 @@ public sealed class ConnectorAuthorizationSecurityTests
         Assert.Equal(
             [
                 "CanonicalUserId", "ConnectionId", "ConsumedAtUtc", "CreatedAtUtc", "ExpiresAtUtc", "Purpose", "RedirectHash",
-                "RequestedScopes", "SourceSystem", "StateHash", "TenantId", "TransactionId",
+                "RequestedScopes", "SourceSystem", "StateHash", "TenantId", "TransactionId", "VerifierDeletedAtUtc",
             ],
             PublicProperties<ConnectorAuthorizationTransactionRecord>());
+
+        // The record of a verifier's deletion is an instant, never the verifier or its name.
+        Assert.Equal(
+            typeof(DateTimeOffset?),
+            typeof(ConnectorAuthorizationTransactionRecord).GetProperty(nameof(ConnectorAuthorizationTransactionRecord.VerifierDeletedAtUtc))!.PropertyType);
 
         // The only binary columns are the two SHA-256 hashes, and the stored-credential reference is a Guid, which cannot hold a secret.
         Assert.Equal(
@@ -186,6 +191,20 @@ public sealed class ConnectorAuthorizationSecurityTests
         Assert.True(
             text.IndexOf(revokes[0], StringComparison.Ordinal) < text.IndexOf(grants[0], StringComparison.Ordinal),
             "The revocation must come before the grant, or it would take the granted privileges back too.");
+    }
+
+    [Fact]
+    public void The_verifier_cleanup_migration_changes_no_privilege_and_runs_no_sql_of_its_own()
+    {
+        // Pre-3G maintenance: recording a verifier's deletion needs only the UPDATE that R3B-2 already grants, so the
+        // migration grants, revokes and executes nothing, and the runtime role still cannot delete a transaction.
+        var migration = new DirectoryInfo(Path.Combine(RepositoryLayout.Root.FullName, "src", "App.Infrastructure", "Persistence", "Migrations"))
+            .EnumerateFiles("*_ConnectorAuthorizationVerifierCleanup.cs")
+            .Single();
+        var text = File.ReadAllText(migration.FullName);
+
+        Assert.DoesNotMatch("\\b(GRANT|REVOKE)\\b", text);
+        Assert.DoesNotContain("migrationBuilder.Sql(", text, StringComparison.Ordinal);
     }
 
     [Fact]

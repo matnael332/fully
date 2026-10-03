@@ -61,4 +61,9 @@ public sealed class ConnectorAuthorizationTransactionRecord : ITenantOwned
 
     /// <summary>Gets when the transaction was consumed or closed; null while it is open.</summary>
     public DateTimeOffset? ConsumedAtUtc { get; private set; }
+
+    /// <summary>
+    /// Gets when the transaction's PKCE verifier was confirmed deleted; null while it may still be stored.
+    /// </summary>
+    public DateTimeOffset? VerifierDeletedAtUtc { get; private set; }
 }

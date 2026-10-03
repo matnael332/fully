@@ -11,7 +11,8 @@
 | 3D — Source mapping and normalization | **PASS** — approved by the product owner on 2026-10-01 |
 | 3E — API reconciliation and authoritative reread | **PASS** — approved by the product owner on 2026-10-02 |
 | 3F — Initial sync, watermark and buffered replay | **PASS** — approved by the product owner on 2026-10-03 |
-| 3G — Real monday end-to-end acceptance and Gate closure | **NEXT / NOT STARTED**; needs its own product-owner authorization; the PKCE verifier cleanup is resolved first |
+| 3B maintenance before 3G — PKCE verifier cleanup | **PASS** — approved by the product owner on 2026-10-03 |
+| 3G — Real monday end-to-end acceptance and Gate closure | **NEXT / NOT STARTED**; needs its own product-owner authorization; precondition: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -133,6 +134,10 @@ connector (the credential store of 3B, the lifecycle of 3F) is bridged in the co
 - **3G — Real monday end-to-end acceptance and Gate closure.** Real OAuth against an owner-approved test workspace; a
   real change reaching Snapshot; a missed webhook repaired; initial sync; revocation failing closed; rate-limit
   behavior where practical; contradiction audit, security review, report and owner review.
+  **Precondition (owner decision, 2026-10-03):** the 3G harness or host runs
+  `MondayConnectionAuthorizer.CleanUpVerifiersAsync` once at start-up and then every 5 minutes while active, only
+  under a trusted tenant context, and never enumerates tenants through a new unrestricted path ("3B maintenance before
+  3G — PKCE verifier cleanup").
 
 One sub-gate at a time; no later functionality enters an earlier sub-gate.
 
@@ -2704,3 +2709,161 @@ must be resolved and verified, as its own maintenance item, before real monday o
 
 **3G (real monday end-to-end acceptance and Gate closure) is NEXT / NOT STARTED** and begins only on its own
 authorization. Gate 3 stays IN PROGRESS. Premium Gates P1 to P11 are NOT STARTED.
+
+## 3B maintenance before 3G — PKCE verifier cleanup (2026-10-03)
+
+### Authorization and scope
+
+On 2026-10-03 the product owner authorized, in SAFE AUTO MODE, the fix of the remaining 3B PKCE verifier lifecycle
+debt recorded in "3E owner review and closure" and in "Before 3G" of "3F owner review and closure". It is Gate 3B
+maintenance only, on the baseline `main` == `origin/main` == `aaf2175` (the 3F closure) with a clean working tree. 3G
+is not started and 3F is unchanged; no frozen document changes; the OAuth 2.1 flow and the monday connector's
+semantics are unchanged; and nothing touches webhook registration, real monday, Azure or the infrastructure
+deployment. The duplicate-callback fix `273faa6` stays: a callback refused as a replay still never touches the
+verifier.
+
+### Root cause
+
+The winning completion deleted its verifier as a best-effort side effect with no durable trace (`DeleteQuietlyAsync`
+in the `finally` of `MondayConnectionAuthorizer.CompleteAsync`). The only durable sweep,
+`CloseExpiredTransactionsAsync`, selected only transactions that were never consumed; it marked each one closed before
+it attempted the deletion, so a failed deletion there was never retried; and it ran only when an authorization started
+in the same tenant. A completion whose process died after it consumed its transaction, or whose final deletion failed,
+therefore left the verifier in secret storage with nothing in the database to find it again.
+
+### Lifecycle
+
+- **Durable record.** A nullable `verifier_deleted_at_utc` on `connector_authorization_transactions` holds the
+  database time at which the verifier was confirmed gone, never the verifier or its name. A check refuses it before
+  the transaction is consumed or closed, and a partial index covers the transactions whose deletion is not yet
+  recorded.
+- **Due.** A transaction with no recorded deletion is due once its verifier can no longer be used: closed unconsumed
+  (`consumed_at_utc >= expires_at_utc`; consuming refuses an expired transaction, so no completion ever owned it), or
+  consumed at least `ConnectorAuthorizationTransaction.MaxLifetime` ago, the 10-minute validity of a monday
+  authorization code, after which no code issued for it can be exchanged. A transaction consumed more recently may
+  belong to a completion that is still running and is never listed.
+- **Delete, then record.** Each due verifier is deleted under its own transaction's name
+  (`MondaySecretName.ForVerifier(tenant, transactionId)`), and only a deletion the storage confirms (`Succeeded` or
+  `NotFound`) is recorded, by a compare-and-set on that transaction id that requires a consumed or closed transaction
+  and no earlier record. A refusal, an exception or a failed record leaves the transaction due. Whether a transaction
+  was consumed never changes.
+- **Triggers.** The winning completion deletes and records in its `finally`; every authorization start cleans up to 20
+  due transactions of its tenant, after closing expired ones as before; and the new public
+  `MondayConnectionAuthorizer.CleanUpVerifiersAsync`, for the tenant of the trusted context, cleans up to 100 and
+  reports how many verifiers it deleted and how many remain due. None of them needs process memory, another callback
+  or a user's retry.
+
+### Crash, restart and failure
+
+- A completion that dies after it consumed its transaction leaves the transaction due in the database. Once the code
+  validity has passed, any later cleanup, in any process, deletes the verifier and records it.
+- A deletion the storage refuses, or raises an exception on, is not recorded: the transaction stays due and the next
+  cleanup retries it until the storage confirms it. A deletion confirmed but not recorded is confirmed again
+  (`NotFound`) by the next cleanup and then recorded. Deletion is idempotent, and a cleanup run twice finds nothing
+  the second time.
+- A cleanup changes no consumption, state, user, connection, account or authorization, so no state or code becomes
+  usable again; a callback delivered again is refused with no exchange.
+
+### Hosting
+
+No host constructs `MondayConnectionAuthorizer` today: under R3B-1, monday OAuth runs before Gate 7 only through an
+owner-operated DEV/TEST harness, and the deployed secret store is an owner decision. So no verifier can exist outside
+such a harness. The host that runs authorizations, the 3G harness first, must also run `CleanUpVerifiersAsync` for its
+tenant at start-up and periodically. This maintenance does not wire it. A background sweep across tenants would need a
+new tenant-less database function, which Gate 2 decision 1 does not allow without approval, so none is added.
+
+### Schema and privileges
+
+One additive migration, `20261003073534_ConnectorAuthorizationVerifierCleanup`, applied only locally: the nullable
+column, the check `ck_connector_authorization_transactions_verifier_deleted` and the partial index
+`ix_connector_authorization_transactions_verifier_pending`. It grants, revokes and executes nothing, so the runtime
+role keeps exactly SELECT, INSERT and UPDATE on the table (R3B-2), and the R3B-2 re-assertion recorded for the Azure
+rollout is unchanged. The column is metadata, as D3B-2 allows. `Down` drops the index, the check and the column, and
+loses only the record of confirmed deletions.
+
+### Tests
+
+Nine new unit tests and one extended test in `MondayConnectionAuthorizerTests`; a store test, a restart lifecycle test
+and a failure lifecycle test against the real database; the column pin and a fresh-database pin of the new check; and
+two security pins (the record's members, and a migration that changes no privilege). The owner's twelve required
+behaviours:
+
+1. A normal completion deletes its verifier and records it:
+   `A_successful_completion_deletes_its_verifier_and_records_it_so_no_cleanup_is_due`.
+2. A duplicate callback leaves the active winner's verifier:
+   `A_copy_refused_as_a_replay_while_the_winner_is_completing_leaves_the_winners_verifier` (from `273faa6`), and a
+   cleanup does too: `A_cleanup_while_the_winner_is_completing_leaves_the_winners_verifier`.
+3. The transaction becomes and stays consumed: asserted by the completion, restart and binding tests.
+4. A process failure before the final deletion:
+   `A_verifier_left_by_a_completion_that_died_is_removed_once_its_code_can_no_longer_be_exchanged` and both restart
+   tests.
+5. After a restart the orphan is deleted:
+   `After_a_restart_a_cleanup_with_no_callback_deletes_an_orphaned_verifier_once_and_keeps_the_transaction_consumed`
+   and, against the real database,
+   `A_verifier_orphaned_by_a_completion_that_died_is_deleted_after_a_restart_and_never_reaches_the_database`.
+6. Running cleanup again is safe: both restart tests run it twice, and the store records a deletion once.
+7. A temporary storage failure is retried: `A_verifier_whose_deletion_fails_stays_due_and_a_later_cleanup_deletes_it`
+   (a refused and a raised deletion),
+   `A_deletion_the_database_failed_to_record_stays_due_and_is_confirmed_by_a_later_cleanup`, and
+   `A_verifier_the_secret_store_failed_to_delete_stays_due_and_a_later_cleanup_deletes_it`.
+8. No code becomes reusable: `A_cleanup_never_makes_a_code_or_a_state_usable_again`, the replay after the restart
+   cleanup with no token request, and the store's `AlreadyConsumed` after a recorded deletion.
+9. No binding changes: `A_cleanup_changes_no_authorization_or_transaction_binding`, and the failure lifecycle test
+   reads the same authorization before and after.
+10. No other transaction's verifier is deleted:
+    `A_cleanup_deletes_only_the_verifiers_of_due_transactions_each_by_its_own_name` (two orphans, an open and an
+    active transaction, and the exact list of deletions), and the store's record bound to its transaction id and
+    tenant.
+11. Expired unconsumed transactions still close and lose their verifiers:
+    `Starting_closes_expired_transactions_and_deletes_their_verifiers` (now asserting the record),
+    `An_expired_transaction_is_refused_before_anything_else_and_its_verifier_destroyed`, and
+    `Verifier_cleanup_lists_only_verifiers_that_can_no_longer_be_used_and_records_each_deletion_once`.
+12. No verifier in logs or database fields: the connector writes no log (existing security test); after the restart
+    cleanup every text and binary column of the schema is searched for the verifier, the state secret and the code,
+    and none holds them; and the new column and record member are pinned as an instant.
+
+### Mutation checks
+
+19/19 caught on the final text, each file restored and verified by hash. Terminal cleanup removed: P01 consumed
+transactions never listed, P02 nothing deleted, P03 no cleanup on start. Deleted too early: P04 no grace, P05 half the
+grace, P06 a replay deletes the winner's verifier (`273faa6` reversed), P07 the winner deletes before it completes.
+Transaction binding removed: P08 the record not bound to its transaction id, P09 the name not bound to the
+transaction, P10 every verifier deleted by the first one's name. Failure taken as success: P11 a refused deletion, P12
+a raised deletion, P13 a record with no confirmation, P14 a failed record counted. Extras: P15 the winner deletes
+without recording, P16 recorded transactions listed again, P17 a record for an open transaction, P18 the check removed
+from the migration, P19 the migration granting DELETE.
+
+### Verification
+
+Clean non-incremental build with 0 warnings and 0 errors; 1,602/1,602 local tests (unit 949, security 164,
+architecture 35, integration 454, the 9 Service Bus emulator tests included), in sequential batches; both repository
+verifiers PASS; the six frozen documents byte-identical; `git diff --check` clean; line endings unchanged. The first
+full run caught one defect: `DatabaseCredentialTests.No_migration_contains_a_credential_or_a_role_password` failed
+because the new migration's comments used a word that guard forbids in any migration. The comments were reworded with
+the operations unchanged, and every mutant was run again on the final text.
+
+### Owner review and closure (2026-10-03)
+
+The product owner approved the fix on 2026-10-03: **the PKCE verifier cleanup is PASS**, closed by the commit "fix:
+make PKCE verifier cleanup crash-recoverable". The hosting decision:
+
+1. No new tenant-less cleanup or discovery database function.
+2. No production-wide scheduling in this maintenance fix.
+3. `CleanUpVerifiersAsync` stays tenant-scoped.
+4. **Gate 3G precondition.** The real monday 3G harness or host must run `CleanUpVerifiersAsync` once at start-up; run
+   it periodically while active, initially every 5 minutes; run it only under a trusted tenant context; and never
+   enumerate tenants through a new unrestricted path.
+5. The start-up run provides restart recovery.
+6. The periodic run provides retry after a temporary secret-store deletion failure.
+7. Production multi-tenant scheduling stays a later runtime and hosting decision, and must reuse an approved
+   tenant-discovery mechanism rather than create an ad-hoc bypass.
+
+**Final evidence**, repeated on the tree being committed: clean non-incremental build with 0 warnings and 0 errors;
+1,602/1,602 local tests; 19/19 mutation checks; both repository verifiers PASS; the six frozen documents
+byte-identical; `git diff --check` clean; line endings unchanged. Recording the decision changed documentation only,
+so every mutation-tested file is byte-identical to the version its mutants ran against. Applying the migration in
+Azure is a separate owner approval; Azure Dev has none of the Gate 2B to 2F or Gate 3 migrations. No Azure and no real
+monday activity.
+
+**3G (real monday end-to-end acceptance and Gate closure) stays NEXT / NOT STARTED** and begins only on its own
+authorization, with the precondition above. Gate 3 stays IN PROGRESS. Premium Gates P1 to P11 are NOT STARTED.

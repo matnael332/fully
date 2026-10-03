@@ -134,6 +134,114 @@ public sealed class MondayConnectionLifecycleTests(DatabaseFixture fixture)
         Assert.All(results, result => Assert.True(result.Credential is not null || result.Failure!.Error == ConnectorErrors.CredentialUnavailable));
     }
 
+    [Fact]
+    public async Task A_verifier_orphaned_by_a_completion_that_died_is_deleted_after_a_restart_and_never_reaches_the_database()
+    {
+        var tenant = await ConnectorAuthorizationData.NewTenantAsync(fixture, Token);
+        var user = await ConnectorAuthorizationData.SeedUserAsync(fixture, tenant, Token);
+        var principal = Principal.Authenticated(user, new ExternalIdentity(IdentityProviderId.EntraId, "entra-" + user.Value.ToString("N")));
+        var secrets = new MemorySecrets();
+        string state;
+        string verifierName;
+        string verifier;
+        await using (var first = await Instance.StartAsync(fixture, tenant, secrets))
+        {
+            var redirect = (await first.Authorizer.StartAsync(principal, null, Token)).Value;
+            state = StateOf(redirect);
+            verifierName = secrets.Names.Single(name => name.StartsWith("wce-monday-pkce-", StringComparison.Ordinal));
+            using (var stored = System.Text.Json.JsonDocument.Parse(secrets.Text(verifierName)))
+            {
+                verifier = stored.RootElement.GetProperty("verifier").GetString()!;
+            }
+
+            // The completion consumed the transaction, then its process died before it deleted the verifier.
+            var consumed = await first.Store.Store.ConsumeTransactionAsync(TransactionIdOf(state), user, ConnectorAuthorizationData.Hash(state[33..]), Token);
+            Assert.Equal(ConnectorTransactionOutcome.Consumed, consumed.Value.Outcome);
+        }
+
+        // A new process with nothing in memory, sharing only the database and the secret storage. While a code could
+        // still be exchanged its cleanup waits; once none can, it deletes and records the verifier, with no callback.
+        await using var second = await Instance.StartAsync(fixture, tenant, secrets);
+        Assert.Equal(new MondayVerifierCleanup(0, 0), (await second.Authorizer.CleanUpVerifiersAsync(Token)).Value);
+        Assert.Contains(verifierName, secrets.Names);
+        await AgeTransactionAsync(TransactionIdOf(state), TimeSpan.FromMinutes(10));
+        Assert.Equal(new MondayVerifierCleanup(1, 0), (await second.Authorizer.CleanUpVerifiersAsync(Token)).Value);
+        Assert.DoesNotContain(verifierName, secrets.Names);
+        Assert.Equal("consumed, verifier deleted", await TransactionStateAsync(TransactionIdOf(state)));
+        Assert.Equal(new MondayVerifierCleanup(0, 0), (await second.Authorizer.CleanUpVerifiersAsync(Token)).Value);
+
+        // Delivered again, the callback is refused and exchanges nothing; no verifier or state is in the database.
+        var replayed = await second.Authorizer.CompleteAsync(principal, new MondayAuthorizationCallback(state, "SENTINEL-code-orphan", null, null), Token);
+        Assert.True(replayed.IsFailure);
+        Assert.Equal(0, second.Monday.TokenCalls);
+        Assert.Empty(await FindAnywhereAsync([verifier, state[33..], "SENTINEL-code-orphan"]));
+    }
+
+    [Fact]
+    public async Task A_verifier_the_secret_store_failed_to_delete_stays_due_and_a_later_cleanup_deletes_it()
+    {
+        var tenant = await ConnectorAuthorizationData.NewTenantAsync(fixture, Token);
+        var user = await ConnectorAuthorizationData.SeedUserAsync(fixture, tenant, Token);
+        var principal = Principal.Authenticated(user, new ExternalIdentity(IdentityProviderId.EntraId, "entra-" + user.Value.ToString("N")));
+        await using var instance = await Instance.StartAsync(fixture, tenant);
+        var redirect = (await instance.Authorizer.StartAsync(principal, null, Token)).Value;
+        var state = StateOf(redirect);
+        instance.Secrets.DeleteOverride = name => name.Value.StartsWith("wce-monday-pkce-", StringComparison.Ordinal) ? MondaySecretStoreStatus.Unavailable : null;
+        instance.Monday.ThenToken(FakeMonday.Tokens(FakeMonday.Jwt(instance.Clock.UtcNow.AddHours(1), "a1"), "refresh-1"));
+        instance.Monday.ThenApi(HttpStatusCode.OK, FakeMonday.Me);
+
+        // The authorization completes; the storage refuses to delete the verifier, so the transaction stays due.
+        Assert.True((await instance.Authorizer.CompleteAsync(principal, new MondayAuthorizationCallback(state, "code", null, null), Token)).IsSuccess);
+        var before = (await instance.Store.Store.ReadAsync(redirect.ConnectionId, Token)).Value!;
+        Assert.Equal("consumed, verifier due", await TransactionStateAsync(TransactionIdOf(state)));
+
+        await AgeTransactionAsync(TransactionIdOf(state), TimeSpan.FromMinutes(10));
+        Assert.Equal(new MondayVerifierCleanup(0, 1), (await instance.Authorizer.CleanUpVerifiersAsync(Token)).Value);
+        Assert.Equal("consumed, verifier due", await TransactionStateAsync(TransactionIdOf(state)));
+
+        // The storage recovers: the next cleanup deletes it and records it, and the authorization is exactly as it was.
+        instance.Secrets.DeleteOverride = _ => null;
+        Assert.Equal(new MondayVerifierCleanup(1, 0), (await instance.Authorizer.CleanUpVerifiersAsync(Token)).Value);
+        Assert.DoesNotContain(instance.Secrets.Names, name => name.StartsWith("wce-monday-pkce-", StringComparison.Ordinal));
+        Assert.Equal("consumed, verifier deleted", await TransactionStateAsync(TransactionIdOf(state)));
+        Assert.Equal(before, (await instance.Store.Store.ReadAsync(redirect.ConnectionId, Token)).Value);
+    }
+
+    private static string StateOf(MondayAuthorizationRedirect redirect) =>
+        Uri.UnescapeDataString(redirect.AuthorizationUri.Query.Split('&').Single(pair => pair.StartsWith("state=", StringComparison.Ordinal))[6..]);
+
+    private static Guid TransactionIdOf(string state) => Guid.ParseExact(state[..32], "N");
+
+    // Ages a transaction as the passing of time would: its creation, expiry and consumption all move back.
+    private async Task AgeTransactionAsync(Guid transactionId, TimeSpan age)
+    {
+        await using var admin = await fixture.OpenAdministrativeConnectionAsync(Token);
+        await using var command = new NpgsqlCommand(
+            """
+            UPDATE connector_authorization_transactions
+            SET created_at_utc = created_at_utc - @age, expires_at_utc = expires_at_utc - @age, consumed_at_utc = consumed_at_utc - @age
+            WHERE transaction_id = @id;
+            """,
+            admin);
+        command.Parameters.AddWithValue("age", age);
+        command.Parameters.AddWithValue("id", transactionId);
+        Assert.Equal(1, await command.ExecuteNonQueryAsync(Token));
+    }
+
+    private async Task<string> TransactionStateAsync(Guid transactionId)
+    {
+        await using var admin = await fixture.OpenAdministrativeConnectionAsync(Token);
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT CASE WHEN consumed_at_utc IS NULL THEN 'open' ELSE 'consumed' END || ', verifier '
+                   || CASE WHEN verifier_deleted_at_utc IS NULL THEN 'due' ELSE 'deleted' END
+            FROM connector_authorization_transactions WHERE transaction_id = @id;
+            """,
+            admin);
+        command.Parameters.AddWithValue("id", transactionId);
+        return (string)(await command.ExecuteScalarAsync(Token))!;
+    }
+
     private async Task<long> ResolvedCountAsync(Guid connectionId)
     {
         await using var runtime = new NpgsqlConnection(fixture.ApplicationConnectionString);

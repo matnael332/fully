@@ -419,6 +419,69 @@ public sealed class ConnectorAuthorizationStoreTests(DatabaseFixture fixture)
     }
 
     [Fact]
+    public async Task Verifier_cleanup_lists_only_verifiers_that_can_no_longer_be_used_and_records_each_deletion_once()
+    {
+        var tenant = await ConnectorAuthorizationData.NewTenantAsync(fixture, Token);
+        var user = await ConnectorAuthorizationData.SeedUserAsync(fixture, tenant, Token);
+        await using var scoped = ConnectorAuthorizationData.Store(fixture, tenant);
+
+        var open = await OpenAsync(scoped, user);
+        var closed = await OpenAsync(scoped, user);
+        await AgeTransactionAsync(closed.TransactionId, TimeSpan.FromMinutes(6));
+        Assert.Equal([closed.TransactionId], (await scoped.Store.CloseExpiredTransactionsAsync(100, Token)).Value);
+        var recent = await ConsumedAsync(scoped, user);
+        var waiting = await ConsumedAsync(scoped, user);
+        await AgeTransactionAsync(waiting.TransactionId, TimeSpan.FromMinutes(9), consumption: true);
+        var old = await ConsumedAsync(scoped, user);
+        await AgeTransactionAsync(old.TransactionId, TimeSpan.FromMinutes(10), consumption: true);
+
+        // Closed unconsumed, or consumed a full code validity ago: due, oldest first. Open, or consumed less than the
+        // validity ago, a moment or nine minutes: not.
+        Assert.Equal(ConnectorAuthorizationErrors.InvalidRequest, (await scoped.Store.ListVerifierCleanupAsync(0, Token)).Error);
+        Assert.Equal(ConnectorAuthorizationErrors.InvalidRequest, (await scoped.Store.ListVerifierCleanupAsync(101, Token)).Error);
+        Assert.Equal([old.TransactionId, closed.TransactionId], (await scoped.Store.ListVerifierCleanupAsync(100, Token)).Value);
+        Assert.Equal([old.TransactionId], (await scoped.Store.ListVerifierCleanupAsync(1, Token)).Value);
+
+        // A deletion is recorded once, only for a consumed or closed transaction, and the consumption stays as it was.
+        var consumedAt = await ScalarAsync<DateTime>("SELECT consumed_at_utc FROM connector_authorization_transactions WHERE transaction_id = @id;", old.TransactionId);
+        Assert.True((await scoped.Store.RecordVerifierDeletedAsync(old.TransactionId, Token)).Value);
+        Assert.False((await scoped.Store.RecordVerifierDeletedAsync(old.TransactionId, Token)).Value);
+        Assert.False((await scoped.Store.RecordVerifierDeletedAsync(open.TransactionId, Token)).Value);
+        Assert.False((await scoped.Store.RecordVerifierDeletedAsync(Guid.CreateVersion7(), Token)).Value);
+        Assert.Equal(ConnectorAuthorizationErrors.InvalidRequest, (await scoped.Store.RecordVerifierDeletedAsync(Guid.Empty, Token)).Error);
+        Assert.True((await scoped.Store.RecordVerifierDeletedAsync(recent.TransactionId, Token)).Value);
+        Assert.Equal([closed.TransactionId], (await scoped.Store.ListVerifierCleanupAsync(100, Token)).Value);
+        Assert.Equal(consumedAt, await ScalarAsync<DateTime>("SELECT consumed_at_utc FROM connector_authorization_transactions WHERE transaction_id = @id;", old.TransactionId));
+        Assert.Equal(
+            ConnectorTransactionOutcome.AlreadyConsumed,
+            (await scoped.Store.ConsumeTransactionAsync(recent.TransactionId, user, ConnectorAuthorizationData.Hash(Secret), Token)).Value.Outcome);
+
+        // Another tenant neither lists nor records this tenant's transactions.
+        var other = await ConnectorAuthorizationData.NewTenantAsync(fixture, Token);
+        await using (var foreign = ConnectorAuthorizationData.Store(fixture, other))
+        {
+            Assert.Empty((await foreign.Store.ListVerifierCleanupAsync(100, Token)).Value);
+            Assert.False((await foreign.Store.RecordVerifierDeletedAsync(closed.TransactionId, Token)).Value);
+        }
+
+        Assert.Equal([closed.TransactionId], (await scoped.Store.ListVerifierCleanupAsync(100, Token)).Value);
+
+        // The database itself refuses a deletion recorded for an open transaction, or before the consumption.
+        foreach (var (sql, id) in new[]
+                 {
+                     ("UPDATE connector_authorization_transactions SET verifier_deleted_at_utc = now() WHERE transaction_id = @id;", open.TransactionId),
+                     ("UPDATE connector_authorization_transactions SET verifier_deleted_at_utc = consumed_at_utc - interval '1 second' WHERE transaction_id = @id;", closed.TransactionId),
+                 })
+        {
+            await using var admin = await fixture.OpenAdministrativeConnectionAsync(Token);
+            await using var command = new NpgsqlCommand(sql, admin);
+            command.Parameters.AddWithValue("id", id);
+            var refused = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync(Token));
+            Assert.Equal((PostgresErrorCodes.CheckViolation, "ck_connector_authorization_transactions_verifier_deleted"), (refused.SqlState, refused.ConstraintName));
+        }
+    }
+
+    [Fact]
     public async Task The_tables_hold_only_the_metadata_decision_D3B_2_allows()
     {
         // The runtime role's privileges are proven on fresh databases (ConnectorAuthorizationFreshDatabaseTests): this
@@ -454,6 +517,7 @@ public sealed class ConnectorAuthorizationStoreTests(DatabaseFixture fixture)
                     "connector_authorization_transactions.state_hash:bytea",
                     "connector_authorization_transactions.tenant_id:uuid",
                     "connector_authorization_transactions.transaction_id:uuid",
+                    "connector_authorization_transactions.verifier_deleted_at_utc:timestamp with time zone",
                     "connector_authorizations.access_expires_at_utc:timestamp with time zone",
                     "connector_authorizations.authorized_at_utc:timestamp with time zone",
                     "connector_authorizations.canonical_user_id:uuid",
@@ -476,17 +540,35 @@ public sealed class ConnectorAuthorizationStoreTests(DatabaseFixture fixture)
         }
     }
 
-    private async Task AgeTransactionAsync(Guid transactionId, TimeSpan age)
+    private async Task<ConnectorAuthorizationTransaction> OpenAsync(ConnectorAuthorizationData.ScopedStore scoped, UserId user)
+    {
+        var transaction = ConnectorAuthorizationData.Transaction(user, Secret);
+        Assert.True((await scoped.Store.OpenTransactionAsync(transaction, TimeSpan.FromMinutes(5), Token)).Value);
+        return transaction;
+    }
+
+    private async Task<ConnectorAuthorizationTransaction> ConsumedAsync(ConnectorAuthorizationData.ScopedStore scoped, UserId user)
+    {
+        var transaction = await OpenAsync(scoped, user);
+        Assert.Equal(
+            ConnectorTransactionOutcome.Consumed,
+            (await scoped.Store.ConsumeTransactionAsync(transaction.TransactionId, user, ConnectorAuthorizationData.Hash(Secret), Token)).Value.Outcome);
+        return transaction;
+    }
+
+    private async Task AgeTransactionAsync(Guid transactionId, TimeSpan age, bool consumption = false)
     {
         await using var admin = await fixture.OpenAdministrativeConnectionAsync(Token);
         await using var command = new NpgsqlCommand(
             """
             UPDATE connector_authorization_transactions
-            SET created_at_utc = created_at_utc - @age, expires_at_utc = expires_at_utc - @age
+            SET created_at_utc = created_at_utc - @age, expires_at_utc = expires_at_utc - @age,
+                consumed_at_utc = CASE WHEN @consumption THEN consumed_at_utc - @age ELSE consumed_at_utc END
             WHERE transaction_id = @id;
             """,
             admin);
         command.Parameters.AddWithValue("age", age);
+        command.Parameters.AddWithValue("consumption", consumption);
         command.Parameters.AddWithValue("id", transactionId);
         Assert.Equal(1, await command.ExecuteNonQueryAsync(Token));
     }

@@ -191,6 +191,56 @@ public sealed class ConnectorAuthorizationStore(
     }
 
     /// <inheritdoc />
+    public async Task<Result<IReadOnlyList<Guid>>> ListVerifierCleanupAsync(int limit, CancellationToken cancellationToken)
+    {
+        if (limit is < 1 or > MaxClosedPerCall)
+        {
+            return Result<IReadOnlyList<Guid>>.Failure(ConnectorAuthorizationErrors.InvalidRequest);
+        }
+
+        // A transaction consumed at or after its expiry was closed unconsumed, since consuming refuses an expired one:
+        // no completion ever owned it. One consumed before its expiry belongs to its completion until no code issued
+        // for it can be exchanged any more.
+        var validity = ConnectorAuthorizationTransaction.MaxLifetime;
+        var listed = await database.ExecuteAsync(
+            (context, token) => context.Database.SqlQuery<Guid>(
+                    $"""
+                    SELECT transaction_id AS "Value"
+                    FROM public.connector_authorization_transactions
+                    WHERE verifier_deleted_at_utc IS NULL
+                      AND consumed_at_utc IS NOT NULL
+                      AND (consumed_at_utc >= expires_at_utc OR consumed_at_utc <= now() - {validity})
+                    ORDER BY consumed_at_utc, transaction_id
+                    LIMIT {limit}
+                    """)
+                .ToListAsync(token),
+            cancellationToken);
+
+        return listed.IsSuccess
+            ? Result<IReadOnlyList<Guid>>.Success(listed.Value)
+            : Result<IReadOnlyList<Guid>>.Failure(listed.Error);
+    }
+
+    /// <inheritdoc />
+    public Task<Result<bool>> RecordVerifierDeletedAsync(Guid transactionId, CancellationToken cancellationToken)
+    {
+        if (transactionId == Guid.Empty)
+        {
+            return Task.FromResult(Result<bool>.Failure(ConnectorAuthorizationErrors.InvalidRequest));
+        }
+
+        return database.ExecuteAsync(
+            async (context, token) => await context.Database.ExecuteSqlAsync(
+                $"""
+                UPDATE public.connector_authorization_transactions
+                SET verifier_deleted_at_utc = now()
+                WHERE transaction_id = {transactionId} AND consumed_at_utc IS NOT NULL AND verifier_deleted_at_utc IS NULL
+                """,
+                token) == 1,
+            cancellationToken);
+    }
+
+    /// <inheritdoc />
     public Task<Result<ConnectorAuthorization?>> ReadAsync(Guid connectionId, CancellationToken cancellationToken)
     {
         if (connectionId == Guid.Empty)

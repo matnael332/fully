@@ -60,6 +60,23 @@ internal sealed class MondayTokenKeeper
     internal ValueTask DeleteTokensAsync(TenantId tenant, Guid connectionId, Guid version) =>
         DeleteQuietlyAsync(MondaySecretName.ForTokens(tenant, connectionId, version));
 
+    /// <summary>
+    /// Deletes a secret and says whether it is confirmed gone: deleted now, or already absent. A storage failure,
+    /// raised or reported, is never confirmation, so the caller keeps the deletion due.
+    /// </summary>
+    internal async ValueTask<bool> DeleteConfirmedAsync(MondaySecretName name)
+    {
+        try
+        {
+            return await _secrets.DeleteAsync(name, CancellationToken.None).ConfigureAwait(false)
+                is MondaySecretStoreStatus.Succeeded or MondaySecretStoreStatus.NotFound;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Deletes a secret, best effort: a failure leaves an unreferenced value and is never raised.</summary>
     internal async ValueTask DeleteQuietlyAsync(MondaySecretName name)
     {

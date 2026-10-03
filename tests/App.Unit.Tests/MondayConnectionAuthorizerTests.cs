@@ -151,6 +151,253 @@ public sealed class MondayConnectionAuthorizerTests
 
         Assert.Null(harness.Secrets.Peek(abandonedName));
         Assert.NotNull(harness.Database.Transactions[Guid.ParseExact(abandonedState[..32], "N")].ConsumedAt);
+        Assert.NotNull(harness.Database.Transactions[Guid.ParseExact(abandonedState[..32], "N")].VerifierDeletedAt);
+    }
+
+    [Fact]
+    public async Task A_verifier_left_by_a_completion_that_died_is_removed_once_its_code_can_no_longer_be_exchanged()
+    {
+        var harness = new OAuthHarness();
+        var redirect = await harness.StartAsync();
+        var state = OAuthHarness.Query(redirect.AuthorizationUri)["state"];
+        var name = VerifierName(harness, state);
+
+        // The winning completion consumed the transaction, then its process died before it removed the verifier.
+        harness.Database.Transactions[Guid.ParseExact(state[..32], "N")].ConsumedAt = harness.Database.Now;
+
+        // While a code issued for it could still be exchanged, a cleanup leaves the verifier to that completion.
+        harness.Database.Now += TimeSpan.FromMinutes(9);
+        await harness.StartAsync();
+        Assert.NotNull(harness.Secrets.Peek(name));
+
+        // Once no code for it can be exchanged any more, the next cleanup removes it, with no callback and no retry.
+        harness.Database.Now += TimeSpan.FromMinutes(2);
+        await harness.StartAsync();
+        Assert.Null(harness.Secrets.Peek(name));
+    }
+
+    [Fact]
+    public async Task A_successful_completion_deletes_its_verifier_and_records_it_so_no_cleanup_is_due()
+    {
+        var harness = new OAuthHarness();
+        var redirect = await harness.StartAsync();
+        var state = OAuthHarness.Query(redirect.AuthorizationUri)["state"];
+        harness.ScriptExchange();
+
+        Assert.True((await harness.Authorizer.CompleteAsync(harness.Principal, OAuthHarness.CallbackFor(redirect), Cancel)).IsSuccess);
+
+        var stored = Transaction(harness, state);
+        Assert.Null(harness.Secrets.Peek(VerifierName(harness, state)));
+        Assert.NotNull(stored.ConsumedAt);
+        Assert.NotNull(stored.VerifierDeletedAt);
+        harness.Database.Now += TimeSpan.FromMinutes(11);
+        Assert.Equal(new MondayVerifierCleanup(0, 0), (await harness.Authorizer.CleanUpVerifiersAsync(Cancel)).Value);
+    }
+
+    [Fact]
+    public async Task After_a_restart_a_cleanup_with_no_callback_deletes_an_orphaned_verifier_once_and_keeps_the_transaction_consumed()
+    {
+        var harness = new OAuthHarness();
+        var redirect = await harness.StartAsync();
+        var state = OAuthHarness.Query(redirect.AuthorizationUri)["state"];
+        var name = VerifierName(harness, state);
+        var stored = Transaction(harness, state);
+
+        // The winning completion consumed the transaction, then its process died before it removed the verifier.
+        stored.ConsumedAt = harness.Database.Now;
+
+        // A new process, with its own authorizer and nothing in memory, waits while a code could still be exchanged.
+        var restarted = Restarted(harness);
+        Assert.Equal(new MondayVerifierCleanup(0, 0), (await restarted.CleanUpVerifiersAsync(Cancel)).Value);
+        Assert.NotNull(harness.Secrets.Peek(name));
+
+        // Then it deletes the verifier and records it; the transaction stays consumed.
+        harness.Database.Now += TimeSpan.FromMinutes(10);
+        Assert.Equal(new MondayVerifierCleanup(1, 0), (await restarted.CleanUpVerifiersAsync(Cancel)).Value);
+        Assert.Null(harness.Secrets.Peek(name));
+        Assert.NotNull(stored.VerifierDeletedAt);
+        Assert.NotNull(stored.ConsumedAt);
+
+        // Running it again is safe and finds nothing to do.
+        Assert.Equal(new MondayVerifierCleanup(0, 0), (await restarted.CleanUpVerifiersAsync(Cancel)).Value);
+        Assert.Equal(new MondayVerifierCleanup(0, 0), (await harness.Authorizer.CleanUpVerifiersAsync(Cancel)).Value);
+    }
+
+    [Fact]
+    public async Task A_cleanup_while_the_winner_is_completing_leaves_the_winners_verifier()
+    {
+        var harness = new OAuthHarness();
+        var redirect = await harness.StartAsync();
+        var state = OAuthHarness.Query(redirect.AuthorizationUri)["state"];
+        var verifierName = VerifierName(harness, state);
+        var verifier = StoredVerifier(harness, state);
+        harness.ScriptExchange();
+
+        // The winner consumed the transaction and is held just before it reads its verifier.
+        var reading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        harness.Secrets.GetOverride = name =>
+        {
+            if (name.Value == verifierName && reading.TrySetResult())
+            {
+                release.Wait(TimeSpan.FromSeconds(30), Cancel);
+            }
+
+            return null;
+        };
+        var winner = Task.Run(() => harness.Authorizer.CompleteAsync(harness.Principal, OAuthHarness.CallbackFor(redirect), Cancel), Cancel);
+        await reading.Task.WaitAsync(Cancel);
+
+        try
+        {
+            // Another process's cleanup now, and a start's: neither touches the verifier the winner still needs.
+            harness.Database.Now += TimeSpan.FromMinutes(9);
+            Assert.Equal(new MondayVerifierCleanup(0, 0), (await Restarted(harness).CleanUpVerifiersAsync(Cancel)).Value);
+            await harness.StartAsync();
+            Assert.Equal(verifier, StoredVerifier(harness, state));
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        // The winner completes with it, then deletes it and records the deletion.
+        Assert.True((await winner).IsSuccess);
+        Assert.Null(harness.Secrets.Peek(verifierName));
+        Assert.NotNull(Transaction(harness, state).VerifierDeletedAt);
+        Assert.Single(harness.Server.TokenRequests);
+    }
+
+    [Fact]
+    public async Task A_verifier_whose_deletion_fails_stays_due_and_a_later_cleanup_deletes_it()
+    {
+        var harness = new OAuthHarness();
+        var redirect = await harness.StartAsync();
+        var state = OAuthHarness.Query(redirect.AuthorizationUri)["state"];
+        var name = VerifierName(harness, state);
+        harness.ScriptExchange();
+        harness.Secrets.DeleteOverride = candidate => candidate.Value == name ? MondaySecretStoreStatus.Unavailable : null;
+
+        // The completion succeeds; the storage refuses to delete its verifier, so nothing records a deletion.
+        Assert.True((await harness.Authorizer.CompleteAsync(harness.Principal, OAuthHarness.CallbackFor(redirect), Cancel)).IsSuccess);
+        var stored = Transaction(harness, state);
+        Assert.NotNull(harness.Secrets.Peek(name));
+        Assert.Null(stored.VerifierDeletedAt);
+
+        // Once no code can be exchanged, a cleanup tries again; the storage still fails, and the verifier stays due.
+        harness.Database.Now += TimeSpan.FromMinutes(10);
+        Assert.Equal(new MondayVerifierCleanup(0, 1), (await harness.Authorizer.CleanUpVerifiersAsync(Cancel)).Value);
+        Assert.NotNull(harness.Secrets.Peek(name));
+        Assert.Null(stored.VerifierDeletedAt);
+
+        // A storage that raises instead of answering has not deleted anything either.
+        harness.Secrets.DeleteOverride = candidate => candidate.Value == name ? throw new HttpRequestException() : (MondaySecretStoreStatus?)null;
+        Assert.Equal(new MondayVerifierCleanup(0, 1), (await harness.Authorizer.CleanUpVerifiersAsync(Cancel)).Value);
+        Assert.NotNull(harness.Secrets.Peek(name));
+        Assert.Null(stored.VerifierDeletedAt);
+
+        // The storage recovers: the next cleanup deletes and records it.
+        harness.Secrets.DeleteOverride = _ => null;
+        Assert.Equal(new MondayVerifierCleanup(1, 0), (await harness.Authorizer.CleanUpVerifiersAsync(Cancel)).Value);
+        Assert.Null(harness.Secrets.Peek(name));
+        Assert.NotNull(stored.VerifierDeletedAt);
+        Assert.NotNull(stored.ConsumedAt);
+    }
+
+    [Fact]
+    public async Task A_deletion_the_database_failed_to_record_stays_due_and_is_confirmed_by_a_later_cleanup()
+    {
+        var harness = new OAuthHarness();
+        var redirect = await harness.StartAsync();
+        var state = OAuthHarness.Query(redirect.AuthorizationUri)["state"];
+        var stored = Transaction(harness, state);
+        stored.ConsumedAt = harness.Database.Now;
+        harness.Database.Now += TimeSpan.FromMinutes(10);
+        harness.Store.FailBefore = operation => operation == nameof(IConnectorAuthorizationStore.RecordVerifierDeletedAsync);
+
+        // The verifier is deleted but the record fails: the transaction stays due, and the next cleanup confirms it.
+        Assert.Equal(new MondayVerifierCleanup(0, 1), (await harness.Authorizer.CleanUpVerifiersAsync(Cancel)).Value);
+        Assert.Null(harness.Secrets.Peek(VerifierName(harness, state)));
+        Assert.Null(stored.VerifierDeletedAt);
+
+        harness.Store.FailBefore = _ => false;
+        Assert.Equal(new MondayVerifierCleanup(1, 0), (await harness.Authorizer.CleanUpVerifiersAsync(Cancel)).Value);
+        Assert.NotNull(stored.VerifierDeletedAt);
+    }
+
+    [Fact]
+    public async Task A_cleanup_never_makes_a_code_or_a_state_usable_again()
+    {
+        var harness = new OAuthHarness();
+        var redirect = await harness.StartAsync();
+        var state = OAuthHarness.Query(redirect.AuthorizationUri)["state"];
+        var stored = Transaction(harness, state);
+        stored.ConsumedAt = harness.Database.Now;
+        harness.Database.Now += TimeSpan.FromMinutes(10);
+        Assert.Equal(new MondayVerifierCleanup(1, 0), (await harness.Authorizer.CleanUpVerifiersAsync(Cancel)).Value);
+
+        // The transaction stays consumed: its callback, delivered again, is refused and nothing is exchanged.
+        harness.ScriptExchange();
+        var replayed = await harness.Authorizer.CompleteAsync(harness.Principal, OAuthHarness.CallbackFor(redirect), Cancel);
+        Assert.True(replayed.IsFailure);
+        Assert.Contains(replayed.Error, new[] { ConnectorAuthorizationErrors.TransactionExpired, ConnectorAuthorizationErrors.Replayed });
+        Assert.Empty(harness.Server.TokenRequests);
+        Assert.NotNull(stored.ConsumedAt);
+        Assert.Empty(harness.Database.Authorizations);
+    }
+
+    [Fact]
+    public async Task A_cleanup_changes_no_authorization_or_transaction_binding()
+    {
+        var harness = new OAuthHarness();
+        var redirect = await harness.StartAsync();
+        var state = OAuthHarness.Query(redirect.AuthorizationUri)["state"];
+        harness.ScriptExchange();
+        harness.Secrets.DeleteOverride = candidate => candidate.Value == VerifierName(harness, state) ? MondaySecretStoreStatus.Unavailable : null;
+        Assert.True((await harness.Authorizer.CompleteAsync(harness.Principal, OAuthHarness.CallbackFor(redirect), Cancel)).IsSuccess);
+        var row = harness.Row(redirect.ConnectionId);
+        var authorization = (row.User, row.Subject, row.Account, row.State, row.Generation, row.MaterialVersion, row.Scopes);
+        var stored = Transaction(harness, state);
+        var transaction = stored.Transaction;
+        var consumedAt = stored.ConsumedAt;
+
+        harness.Secrets.DeleteOverride = _ => null;
+        harness.Database.Now += TimeSpan.FromMinutes(10);
+        Assert.Equal(new MondayVerifierCleanup(1, 0), (await harness.Authorizer.CleanUpVerifiersAsync(Cancel)).Value);
+
+        Assert.Equal(authorization, (row.User, row.Subject, row.Account, row.State, row.Generation, row.MaterialVersion, row.Scopes));
+        Assert.Same(transaction, stored.Transaction);
+        Assert.Equal(consumedAt, stored.ConsumedAt);
+        Assert.Equal((harness.User, redirect.ConnectionId), (transaction.CanonicalUser, transaction.ConnectionId));
+    }
+
+    [Fact]
+    public async Task A_cleanup_deletes_only_the_verifiers_of_due_transactions_each_by_its_own_name()
+    {
+        var harness = new OAuthHarness();
+        var orphanState = OAuthHarness.Query((await harness.StartAsync()).AuthorizationUri)["state"];
+        Transaction(harness, orphanState).ConsumedAt = harness.Database.Now;
+        harness.Database.Now += TimeSpan.FromMinutes(1);
+        var secondOrphanState = OAuthHarness.Query((await harness.StartAsync()).AuthorizationUri)["state"];
+        Transaction(harness, secondOrphanState).ConsumedAt = harness.Database.Now;
+        harness.Database.Now += TimeSpan.FromMinutes(10);
+
+        // A transaction still open, and one a completion consumed a moment ago: both verifiers may still be needed.
+        var openState = OAuthHarness.Query((await harness.StartAsync()).AuthorizationUri)["state"];
+        var activeState = OAuthHarness.Query((await harness.StartAsync()).AuthorizationUri)["state"];
+        Transaction(harness, activeState).ConsumedAt = harness.Database.Now;
+
+        _ = await harness.Authorizer.CleanUpVerifiersAsync(Cancel);
+
+        Assert.Null(harness.Secrets.Peek(VerifierName(harness, orphanState)));
+        Assert.Null(harness.Secrets.Peek(VerifierName(harness, secondOrphanState)));
+        Assert.NotNull(harness.Secrets.Peek(VerifierName(harness, openState)));
+        Assert.NotNull(harness.Secrets.Peek(VerifierName(harness, activeState)));
+        Assert.Equal(
+            ["delete " + VerifierName(harness, orphanState), "delete " + VerifierName(harness, secondOrphanState)],
+            harness.Secrets.Operations.Where(operation => operation.StartsWith("delete", StringComparison.Ordinal)));
+        Assert.Null(Transaction(harness, openState).VerifierDeletedAt);
+        Assert.Null(Transaction(harness, activeState).VerifierDeletedAt);
     }
 
     [Fact]
@@ -735,6 +982,18 @@ public sealed class MondayConnectionAuthorizerTests
         Assert.Equal(2, harness.Server.RevokeRequests.Count());
         Assert.Empty(harness.Database.Authorizations);
     }
+
+    private static InMemoryAuthorizationDatabase.StoredTransaction Transaction(OAuthHarness harness, string state)
+    {
+        lock (harness.Database.Gate)
+        {
+            return harness.Database.Transactions[Guid.ParseExact(state[..32], "N")];
+        }
+    }
+
+    // A new process: its own store and authorizer, nothing in memory, the same database and secret storage.
+    private static MondayConnectionAuthorizer Restarted(OAuthHarness harness) =>
+        new(new InMemoryAuthorizationStore(harness.Database, harness.Tenant), harness.Secrets, harness.Options, harness.Http, harness.Reader, harness.TenantContext, harness.Clock);
 
     private static string VerifierName(OAuthHarness harness, string state) =>
         $"wce-monday-pkce-{harness.Tenant.Value:N}-{state[..32]}";

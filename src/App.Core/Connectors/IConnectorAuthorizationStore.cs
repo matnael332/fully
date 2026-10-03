@@ -53,6 +53,24 @@ public interface IConnectorAuthorizationStore
     /// <param name="cancellationToken">Cancels the operation.</param>
     Task<Result<IReadOnlyList<Guid>>> CloseExpiredTransactionsAsync(int limit, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Lists up to <paramref name="limit"/> transactions, oldest first, whose PKCE verifier may still be stored but can
+    /// no longer be used: closed unconsumed after their expiry, or consumed at least
+    /// <see cref="ConnectorAuthorizationTransaction.MaxLifetime"/> ago, the provider's code validity, so no code issued
+    /// for them can still be exchanged. A transaction stays listed until the verifier's deletion is recorded.
+    /// </summary>
+    /// <param name="limit">The most transactions to list: 1 to 100.</param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
+    Task<Result<IReadOnlyList<Guid>>> ListVerifierCleanupAsync(int limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records that a closed or consumed transaction's PKCE verifier is gone from secret storage. Returns
+    /// <see langword="false"/> when the transaction is unknown in the tenant, still open, or already recorded.
+    /// </summary>
+    /// <param name="transactionId">The transaction.</param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
+    Task<Result<bool>> RecordVerifierDeletedAsync(Guid transactionId, CancellationToken cancellationToken);
+
     /// <summary>Reads a connection's authorization, or <see langword="null"/> when it has none in the tenant.</summary>
     /// <param name="connectionId">The connection.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>

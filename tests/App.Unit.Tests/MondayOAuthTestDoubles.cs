@@ -228,6 +228,8 @@ internal sealed class InMemoryAuthorizationDatabase
         internal required DateTimeOffset ExpiresAt { get; init; }
 
         internal DateTimeOffset? ConsumedAt { get; set; }
+
+        internal DateTimeOffset? VerifierDeletedAt { get; set; }
     }
 }
 
@@ -314,6 +316,33 @@ internal sealed class InMemoryAuthorizationStore(InMemoryAuthorizationDatabase d
                 .ToList();
             due.ForEach(stored => stored.ConsumedAt = database.Now);
             return due.Select(stored => stored.Transaction.TransactionId).ToList();
+        });
+
+    public Task<Result<IReadOnlyList<Guid>>> ListVerifierCleanupAsync(int limit, CancellationToken cancellationToken) =>
+        Run<IReadOnlyList<Guid>>(nameof(ListVerifierCleanupAsync), () => database.Transactions.Values
+            .Where(stored => stored.Tenant == tenant
+                && stored.VerifierDeletedAt is null
+                && stored.ConsumedAt is { } consumed
+                && (consumed >= stored.ExpiresAt || consumed <= database.Now - ConnectorAuthorizationTransaction.MaxLifetime))
+            .OrderBy(stored => stored.ConsumedAt)
+            .ThenBy(stored => stored.Transaction.TransactionId)
+            .Take(limit)
+            .Select(stored => stored.Transaction.TransactionId)
+            .ToList());
+
+    public Task<Result<bool>> RecordVerifierDeletedAsync(Guid transactionId, CancellationToken cancellationToken) =>
+        Run(nameof(RecordVerifierDeletedAsync), () =>
+        {
+            if (!database.Transactions.TryGetValue(transactionId, out var stored)
+                || stored.Tenant != tenant
+                || stored.ConsumedAt is null
+                || stored.VerifierDeletedAt is not null)
+            {
+                return false;
+            }
+
+            stored.VerifierDeletedAt = database.Now;
+            return true;
         });
 
     public Task<Result<ConnectorAuthorization?>> ReadAsync(Guid connectionId, CancellationToken cancellationToken) =>
