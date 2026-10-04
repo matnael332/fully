@@ -1,7 +1,7 @@
 # INIT — Project Handoff State
 
-Last updated: 2026-10-01 (Gate 2 and Premium Gate P0 PASS and closed; Gate 3, monday Connector, IN PROGRESS: 3A,
-3B, 3C and 3D PASS, 3E in progress). Read this first when resuming.
+Last updated: 2026-10-04 (Gate 2 and Premium Gate P0 PASS and closed; Gate 3, monday Connector, IN PROGRESS: 3A to
+3F and the PKCE verifier cleanup PASS, 3G NEXT / NOT STARTED). Read this first when resuming.
 
 ## Where the project is
 
@@ -20,7 +20,11 @@ Last updated: 2026-10-01 (Gate 2 and Premium Gate P0 PASS and closed; Gate 3, mo
 | Premium P0 — Architecture Freeze | **PASS — ARCHITECTURE FROZEN, closed 2026-09-29.** D1–D4 and C1 approved; invariant 35 COMPATIBLE; audit rerun with no unresolved contradiction. Closure commit `999d2f9` (documentation only), CI run 36619836845 green. `docs/premium/`, `docs/gates/gate-P0-report.md` |
 | Premium P1–P11 | Planned; NOT STARTED; not authorized |
 
-**Repository pointers:** `main` == `origin/main` == the Gate 3C commit, whose parent is `869e1c7`, the Gate 3B commit
+**Repository pointers (2026-10-04):** `main` == `origin/main` == `f92c94c`, the PKCE verifier cleanup commit (3B
+maintenance), whose parent is `aaf2175`, the Gate 3F commit, whose parent is `0dbfe1e`, the Gate 3E commit, whose
+parent is `273faa6`, the 3B maintenance commit that keeps the PKCE verifier on a duplicate callback (CI run
+36993975259 green), whose parent is `0c2d18e`, the Gate 3D commit (CI run 36819668481 green), whose parent is
+`60ded62`, the Gate 3C commit, whose parent is `869e1c7`, the Gate 3B commit
 (CI run 36685564292 green), whose parent is `d06ed66`, the Gate 3A commit (CI run 36635615637 green), whose parent is
 `999d2f9`, the Premium Gate P0 closure commit (documentation only; CI
 run 36619836845 green), whose parent is `9988f54`, the Gate 2 closure commit, whose own parent is
@@ -30,9 +34,11 @@ gitleaks found no leaks). Earlier: `dcf5496` (Gate 2F status closure), `259be35`
 status closure), `e165852` (Gate 2E), `4b54bec` (the `event-driven-systems` skill aligned with the Gate 2D session
 decision), `32e2909` (Gate 2D status closure), `f97d22d` (Gate 2D), `1f59a96` (Gate 2C status closure), `189f173`
 (Gate 2C), `3209e57` (Gate 2B status closure), `120183b` (Gate 2B), `23607f9` (project skills), `7ba941a` (Gate
-2A). The working tree is clean. The local database
-carries the 2B, 2C, 2D, 2E and 2F migrations (with the 2F follow-up `RawContentPurgeAge`) and the 3B migration
-`ConnectorAuthorizations`, applied by the integration tests; Azure Dev carries none of them.
+2A). Not committed on that date: the documentation update of 2026-10-04 (this file and `docs/gates/gate-3-scope.md`)
+and local Claude tooling under `.claude/`. The local database carries the 2B to 2F migrations (with the 2F follow-up
+`RawContentPurgeAge`) and the Gate 3 migrations (`ConnectorAuthorizations`, `ReconciliationTargets`, `InitialSync`,
+`InitialSyncScopeVersions`, `InitialSyncActiveScopes` and `ConnectorAuthorizationVerifierCleanup`), applied by the
+integration tests; Azure Dev carries none of them.
 
 **Product-owner decisions on record (2026-09-28):** Gate 1G runtime verification approved; Commit B
 (readiness probe on in Dev) approved and deployed; the single cold-start Service Bus timeout is a
@@ -80,15 +86,20 @@ authorized 3D (source mapping and normalization) in SAFE AUTO MODE with decision
 product owner gave 3D its final pass (PASS), accepting the `SourceValueConfirmation` Core extension and recording
 decisions D3D-6 to D3D-8. The same day the product owner authorized 3E (API reconciliation and authoritative reread)
 in SAFE AUTO MODE with decisions D3E-1 to D3E-9; 3E stopped before code for a durable board id,
-and the owner chose option A (decisions D3E-10 and D3E-11); 3E is implemented and awaits
-the owner's review.
+and the owner chose option A (decisions D3E-10 and D3E-11). On 2026-10-02 the product owner gave 3E its final pass
+(PASS), committed after the separate 3B maintenance commit `273faa6`, and authorized 3F (initial sync, watermark and
+buffered replay) in SAFE AUTO MODE with decisions D3F-1 to D3F-15. On 2026-10-03 the product owner gave 3F its final
+pass (PASS), then authorized and approved the PKCE verifier cleanup (3B maintenance, PASS) with its 3G precondition.
+On 2026-10-04 the product owner ordered the already-approved decisions A to F, and the additional historical Gate 3F
+F39 mutation-evidence decision, recorded in `docs/gates/gate-3-scope.md` ("Owner decisions on record before 3G").
+3G is NEXT / NOT STARTED and needs its own authorization.
 
 ## Rules that must not be broken (from CLAUDE.md and the canonical docs)
 
 - Work only on an explicitly authorized Gate. Gate 2 is closed (PASS; `docs/gates/gate-2-scope.md`,
   `docs/gates/gate-2-report.md`), and so is Premium Gate P0 (PASS; `docs/gates/gate-P0-report.md`). Gate 3 is
-  authorized and in progress (`docs/gates/gate-3-scope.md`): work only on an explicitly authorized sub-gate; 3F and
-  3G each need explicit authorization. Premium Gates P1 to P11 are not started and not authorized. The Premium
+  authorized and in progress (`docs/gates/gate-3-scope.md`): work only on an explicitly authorized sub-gate; 3G
+  needs its own explicit authorization. Premium Gates P1 to P11 are not started and not authorized. The Premium
   documents in `docs/premium/` are frozen, subordinate to the frozen Core documents, and change only with explicit
   product-owner approval.
 - Never modify `docs/canonical/PRD-v1.md`, `SYSTEM-ARCHITECTURE-v1.md`, `ARCHITECTURE-INVARIANTS-v1.md`
@@ -246,8 +257,8 @@ database holds no data. Tags are immutable and additive.
   only those two containers: `docker compose --env-file .env -f infra/local/docker-compose.yml up -d
   --force-recreate --no-deps mssql servicebus-emulator`. Never `docker … prune`.
 - `dotnet test` under Microsoft.Testing.Platform: `dotnet test --project <csproj> -c Debug` or the
-  solution path; never pass `--nologo`. Unit (251), Security (101) and Architecture (14) run without Docker;
-  the full suite (584, with Integration 218) needs `./eng/dev.ps1 up`; the seven Service Bus emulator tests
+  solution path; never pass `--nologo`. Unit (949), Security (164) and Architecture (35) run without Docker;
+  the full suite (1,602, with Integration 454) needs `./eng/dev.ps1 up`; the nine Service Bus emulator tests
   skip when `.env` has no `ACCEPT_EULA=Y`, as in CI.
 - The GitHub Ubuntu runner exports `ACCEPT_EULA=Y` globally; never treat a process-level licence flag as
   evidence that a local service exists.

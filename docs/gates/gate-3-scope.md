@@ -205,6 +205,9 @@ One sub-gate at a time; no later functionality enters an earlier sub-gate.
 - Decided for 3B on 2026-09-30: the identity a connection acts under (D3B-1) and the secret boundary (D3B-2); see
   *3B owner decisions*. Decisions expected later: widening `EventText.MaxValueLength` if monday data needs it (3D),
   the clock-skew tolerance (3E), and rate budgets and scheduling (3E, 3F).
+- Recorded on 2026-10-04 (see *Owner decisions on record before 3G*): planning or documenting 3G does not start it
+  (decision A), and any real monday execution, a read as much as a write, needs the owner's explicit approval
+  (decision B).
 
 ## Contradiction audit before implementation
 
@@ -2867,3 +2870,39 @@ monday activity.
 
 **3G (real monday end-to-end acceptance and Gate closure) stays NEXT / NOT STARTED** and begins only on its own
 authorization, with the precondition above. Gate 3 stays IN PROGRESS. Premium Gates P1 to P11 are NOT STARTED.
+
+## Owner decisions on record before 3G (recorded 2026-10-04)
+
+On 2026-10-04 the product owner ordered the already-approved decisions below recorded here: first the six decisions A
+to F, then the historical decision on Gate 3F mutant F39. Until then they existed only in local Claude tooling; this
+section is their authoritative record. Recording them is documentation only: it authorizes nothing, starts nothing,
+and changes no frozen document, no code and no earlier decision.
+
+- **A — Gate 3G planning boundary.** Planning or documenting Gate 3G does not start Gate 3G. Gate 3G formally starts
+  only on the product owner's explicit authorization. Until that authorization, 3G implementation and every
+  real-provider execution stay forbidden.
+- **B — Real monday execution boundary.** Code that is capable of calling monday is not itself a real monday call. Any
+  actual execution against a real monday OAuth, API, webhook or other provider endpoint needs the product owner's
+  explicit approval, a real read as much as a real write.
+- **C — Tests-only security review.** A tests-only change does not require a full security re-review of unchanged
+  production code. The review still confirms the production baseline, checks the changed tests for vacuity, and gives
+  the affected invariant a targeted re-check where a test is material evidence for it.
+- **D — monday client id.** The monday OAuth client id is an identifier, not credential material. It may be logged
+  only when that is operationally useful. The client secret, tokens, an authorization code, a PKCE verifier and a raw
+  state value stay forbidden from logs.
+- **E — To confirm in 3G (MUST CONFIRM IN 3G).** Two provider behaviors are unknown and must be confirmed in 3G:
+  - what moving or copying an item between boards does to its identity (today's handling: D3E-8 and "3E owner
+    decisions, continued", Board mismatch);
+  - whether an `items_page` or `next_items_page` cursor is bound to the authority, the token, the account or the
+    session that created it (today's handling: "3F design", Pagination, and D3F-5).
+- **F — Premium "Core Gate 3" status row.** A Gate 3 sub-gate closure does not change the "Core Gate 3" row of
+  `docs/premium/PREMIUM-DEVELOPMENT-GATES-v1.md`. That row changes only when Gate 3 as a whole changes state. Any edit
+  under `docs/premium/` still needs the product owner's explicit approval.
+- **Historical Gate 3F mutation evidence — F39.** Under the mutation taxonomy adopted after Gate 3F, the historical
+  mutant F39 would not qualify as CAUGHT. Gate 3F remains PASS / CLOSED. This is an evidence-classification exception,
+  not a production defect, and no retroactive mutation campaign is required. Future migration and schema mutation
+  evidence follows the fresh-database rule.
+
+**3G (real monday end-to-end acceptance and Gate closure) stays NEXT / NOT STARTED** and begins only on its own
+authorization, with the precondition of "3B maintenance before 3G — PKCE verifier cleanup (2026-10-03)". Gate 3 stays
+IN PROGRESS. Premium Gates P1 to P11 are NOT STARTED.
