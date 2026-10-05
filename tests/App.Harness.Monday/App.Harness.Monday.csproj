@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The Gate 3G offline harness (owner decisions D3G-1 to D3G-8, docs/gates/gate-3-scope.md): a non-production
+    executable that composes the existing monday connector parts against deterministic fakes. It lives under tests/,
+    so no production project, image or deployment path can reference it, but it is not a test project: dotnet test
+    never runs it, and it is never published. It takes no package of its own.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>WorkContinuity.Harness.Monday</AssemblyName>
+    <RootNamespace>WorkContinuity.Harness.Monday</RootNamespace>
+    <IsTestProject>false</IsTestProject>
+    <IsPublishable>false</IsPublishable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- tests/Directory.Build.props adds a global using for the test framework; the harness references none. -->
+    <Using Remove="Xunit" />
+    <!-- The ASP.NET Core shared framework, for the two loopback listeners. Part of the SDK, not a package. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <!-- The harness's own tests reach its internal request checks directly; no other assembly does. -->
+    <InternalsVisibleTo Include="App.Integration.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/App.Core/App.Core.csproj" />
+    <ProjectReference Include="../../src/App.Infrastructure/App.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/App.Connectors.Monday/App.Connectors.Monday.csproj" />
+    <!-- Only for the existing monday webhook registration, endpoint and request pipeline, reused exactly as they are. -->
+    <ProjectReference Include="../../src/App.Web/App.Web.csproj" />
+  </ItemGroup>
+</Project>

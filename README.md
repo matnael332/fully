@@ -52,7 +52,7 @@ The table below summarizes the repository's recorded development evidence. The [
 | --- | --- | --- |
 | 🟢 **Foundation verified** | Gate 1 | Platform, local environment, database, Azure foundation, and delivery tooling. |
 | 🟢 **Event backbone verified** | Gate 2 | Implemented and covered by acceptance evidence; the Gate 2 pipeline is **not active in Azure**. |
-| 🟡 **Connector in progress** | Gate 3 | Sub-gates 3A–3F are recorded PASS. Real monday.com end-to-end acceptance, 3G, is next. |
+| 🟡 **Connector in progress** | Gate 3 | Sub-gates 3A–3F are recorded PASS. 3G is in progress as an **offline implementation only**: the offline harness is ready for owner review, and real monday.com end-to-end acceptance is **not yet proven**. |
 | ⚪ **Planned** | Later product gates | AI briefings, user interface, Windows workspace preparation, and Premium implementation. |
 
 ## Technology
@@ -113,7 +113,7 @@ Claude Code and human developers must read:
 - Gate 1G — Foundation Hardening: **PASS**. Azure-aware readiness under managed identity (PostgreSQL as the runtime role, Service Bus link); runtime-role bootstrap job and first migration each executed exactly once in Dev; OpenTelemetry to Application Insights; pinned gitleaks in CI; 58 Security tests; readiness probe enabled in Dev. `dotnet test` PASS with 266 tests.
 - Gate 1 — Foundation: **PASS**.
 - Gate 2 — Event Backbone: **PASS** (2026-09-29). Canonical events, durable ingress, the outbox relay and Service Bus transport, processing with dedupe, ordering and quarantine, the event ledger, the Snapshot with provenance, and raw-content retention; the whole-path acceptance suite proves that duplicate, delayed and out-of-order events do not corrupt the Snapshot and no event is silently lost (613 tests in CI). Nothing of it runs in Azure yet. Scope: `docs/gates/gate-2-scope.md`; report: `docs/gates/gate-2-report.md`.
-- Gate 3 — monday Connector: **IN PROGRESS** (authorized 2026-09-29). 3A — connector contract and monday client foundation: **PASS** (2026-09-30). 3B — OAuth 2.1 connection lifecycle: **PASS** (2026-09-30). 3C — webhook intake: **PASS** (2026-09-30). 3D — source mapping and normalization: **PASS** (2026-10-01). 3E — API reconciliation and authoritative reread: **PASS** (2026-10-02). 3F — initial sync, watermark and buffered replay: **PASS** (2026-10-03). 3G — real monday end-to-end acceptance and Gate closure: **NEXT / NOT STARTED**. Scope and Definition of Done: `docs/gates/gate-3-scope.md`.
+- Gate 3 — monday Connector: **IN PROGRESS** (authorized 2026-09-29). 3A — connector contract and monday client foundation: **PASS** (2026-09-30). 3B — OAuth 2.1 connection lifecycle: **PASS** (2026-09-30). 3C — webhook intake: **PASS** (2026-09-30). 3D — source mapping and normalization: **PASS** (2026-10-01). 3E — API reconciliation and authoritative reread: **PASS** (2026-10-02). 3F — initial sync, watermark and buffered replay: **PASS** (2026-10-03). 3G — real monday end-to-end acceptance and Gate closure: **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized 2026-10-05: a non-production offline harness and its tests; real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED). Scope and Definition of Done: `docs/gates/gate-3-scope.md`.
 - Premium Gate P0 — Architecture Freeze: **PASS — architecture frozen** (2026-09-29; `docs/premium/`, `docs/gates/gate-P0-report.md`). Premium Gates P1–P11: planned, NOT STARTED.
 
 See `docs/canonical/PROJECT-STATUS.md` for the full verified evidence table.

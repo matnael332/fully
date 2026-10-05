@@ -207,7 +207,7 @@ Gate passes. P0 is a planning prerequisite to Core Gate 3, not a technical depen
 planned and NOT STARTED.
 
 ### Gate 3 — monday Connector
-Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B PASS (approved 2026-09-30); 3C PASS (approved 2026-09-30); 3D PASS (approved 2026-10-01); 3E PASS (approved 2026-10-02); 3F PASS (approved 2026-10-03); 3B maintenance (PKCE verifier cleanup) PASS (approved 2026-10-03); 3G NEXT / NOT STARTED; later Gates not started**
+Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B PASS (approved 2026-09-30); 3C PASS (approved 2026-09-30); 3D PASS (approved 2026-10-01); 3E PASS (approved 2026-10-02); 3F PASS (approved 2026-10-03); 3B maintenance (PKCE verifier cleanup) PASS (approved 2026-10-03); 3G IN PROGRESS — OFFLINE IMPLEMENTATION ONLY (authorized 2026-10-05; real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED); later Gates not started**
 
 Gate 3 builds real monday authentication, webhooks, source mapping, API reconciliation and initial sync on top of
 the Gate 2 Event Backbone, reading and ingesting only. Scope, the verified monday platform baseline, sub-gates 3A to
@@ -235,10 +235,16 @@ buffer, a gap-free cutover, versioned scope sets, and a current work view of ena
 runs against a real monday account or in Azure. The 3B maintenance for the PKCE verifier cleanup gap is PASS,
 approved on 2026-10-03: each OAuth transaction records when its verifier was confirmed deleted, and a tenant-scoped
 cleanup that needs no callback and survives a restart deletes the verifier of every closed or long-consumed
-transaction, retrying a failed deletion until it is confirmed (1,602 tests locally; 19/19 mutation checks). 3G is
-NEXT / NOT STARTED; its precondition is that the 3G harness or host runs that cleanup once at start-up and every 5
+transaction, retrying a failed deletion until it is confirmed (1,602 tests locally; 19/19 mutation checks). The
+precondition of 3G is that the 3G harness or host runs that cleanup once at start-up and every 5
 minutes while active, only under a trusted tenant context and never enumerating tenants through a new unrestricted
 path.
+
+On 2026-10-05 the product owner authorized 3G for an offline implementation only (**IN PROGRESS — OFFLINE
+IMPLEMENTATION ONLY**, owner decisions D3G-1 to D3G-8 in `docs/gates/gate-3-scope.md`): a non-production offline
+harness at `tests/App.Harness.Monday`, with its guards and tests, built and verified locally only, on an uncommitted
+tree with CI NOT RUN, with deterministic fakes for all provider traffic and credentials over the local database and
+Service Bus emulator. Real execution is NOT AUTHORIZED, Gate 3 closure is NOT AUTHORIZED and real acceptance is NOT PROVEN.
 
 ## Verified evidence for Gate 1A / 1B
 
@@ -403,9 +409,9 @@ Gate 1 (Foundation) and Gate 2 (Event Backbone) are closed: Gates 1A through 1G 
 evidence: `docs/gates/gate-2-report.md`). Premium Gate P0 (Architecture Freeze) is PASS: the Premium architecture is
 frozen (closed 2026-09-29; `docs/premium/`, `docs/gates/gate-P0-report.md`). Gate 3 (monday Connector) is in
 progress: 3A to 3F are PASS (3F, initial sync, watermark and buffered replay, approved 2026-10-03;
-`docs/gates/gate-3-scope.md`), and 3G is NEXT / NOT STARTED; the pre-existing PKCE verifier cleanup gap is resolved
+`docs/gates/gate-3-scope.md`), and 3G is IN PROGRESS — OFFLINE IMPLEMENTATION ONLY (authorized 2026-10-05); the pre-existing PKCE verifier cleanup gap is resolved
 (3B maintenance PASS, 2026-10-03), and the 3G host must run the verifier cleanup at start-up and every 5 minutes. Do
-not start 3G or any later sub-gate, or
+not run anything against real monday, do not close Gate 3, and do not start any later Gate or
 any Premium Gate P1 to P11, without the product owner's explicit authorization, do not start the bootstrap or
 migration jobs (each has exactly one execution), and do not deploy,
 dispatch `CD Dev` with `deploy: true`, or change Azure resources, without explicit product-owner

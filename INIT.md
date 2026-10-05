@@ -1,7 +1,8 @@
 # INIT — Project Handoff State
 
-Last updated: 2026-10-04 (Gate 2 and Premium Gate P0 PASS and closed; Gate 3, monday Connector, IN PROGRESS: 3A to
-3F and the PKCE verifier cleanup PASS, 3G NEXT / NOT STARTED). Read this first when resuming.
+Last updated: 2026-10-05 (Gate 2 and Premium Gate P0 PASS and closed; Gate 3, monday Connector, IN PROGRESS: 3A to
+3F and the PKCE verifier cleanup PASS, 3G IN PROGRESS — OFFLINE IMPLEMENTATION ONLY, real execution NOT AUTHORIZED).
+Read this first when resuming.
 
 ## Where the project is
 
@@ -16,7 +17,7 @@ Last updated: 2026-10-04 (Gate 2 and Premium Gate P0 PASS and closed; Gate 3, mo
 | 1G Foundation Hardening | **PASS** — commits `9651ed3` (implementation), `fc9bb3e` (CI fix), `450c13d` (Dev readiness probe on), plus this closure commit (Commit C) |
 | **Gate 1 — Foundation** | **PASS** |
 | Gate 2 — Event Backbone | **PASS — closed 2026-09-29.** 2A (event contract, validation, authority table) **PASS**, commit `7ba941a`. 2B (durable ingress) **PASS**, commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design). 2C (outbox relay, publisher, consumer, dead-letter handling) **PASS**, commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally). 2D (processing pipeline and event ledger) **PASS**, commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI). 2E (Snapshot projection) **PASS**, commit `e165852`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI). 2F (retention and metrics) **PASS**, commit `259be35`, CI run 36542058355 green (584 tests: 577 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2F test ran and passed in CI). 2G (acceptance suite, crash recovery, tenant isolation and the Gate report) **PASS**, commit `59f74e1`, CI run 36552321567 green (613 tests: 604 passed, 0 failed, 9 Service Bus emulator tests skipped by design; every other 2G test ran and passed in CI; 613/613 locally). Acceptance satisfied: duplicate, delayed and out-of-order events do not corrupt the Snapshot and no event is silently lost. Report, risks and deferred items: `docs/gates/gate-2-report.md`. Azure Dev has **none** of the 2B, 2C, 2D, 2E or 2F migrations or schema. Scope and owner decisions: `docs/gates/gate-2-scope.md` |
-| Gate 3 — monday Connector | **IN PROGRESS — authorized 2026-09-29.** 3A (connector contract and monday client foundation) **PASS** — approved 2026-09-30, committed as `d06ed66` (773 tests locally, 32/32 mutants caught). 3B (OAuth 2.1 connection lifecycle) **PASS** — approved 2026-09-30 with owner decisions D3B-1 to D3B-3 and review decisions R3B-1 and R3B-2, committed as the Gate 3B commit (986 tests locally, 91/91 mutation and vacuity checks). 3C (webhook intake) **PASS** — approved 2026-09-30 with owner decision D3C-1 (intake only) and the owner-review decisions, committed as the Gate 3C commit (1,167 tests locally, 45/45 mutation checks caught). 3D (source mapping and normalization) **PASS** — approved 2026-10-01 with owner decisions D3D-1 to D3D-8 and the accepted `SourceValueConfirmation` Core extension, committed as the Gate 3D commit (1,291 tests locally, 24/24 mutation checks caught). 3E (API reconciliation and authoritative reread) **PASS** — approved by the product owner on 2026-10-02 (D3E-1 to D3E-11; transient and access failures never held; `AuthorityChanged` for a read overtaken by a reauthorization; 1,420 tests locally; mutation checks 38/38, 32/32 and 13/13), committed after the separate 3B maintenance commit `273faa6`; 3F (initial sync, watermark and buffered replay) **PASS** — approved by the product owner on 2026-10-03 (D3F-1 to D3F-15; a configured connection held from its first enabled scope; versioned scope sets; a current work view of enabled, baselined scopes only; 1,589 tests locally; mutation checks 43/43, 23/23, 15/16 with one equivalent, and 5/5); 3G (real monday end-to-end acceptance) **NEXT / NOT STARTED**; the PKCE verifier cleanup (3B maintenance) is **PASS** — approved 2026-10-03, and the 3G host runs it at start-up and every 5 minutes. Scope and Definition of Done: `docs/gates/gate-3-scope.md` |
+| Gate 3 — monday Connector | **IN PROGRESS — authorized 2026-09-29.** 3A (connector contract and monday client foundation) **PASS** — approved 2026-09-30, committed as `d06ed66` (773 tests locally, 32/32 mutants caught). 3B (OAuth 2.1 connection lifecycle) **PASS** — approved 2026-09-30 with owner decisions D3B-1 to D3B-3 and review decisions R3B-1 and R3B-2, committed as the Gate 3B commit (986 tests locally, 91/91 mutation and vacuity checks). 3C (webhook intake) **PASS** — approved 2026-09-30 with owner decision D3C-1 (intake only) and the owner-review decisions, committed as the Gate 3C commit (1,167 tests locally, 45/45 mutation checks caught). 3D (source mapping and normalization) **PASS** — approved 2026-10-01 with owner decisions D3D-1 to D3D-8 and the accepted `SourceValueConfirmation` Core extension, committed as the Gate 3D commit (1,291 tests locally, 24/24 mutation checks caught). 3E (API reconciliation and authoritative reread) **PASS** — approved by the product owner on 2026-10-02 (D3E-1 to D3E-11; transient and access failures never held; `AuthorityChanged` for a read overtaken by a reauthorization; 1,420 tests locally; mutation checks 38/38, 32/32 and 13/13), committed after the separate 3B maintenance commit `273faa6`; 3F (initial sync, watermark and buffered replay) **PASS** — approved by the product owner on 2026-10-03 (D3F-1 to D3F-15; a configured connection held from its first enabled scope; versioned scope sets; a current work view of enabled, baselined scopes only; 1,589 tests locally; mutation checks 43/43, 23/23, 15/16 with one equivalent, and 5/5); 3G (real monday end-to-end acceptance) **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** — authorized by the product owner on 2026-10-05 (D3G-1 to D3G-8: a non-production offline harness at `tests/App.Harness.Monday` and its tests, against deterministic fakes only; real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN); the PKCE verifier cleanup (3B maintenance) is **PASS** — approved 2026-10-03, and the 3G host runs it at start-up and every 5 minutes. Scope and Definition of Done: `docs/gates/gate-3-scope.md` |
 | Premium P0 — Architecture Freeze | **PASS — ARCHITECTURE FROZEN, closed 2026-09-29.** D1–D4 and C1 approved; invariant 35 COMPATIBLE; audit rerun with no unresolved contradiction. Closure commit `999d2f9` (documentation only), CI run 36619836845 green. `docs/premium/`, `docs/gates/gate-P0-report.md` |
 | Premium P1–P11 | Planned; NOT STARTED; not authorized |
 
@@ -92,14 +93,17 @@ buffered replay) in SAFE AUTO MODE with decisions D3F-1 to D3F-15. On 2026-10-03
 pass (PASS), then authorized and approved the PKCE verifier cleanup (3B maintenance, PASS) with its 3G precondition.
 On 2026-10-04 the product owner ordered the already-approved decisions A to F, and the additional historical Gate 3F
 F39 mutation-evidence decision, recorded in `docs/gates/gate-3-scope.md` ("Owner decisions on record before 3G").
-3G is NEXT / NOT STARTED and needs its own authorization.
+On 2026-10-05 the product owner authorized 3G for an offline implementation only, in SAFE AUTO MODE, with decisions
+D3G-1 to D3G-8: Gate 3G is IN PROGRESS — OFFLINE IMPLEMENTATION ONLY, real execution is NOT AUTHORIZED and Gate 3
+closure is NOT AUTHORIZED.
 
 ## Rules that must not be broken (from CLAUDE.md and the canonical docs)
 
 - Work only on an explicitly authorized Gate. Gate 2 is closed (PASS; `docs/gates/gate-2-scope.md`,
   `docs/gates/gate-2-report.md`), and so is Premium Gate P0 (PASS; `docs/gates/gate-P0-report.md`). Gate 3 is
   authorized and in progress (`docs/gates/gate-3-scope.md`): work only on an explicitly authorized sub-gate; 3G
-  needs its own explicit authorization. Premium Gates P1 to P11 are not started and not authorized. The Premium
+  is authorized for the offline implementation only (2026-10-05), and any real monday execution and the closure of
+  Gate 3 each need their own explicit authorization. Premium Gates P1 to P11 are not started and not authorized. The Premium
   documents in `docs/premium/` are frozen, subordinate to the frozen Core documents, and change only with explicit
   product-owner approval.
 - Never modify `docs/canonical/PRD-v1.md`, `SYSTEM-ARCHITECTURE-v1.md`, `ARCHITECTURE-INVARIANTS-v1.md`
@@ -186,8 +190,9 @@ Full evidence: `docs/gates/gate-1G-report.md`.
    normalization) is PASS (approved 2026-10-01), and 3E (API reconciliation and authoritative reread) is PASS
    (approved 2026-10-02; decisions D3E-1 to D3E-11; `docs/gates/gate-3-scope.md`), committed after the separate 3B
    maintenance commit `273faa6`. 3F (initial sync, watermark and buffered replay) is PASS, approved on 2026-10-03
-   (D3F-1 to D3F-15). 3G (real monday end-to-end acceptance and Gate closure) is NEXT / NOT STARTED and needs its own
-   authorization. The pre-existing PKCE verifier cleanup gap is resolved by a 3B maintenance fix, PASS (approved
+   (D3F-1 to D3F-15). 3G (real monday end-to-end acceptance and Gate closure) is IN PROGRESS — OFFLINE IMPLEMENTATION
+   ONLY (authorized 2026-10-05, D3G-1 to D3G-8): real execution and Gate 3 closure are NOT AUTHORIZED, and every
+   real-execution blocker stays open. The pre-existing PKCE verifier cleanup gap is resolved by a 3B maintenance fix, PASS (approved
    2026-10-03); as a 3G precondition, the 3G harness or host runs `CleanUpVerifiersAsync` once at start-up and every 5
    minutes while active, only under a trusted tenant context.
    The 3D decisions stay in force: D3D-1 to D3D-5; D3D-6 (the ledger keeps the provider-neutral
