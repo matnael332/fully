@@ -1,3 +1,91 @@
+<p align="center">
+  <img src="docs/assets/fully-banner.svg" alt="Fully — Work Continuity Engine. An in-development project built with .NET, PostgreSQL, Docker and Azure." width="100%" />
+</p>
+
+<h1 align="center">Fully · Work Continuity Engine</h1>
+
+<p align="center">
+  <strong>Connecting work events to a reliable picture of current work.</strong><br />
+  A personal engineering project by <a href="https://github.com/matnael332">Matanel Shimon</a> · In active development
+</p>
+
+<p align="center">
+  <a href="#overview">Overview</a> &nbsp;·&nbsp;
+  <a href="#what-is-built">What is built</a> &nbsp;·&nbsp;
+  <a href="#development-status">Status</a> &nbsp;·&nbsp;
+  <a href="#explore-the-project">Explore</a> &nbsp;·&nbsp;
+  <a href="#developer-reference">Developer reference</a>
+</p>
+
+---
+
+## Overview
+
+Work moves across tools, while the context needed to continue it often becomes fragmented. **Fully** is being built to collect work events, maintain a traceable picture of current work, and eventually help employees start the day with a clear next step.
+
+The current implementation focuses on the backend: platform foundations, reliable event processing, and the first **monday.com** connector. AI briefings, agenda support, the React interface, and Windows workspace preparation are **planned capabilities**, not finished product features.
+
+<div dir="rtl" align="right">
+
+<h3>בקצרה</h3>
+
+<p><strong>Fully</strong> הוא פרויקט אישי בפיתוח, שמטרתו לעזור לעובדים להתחיל את יום העבודה עם תמונת מצב ברורה ומבוססת מידע. התשתית שנבנתה כוללת קליטת אירועים, שמירת תמונת מצב עם מקור מתועד לכל נתון, הפרדה בין לקוחות וחיבור ראשוני ל־monday.com.</p>
+
+<p>הפרויקט משלב עבודה עם Docker, מסדי נתונים, שירותי Azure, תהליכי CI/CD ובדיקות אוטומטיות. יכולות AI והכנת סביבת העבודה ב־Windows הן חלק מהמשך הפיתוח המתוכנן.</p>
+
+</div>
+
+## What is built
+
+| Area | What to look for |
+| --- | --- |
+| 🧱 **Platform foundation** | A .NET 10 modular architecture, PostgreSQL persistence, tenant isolation, and a reproducible Docker development environment. |
+| 🔄 **Reliable work events** | Durable ingestion, transactional outbox, deduplication, ordering, quarantine, and work snapshots with source provenance. |
+| ☁️ **Cloud and delivery** | Azure infrastructure in Bicep, GitHub Actions, federated deployment identity, managed identities, and OpenTelemetry. |
+| 🔌 **monday.com integration** | OAuth lifecycle, webhook intake, authoritative API reconciliation, initial sync, and buffered replay. Real service end-to-end acceptance is still pending. |
+
+## Development status
+
+The table below summarizes the repository's recorded development evidence. The [canonical project status](docs/canonical/PROJECT-STATUS.md) remains the detailed source of truth.
+
+| Status | Scope | Current boundary |
+| --- | --- | --- |
+| 🟢 **Foundation verified** | Gate 1 | Platform, local environment, database, Azure foundation, and delivery tooling. |
+| 🟢 **Event backbone verified** | Gate 2 | Implemented and covered by acceptance evidence; the Gate 2 pipeline is **not active in Azure**. |
+| 🟡 **Connector in progress** | Gate 3 | Sub-gates 3A–3F are recorded PASS. 3G is in progress as an **offline implementation only**: the offline harness is ready for owner review, and real monday.com end-to-end acceptance is **not yet proven**. |
+| ⚪ **Planned** | Later product gates | AI briefings, user interface, Windows workspace preparation, and Premium implementation. |
+
+## Technology
+
+**Backend:** C# / .NET 10 · **Data:** PostgreSQL 17 + pgvector · **Local environment:** Docker Compose · **Cloud:** Azure + Bicep · **Delivery:** GitHub Actions · **Observability:** OpenTelemetry
+
+The project follows an event-driven modular monolith architecture. Source systems remain authoritative; AI is not a source of truth and does not directly execute actions.
+
+## Explore the project
+
+| Start here | What you will find |
+| --- | --- |
+| [Product specification](docs/canonical/PRD-v1.md) | The problem, intended user experience, and product boundaries. |
+| [System architecture](docs/canonical/SYSTEM-ARCHITECTURE-v1.md) | Components, responsibilities, and the implementation baseline. |
+| [Architecture invariants](docs/canonical/ARCHITECTURE-INVARIANTS-v1.md) | The constraints the implementation must preserve. |
+| [Project status and evidence](docs/canonical/PROJECT-STATUS.md) | Verified milestones, current work, and remaining gates. |
+| [Source code](src/) and [tests](tests/) | Implementation and automated verification. |
+| [Local development](docs/development/local-development.md) | Docker Desktop setup, local configuration, health checks, and useful commands. |
+| [Azure infrastructure](infra/bicep/README.md) | Infrastructure layout and deployment guidance. |
+
+## Run locally
+
+Use the [local development guide](docs/development/local-development.md) for the complete Windows + Docker Desktop setup. It covers WSL2, the local `.env` file, required license acceptance, and starting the environment with `./eng/dev.ps1 up`.
+
+Database integration tests require the local stack to be running. The Docker path builds Web and Worker inside SDK containers, so a host .NET SDK is not required for that path.
+
+## Developer reference
+
+The original developer instructions, milestone details, commands, and operational boundaries are preserved below. Read the canonical files before changing implementation.
+
+<details>
+<summary><strong>Open the complete developer reference</strong></summary>
+
 # Work Continuity Engine
 
 Canonical implementation repository for **PRD v1** and **System Architecture v1**.
@@ -90,3 +178,5 @@ changes and the migration and bootstrap jobs never go through CD; they stay on `
 gh workflow run cd-dev.yml --ref main -f commit=<40-char sha on main> -f deploy=false   # publish images only
 gh workflow run cd-dev.yml --ref main -f commit=<40-char sha on main> -f deploy=true    # publish and update Web/Worker
 ```
+
+</details>

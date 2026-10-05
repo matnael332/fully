@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-labelledby="title desc">
+  <title id="title">Fully — Work Continuity Engine</title>
+  <desc id="desc">An in-development engineering project built with .NET 10, PostgreSQL, Docker and Azure. A conceptual flow connects work events to reliable context.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#102238"/><stop offset="1" stop-color="#142f45"/></linearGradient>
+    <linearGradient id="accent" x1="0" x2="1"><stop stop-color="#42dfc7"/><stop offset="1" stop-color="#57aaff"/></linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#a9dce8" stroke-opacity=".055"/></pattern>
+  </defs>
+  <rect width="1280" height="360" rx="24" fill="url(#bg)"/>
+  <rect width="1280" height="360" rx="24" fill="url(#grid)"/>
+  <rect x="48" y="45" width="5" height="209" rx="2.5" fill="url(#accent)"/>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="76" y="64" fill="#80d8d3" font-size="14" letter-spacing="2.8" font-weight="700">PERSONAL ENGINEERING PROJECT</text>
+    <text x="72" y="151" fill="#ffffff" font-size="84" letter-spacing="-3" font-weight="700">Fully</text>
+    <text x="76" y="192" fill="#d9e8f3" font-size="27" font-weight="600">Work Continuity Engine</text>
+    <text x="76" y="234" fill="#b3cad9" font-size="19">A foundation for reliable work context.</text>
+    <g font-size="14" font-weight="700" text-anchor="middle">
+      <rect x="76" y="281" width="106" height="32" rx="16" fill="#263b64"/><text x="129" y="302" fill="#b8d2ff">.NET 10</text>
+      <rect x="192" y="281" width="134" height="32" rx="16" fill="#1b4656"/><text x="259" y="302" fill="#92e2e2">PostgreSQL</text>
+      <rect x="336" y="281" width="106" height="32" rx="16" fill="#223f65"/><text x="389" y="302" fill="#add4ff">Docker</text>
+      <rect x="452" y="281" width="94" height="32" rx="16" fill="#2d375a"/><text x="499" y="302" fill="#c8caff">Azure</text>
+    </g>
+    <rect x="1007" y="35" width="222" height="33" rx="16.5" fill="#493d2c" stroke="#786039"/>
+    <circle cx="1027" cy="51.5" r="4" fill="#f1c97d"/><text x="1040" y="56.5" fill="#f4dca1" font-size="13" font-weight="700" letter-spacing="1">IN DEVELOPMENT</text>
+    <g fill="none" stroke="#5dbab8" stroke-width="2"><path d="M761 194H806V135H850"/><path d="M761 194H806V253H850"/><path d="M987 135H1026V194H1066"/><path d="M987 253H1026V194H1066"/></g>
+    <g fill="#1c3c4e" stroke="#3b7181">
+      <rect x="655" y="157" width="106" height="74" rx="14"/>
+      <rect x="850" y="100" width="137" height="70" rx="14"/>
+      <rect x="850" y="218" width="137" height="70" rx="14"/>
+      <rect x="1066" y="157" width="150" height="74" rx="14"/>
+    </g>
+    <g font-size="15" font-weight="700" text-anchor="middle" fill="#e5f4f7">
+      <text x="708" y="188">Work</text><text x="708" y="209">events</text>
+      <text x="918.5" y="130">Durable</text><text x="918.5" y="151">processing</text>
+      <text x="918.5" y="248">Source</text><text x="918.5" y="269">provenance</text>
+      <text x="1141" y="188">Reliable</text><text x="1141" y="209">context</text>
+    </g>
+    <g fill="#69dbcb"><circle cx="806" cy="194" r="4"/><circle cx="1026" cy="194" r="4"/></g>
+    <text x="932" y="326" text-anchor="middle" fill="#83aabc" font-size="12" letter-spacing="2">EVENTS → CONTEXT → CONTINUITY</text>
+  </g>
+</svg>
