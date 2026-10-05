@@ -12,7 +12,7 @@
 | 3E — API reconciliation and authoritative reread | **PASS** — approved by the product owner on 2026-10-02 |
 | 3F — Initial sync, watermark and buffered replay | **PASS** — approved by the product owner on 2026-10-03 |
 | 3B maintenance before 3G — PKCE verifier cleanup | **PASS** — approved by the product owner on 2026-10-03 |
-| 3G — Real monday end-to-end acceptance and Gate closure | **NEXT / NOT STARTED**; needs its own product-owner authorization; precondition: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
+| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -208,6 +208,9 @@ One sub-gate at a time; no later functionality enters an earlier sub-gate.
 - Recorded on 2026-10-04 (see *Owner decisions on record before 3G*): planning or documenting 3G does not start it
   (decision A), and any real monday execution, a read as much as a write, needs the owner's explicit approval
   (decision B).
+- Recorded on 2026-10-05 (see *3G — Offline harness implementation*): Gate 3G is authorized for the offline
+  implementation only. Real execution and Gate 3 closure are not authorized, and every real-execution blocker stays
+  open.
 
 ## Contradiction audit before implementation
 
@@ -2906,3 +2909,315 @@ and changes no frozen document, no code and no earlier decision.
 **3G (real monday end-to-end acceptance and Gate closure) stays NEXT / NOT STARTED** and begins only on its own
 authorization, with the precondition of "3B maintenance before 3G — PKCE verifier cleanup (2026-10-03)". Gate 3 stays
 IN PROGRESS. Premium Gates P1 to P11 are NOT STARTED.
+
+## 3G — Offline harness implementation (authorized 2026-10-05)
+
+### 3G authorization and owner decisions (2026-10-05)
+
+On 2026-10-05 the product owner authorized, in SAFE AUTO MODE, the start of Gate 3G for a narrowly bounded offline
+implementation only. The starting point was verified before any change: branch `main`, HEAD
+`cc1602dafb1db3a4b2ddadd091fe1306f3eda7ae`, equal to the local `origin/main` reference, a clean working tree and
+nothing staged. The authorization is self-contained: it does not approve every recommendation of the 3G preparation
+amendment, and it neither approves nor incorporates missing or truncated text. The status it orders recorded:
+
+- **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.**
+- **Real execution: NOT AUTHORIZED.**
+- **Gate 3 closure: NOT AUTHORIZED.**
+
+**Authorized:** a non-production offline harness; its targeted architecture and security guards and tests; the
+necessary solution registration; non-frozen scope, status and implementation-report documentation; and local build,
+tests and targeted mutation verification within the boundaries below.
+
+**Preserved:** every existing owner decision, including Gate 3F PASS / CLOSED and the historical F39 exception; D3C-1
+and Fully's read-only scope; R3B-1, R3B-2 and the PKCE cleanup hosting requirement; and decisions A to F. No frozen
+Core or Premium document changes. Gate 4 and every Premium implementation stay not started.
+
+The decisions below are the owner's. The labels D3G-1 to D3G-8 are this record's own, added for reference, and are
+not the owner's numbering. The authorization has nine numbered sections, and D3G-1 to D3G-8 restate its sections 2 to
+9 in order: D3G-1 is section 2, "Hard exclusions", and D3G-8 is section 9, "Documentation and final output". Section
+1, "Starting point", is the verification recorded in the first paragraph above; its remaining clauses are that a
+different HEAD or any unrelated change is reported exactly, and that work is never reset, cleaned, stashed,
+overwritten or automatically synchronized. The owner's full text was given in the working session of 2026-10-05 and
+is not stored verbatim in this repository: this section is the repository's record of it.
+
+- **D3G-1 — Hard exclusions.**
+  - No real monday contact: no API, OAuth, MCP, webhook registration, browser authorization, account discovery or
+    live endpoint probing; no real credentials, credential import or real-credential adapter; no real monday app or
+    test-workspace change.
+  - No Azure, Key Vault, RBAC, cloud deployment, tunnel, public exposure, system certificate installation, or host or
+    network configuration change.
+  - No modification under `src/`. If a production change proves necessary, the affected part stops and the exact
+    dependency and the smallest alternative are reported. A production fix is never hidden in the harness.
+  - `MondayScopePolicy`, `MondayQueryGuard`, JWT verification, tenant isolation, the current-work rules and the
+    existing production guards are not weakened.
+  - No plugin, hook, permission or local Claude configuration change. A stale review-tool expectation is a reported
+    issue, not permission to modify the tool.
+  - No stage, commit, push, workflow dispatch or deployment, and no destructive Git operation.
+- **D3G-2 — Project placement and guards.**
+  - The non-production project is created at `tests/App.Harness.Monday`. It reuses existing production components
+    through their public interfaces, and uses `App.Web` only where necessary to reuse its existing webhook
+    registration and endpoint surface, without duplicating that implementation.
+  - Nothing in production may reference the harness, and it is not added to production images or deployment paths.
+  - The existing production `SetResolved` allowlist stays unchanged. Harness-scoped guards are added that cover:
+    exactly one reviewed trusted tenant-assignment call site; tenant parsing only at the reviewed configuration
+    boundary; no tenant or user authority taken from HTTP input; no raw Snapshot access for current-work reads; no
+    monday mutations or webhook-management implementation; no administrative database connection or provisioning
+    operation inside the harness; and no fallback to a real provider transport.
+  - Existing dependencies are used where possible. A new third-party dependency outside the current approved set
+    needs a separate decision and is never added silently.
+  - The `tests/` location is not a security exemption: the harness is reviewed as new executable code with its own
+    trust boundaries.
+- **D3G-3 — Offline composition.**
+  - The smallest coherent composition that exercises: the authorization lifecycle through the existing authorizer;
+    webhook intake through the existing endpoint and verifier; ingress, relay, consumer and processing;
+    reconciliation and initial sync; explicit SourceScope configuration; PKCE verifier cleanup; and tenant-scoped
+    evidence and current-work reading.
+  - Tests use deterministic fake monday responses and synthetic credentials, reusing existing fakes where practical
+    without coupling the harness to a test assembly in a circular dependency.
+  - The default executable configuration fails closed: no usable real credential store, no usable real-provider HTTP
+    transport, no configuration flag that enables live execution in this slice, and no automatic browser launch.
+  - Missing fake dependencies fail and never fall back to network access, proven by negative tests that use
+    intercepted requests, not live calls.
+  - Provider traffic stays fake even when a test uses the real local database or the Service Bus emulator.
+  - Each operator action and each cleanup tick has its own trusted execution flow and dependency scope. Existing
+    ingress and transport flows keep their own tenant-resolution behavior.
+  - PKCE cleanup runs at start-up and every five minutes under the trusted tenant context. The cadence is tested
+    deterministically without weakening the runtime requirement.
+  - Initial sync, reconciliation, sweep and scope configuration stay manual and bounded for this slice.
+- **D3G-4 — Database and transport boundary.**
+  - A new persistent standalone harness database is not authorized now, and neither is a standalone bootstrap or
+    provisioning run.
+  - Existing local test fixtures may manage their own test resources only through the established test lifecycle,
+    inspected before tests are added. Its authority is not broadened, and shared passwords, roles, grants, emulator
+    configuration and unrelated data are not changed.
+  - The standalone harness is not run against the shared suite database.
+  - Where fresh-database evidence is required, the existing isolated test mechanism is used and the fresh-database
+    rule preserved. If that cannot be done within this authorization, the affected verification is marked BLOCKED,
+    with the reason.
+  - Standalone harness consumers are not run concurrently with the suite. Tests that use the emulator restrict
+    consumption to their own explicit test sessions, with no unrestricted queue or dead-letter draining.
+  - The later standalone database decision stays deferred. A standalone smoke run is never marked PASS when it was
+    not performed.
+- **D3G-5 — HTTP and operator safety.**
+  - Operator and callback behavior is exercised only with synthetic test flows.
+  - Operator-start and callback handling stay separate from webhook handling. Two ports alone are not assumed to
+    enforce the separation: tests show that routes are unavailable on the wrong listener.
+  - The fixed operator identity must not be attachable through an unbound browser callback. The proposed safeguards
+    are implemented and tested with fake flows: a bounded, single-use operator-start capability; explicit Host and
+    origin checks; a browser binding in addition to the existing OAuth state checks; no caching or referrer leakage
+    from callback handling; and a parameter-free terminal page.
+  - No public listener or tunnel is authorized. Existing in-process or local test mechanisms are used, without
+    changing machine trust or browser settings.
+  - If the existing public interfaces cannot support a necessary safeguard without changing `src/`, that boundary is
+    reported and the safeguard is not relaxed.
+- **D3G-6 — Minimum evidence and leak prevention.**
+  - Current-work values come through `active_snapshot_fields` and `active_snapshot_objects` under tenant isolation.
+  - Other evidence readers may inspect approved operational metadata: receipt ids, ledger outcomes, reconciliation
+    targets, sync state, authorization state, counts, timestamps and fixed outcome codes. Raw Snapshot reads are never
+    substituted for current-work access.
+  - New diagnostics stay bounded and in memory: closed enums, booleans, counts and bounded numeric measurements. No
+    arbitrary callback values, unknown parameter names, claim values, provider messages or raw error strings. Unknown
+    categories become "Other" or a count.
+  - Tokens, codes, state, verifiers, Signing Secrets, Authorization headers, callback query strings, cursors, raw
+    payload copies and uncontrolled provider text are never exposed in diagnostics or reports.
+  - No shadow raw-data store is created.
+  - Logging, telemetry, exceptions and operator output are tested with synthetic sentinels and positive controls. A
+    quiet log level alone is not evidence.
+  - A business-body sentinel may legitimately appear in its authorized raw receipt; credential and callback-secret
+    sentinels may not. The two assertions are kept distinct.
+  - A diagnostic observation that cannot be captured safely without a production change is deferred explicitly.
+- **D3G-7 — Verification.**
+  - Baseline and final local checks: build; the relevant unit, integration, security and architecture tests; the
+    repository verifiers; the full local suite where the environment supports it; the frozen-document hash
+    comparison; and `git diff --check`. Exact results are recorded, including failed, skipped, blocked and not-run
+    checks. Previous test totals are not assumed to still apply.
+  - Targeted mutation and vacuity evidence is added for the new critical guards: provider egress denial, tenant
+    assignment and isolation, browser binding, current-work access, logging and diagnostic restrictions, and PKCE
+    hosting. Historical mutation campaigns are not reopened and closed production code is not mutated for this task.
+    Every temporary mutation is restored and verified by hash. The fresh-database requirement for schema-dependent
+    evidence is preserved.
+  - The canonical-auditor, the tenant-security-reviewer and the gate-verifier are used for the affected change set,
+    and no agent review is claimed that did not run. Decision C limits unnecessary re-review of unchanged production
+    code; it does not waive the security review of the new executable harness.
+  - Work stops before commit or push. CI for the uncommitted changes is reported as NOT RUN; historical green CI
+    proves only the checkpoint it actually tested.
+- **D3G-8 — Documentation and final output.**
+  - The authorized offline scope and its acceptance criteria are recorded before coding, by the project's existing
+    decision-recording conventions.
+  - Every real-execution blocker stays open: approved durable real-secret storage; the monday app and workspace and
+    the exact approved runs; compatible webhook provisioning and public ingress; remote-revocation behavior; decision
+    E and the other MUST CONFIRM IN 3G items; and dedicated standalone runtime resources.
+  - No local-secret-store exception is approved. Neither Azure nor a particular provisioning path is approved. Real
+    authenticated webhook evidence is not waived. Fake observations are never classified as confirmed provider
+    behavior.
+  - A complete English implementation report is written to `docs/gates/gate-3G-offline-report.md`. It is an offline
+    implementation report, not a Gate 3 closure report. It uses normal Markdown with complete sentences, no
+    terminal-width tables, no clipping, and no secrets or raw runtime evidence.
+  - The final response provides what was implemented, the exact changed-file inventory, the actual tests and mutation
+    outcomes, the review findings and any remaining blockers, what was deliberately not implemented, and the report
+    path. It concludes with accurate values for: the offline implementation (READY FOR OWNER REVIEW or BLOCKED), Gate
+    3G, real acceptance, real execution, CI for the current changes, real monday calls, Azure actions, standalone
+    database provisioning, and commit or push.
+  - Completing this slice is not permission for real execution: the work stops at the owner-review boundary.
+
+### 3G offline Definition of Done
+
+Written before any code, from the authorization above, and amended after the canonical audit of 2026-10-05, when code
+already existed. Each item names the decision it serves.
+
+Added after the canonical audit of 2026-10-05. These acceptance criteria are this record's reading of the
+authorization. Where an item is stricter or more specific than the owner's wording, it is a design choice of this
+slice and not an owner decision, and it stays open to the owner's confirmation or change. Those items are: the guard
+against a telemetry exporter and against HTTP request logging, and for loopback-only listeners (item 5.8); the refusal
+to start as a privileged or owning role, which reads the `pg_roles` and `pg_tables` catalogs about the current role
+and nothing else (items 7 and 11); and, in item 12, TLS on the operator listener, the `__Host-` binding cookie, the
+fetch-metadata checks, the exact `127.0.0.1` Host, the redirect address restricted to loopback HTTPS, and the fixed
+two-minute and ten-minute lifetimes. The five safeguards the owner named are the single-use start capability, the
+Host and origin checks, the browser binding, no caching or referrer leakage, and the parameter-free terminal page.
+
+1. **Scope first.** This section and the status lines of the repository record Gate 3G IN PROGRESS — OFFLINE
+   IMPLEMENTATION ONLY, real execution NOT AUTHORIZED and Gate 3 closure NOT AUTHORIZED, before any code (D3G-8).
+2. **Baseline.** The branch, HEAD, working tree and staged state are verified against the checkpoint; the six frozen
+   documents are hash-checked; and the build, both verifiers and the full local suite are run on the unchanged
+   checkpoint, with exact results recorded (D3G-7).
+3. **Placement.** One non-production project, `tests/App.Harness.Monday`, registered in the solution. It references
+   only `App.Core`, `App.Infrastructure`, `App.Connectors.Monday` and `App.Web`, takes no package reference, is not a
+   test project and is not publishable. `App.Web` is used only for its existing webhook registration, endpoint and
+   request pipeline, which are reused and never duplicated. Nothing under `src/`, no Dockerfile, workflow, compose
+   file, infrastructure file or `eng/` script names the harness (D3G-2).
+4. **No production change.** No file under `src/` changes. No existing guard or test is weakened or edited to admit
+   the harness; the production `SetResolved` allowlist is unchanged (D3G-1, D3G-2).
+5. **Harness-scoped static guards**, each shown to fail when its rule is broken (D3G-2):
+   1. exactly one trusted tenant-assignment call site, naming the trusted-service source once;
+   2. the tenant id and the canonical user id are parsed only at the reviewed configuration boundary;
+   3. no tenant or user authority is taken from HTTP input, and the HTTP handlers name no tenant, user or principal;
+   4. no raw Snapshot name appears, and current work is read only through `active_snapshot_fields` and
+      `active_snapshot_objects`;
+   5. no monday mutation, no webhook-management call and no GraphQL document;
+   6. no administrative connection, migrator, role bootstrap, provisioning or data-changing SQL;
+   7. no real provider transport, no fallback to one, no automatic browser launch;
+   8. no telemetry exporter and no HTTP request logging, and listeners bound to loopback only.
+6. **Offline composition.** The harness exercises, against deterministic fakes and synthetic credentials: the
+   authorization lifecycle through `MondayConnectionAuthorizer`; webhook intake through the existing endpoint and
+   verifier; ingress, relay, consumer and processing; reconciliation and initial sync; explicit SourceScope
+   configuration; PKCE verifier cleanup; and tenant-scoped evidence and current-work reading (D3G-3).
+7. **Fail-closed default.** The default executable has no usable secret store, no usable provider transport, no flag
+   that enables live execution and no browser launch, and it refuses to start because no standalone database is
+   approved. Negative tests show that a missing fake ends at an intercepting transport and never reaches the network
+   (D3G-3, D3G-4).
+8. **Trusted flows.** Every operator action and every cleanup tick runs in its own execution flow and dependency
+   scope, under the configured tenant and canonical user only. The relay, the consumer and webhook requests keep
+   their own tenant resolution. Tests show that no flow observes another flow's tenant and that a second tenant's
+   connection is refused with no provider call (D3G-3).
+9. **PKCE hosting.** `CleanUpVerifiersAsync` runs once at start-up and then every five minutes under the trusted
+   tenant context. The interval is fixed in code, not configurable, and tested deterministically (D3G-3; the hosting
+   decision of 2026-10-03).
+10. **Manual and bounded.** Initial sync, reconciliation, sweep and scope configuration are single, bounded operator
+    actions; nothing schedules them (D3G-3).
+11. **Database and transport boundary.** The harness holds only the runtime-role connection and refuses to start as a
+    privileged or owning role. It creates, bootstraps, migrates and provisions nothing. Its tests use the existing
+    fixtures through their established lifecycle. Its consumer is restricted to the configured tenant's session, and
+    it has no dead-letter access. No standalone run is performed in this slice (D3G-4).
+12. **Operator safety**, proven with synthetic flows (D3G-5): operator and webhook routes on separate listeners, each
+    route unavailable on the other; a bounded, single-use, short-lived start capability; exact Host and origin
+    checks; a browser binding in addition to the OAuth state checks; no caching and no referrer leakage from start
+    and callback handling; a parameter-free terminal page; loopback listeners only; and TLS on the operator listener
+    from a certificate the tests create in memory, with no change to machine trust or browser settings.
+13. **Evidence.** Current-work values are read only through the two views under tenant isolation; the other readers
+    return approved operational metadata only (D3G-6).
+14. **Diagnostics.** In memory only; closed enums, booleans, counts and bounded numbers only; unknown categories
+    counted as "Other". Every observation that would need a production change, or a copy of a payload, is deferred
+    explicitly (D3G-6).
+15. **Leak prevention.** Synthetic sentinels and positive controls over logs, activities and metrics, exceptions,
+    operator output, diagnostics and every text column of the database: credential and callback-secret sentinels
+    appear nowhere, and the business-body sentinel appears only in its authorized raw receipt (D3G-6).
+16. **Tests and mutation evidence.** Unit-level, integration, security and architecture tests for the above, and
+    targeted mutation and vacuity evidence for the new critical guards: provider egress denial, tenant assignment and
+    isolation, browser binding, current-work access, logging and diagnostic restrictions, and PKCE hosting. Every
+    mutation is restored and verified by hash; no historical campaign is reopened; no closed production code is
+    mutated (D3G-7).
+17. **Final verification** on the final tree: a clean build with 0 warnings and 0 errors; the full local suite; both
+    repository verifiers; the six frozen documents unchanged; `git diff --check` clean; exact results recorded,
+    including failed, skipped, blocked and not-run checks (D3G-7).
+18. **Reviews.** The canonical-auditor, the tenant-security-reviewer and the gate-verifier review the change set, and
+    their findings are reported (D3G-7).
+19. **Report and status.** `docs/gates/gate-3G-offline-report.md` and the status documents; every real-execution
+    blocker kept open; no fake observation presented as provider behavior (D3G-8).
+20. **Stop.** No stage, commit or push. CI for the uncommitted change is NOT RUN (D3G-1, D3G-7).
+
+### 3G offline design
+
+- **One project, three boundaries.** `tests/App.Harness.Monday` is an executable that composes a worker container
+  (persistence as the runtime role, the transport's relay and consumer, processing with the monday normalizer,
+  reconciliation and initial sync with the monday readers, the authorization store, the credential source and the
+  authorizer), a webhook listener that maps only the existing monday webhook endpoint through
+  `AddMondayWebhookIntake` and `MapMondayWebhooks`, and an operator listener that maps only the operator start,
+  callback and terminal routes. The two listeners are separate applications with separate route tables.
+- **Trust.** The tenant id and the canonical user id are read once, from server-side configuration, at one reviewed
+  boundary. One type holds the only `SetResolved` call: it starts a fresh execution flow and a fresh dependency scope
+  for each operator action and each cleanup tick, as a trusted service. No route, query, header, cookie, body or
+  console argument can supply a tenant or a user.
+- **Fail-closed seams.** The secret store and the provider transport are seams. Their defaults refuse every
+  operation: the default store answers unavailable, and the default transport ends every request without sending it.
+  Only a test can supply a fake. The harness constructs no network handler, launches no browser and has no setting
+  that enables live execution. The standalone entry point also requires an approved database, and none is approved in
+  this slice.
+- **Operator safety.** The start route needs a single-use capability minted at the console, valid for two minutes.
+  Start and callback are served only over TLS on loopback, only for the exact configured Host, and never for a
+  foreign origin. Starting sets a host-only, HttpOnly, Secure binding cookie; the callback needs it in addition to the
+  existing OAuth state checks, and a callback without it never reaches the authorizer, so it consumes nothing. Both
+  answer `no-store` and `no-referrer`, and the callback redirects to a static page that takes no parameter.
+- **Hosting.** PKCE verifier cleanup runs at start-up and every five minutes through the trusted flow. The relay and
+  the consumer run on flows with no resolved tenant and resolve each tenant themselves, as in production; the consumer
+  takes only the configured tenant's session. Initial sync, reconciliation, sweep and scope configuration are
+  explicit operator actions.
+- **Evidence and diagnostics.** A current-work reader selects from the two active views inside the tenant-scoped
+  transaction. An operational reader returns counts, states, times and fixed outcome codes. Diagnostics are counters
+  keyed by closed enums, kept in memory.
+- **Logging.** The harness owns its logger factory: only the product's and the harness's own categories reach the
+  sink, and an exception is logged by its type name only. Framework request logging therefore cannot be re-enabled by
+  configuration, and no exporter is registered.
+
+### 3G offline contradiction audit (before code)
+
+The table was written before the code. Its last two rows were added after the canonical audit of 2026-10-05, when code
+already existed, and each says so.
+
+Every element of the offline slice was compared with PRD v1, System Architecture v1, the 83 Architecture Invariants,
+Development Gates v1, the frozen Premium documents and the owner decisions on record.
+
+| Element | Rule | Result |
+|---|---|---|
+| Harness under `tests/`, referencing Core, Infrastructure, the connector and Web; nothing references it | `docs/architecture/dependency-rules.md` (test projects may reference production projects, never the reverse); invariants 60, 72 | Compatible: the seven production projects and their references are unchanged |
+| Trusted tenant and canonical user from server-side harness configuration; one new `SetResolved` call site outside `src/` | PRD v1 §17; invariants 44, 45, 46; R3B-1 | Compatible: R3B-1 names an owner-operated DEV/TEST harness that supplies the trusted Tenant → canonical user → connection chain; the production allowlist is unchanged and the harness has its own guard |
+| OAuth start only on the harness's loopback operator listener, behind a single-use capability | R3B-1 (no anonymous production OAuth-start endpoint) | Compatible: nothing is added to `App.Web` or `App.Worker` |
+| Fail-closed default secret store; in-memory fakes in tests only | PRD v1 §17; invariants 53, 54; D3B-2; Premium architecture §20 constraint 1 | Compatible: no real secret exists anywhere, and no storage decision is taken |
+| No real provider call; fake transport only | Decisions A and B; D3G-1 | Compatible |
+| Webhook intake reused through the existing registration and endpoint; no webhook registered | D3C-1; System Architecture v1 §3, §9; invariants 1, 45 | Compatible: intake only, tenant resolved from the connection inside ingress |
+| Read and ingest only; no mutation, no write scope | Premium architecture §20 constraint 5; Gate 3 scope | Compatible: `MondayScopePolicy` and `MondayQueryGuard` are untouched and the harness sends no document of its own |
+| Reconciliation and initial sync invoked by explicit operator actions through the existing ports | D3E-1 to D3E-11; D3F-1 to D3F-15; invariant 17 | Compatible: nothing is scheduled, and scopes are explicit |
+| PKCE cleanup at start-up and every five minutes under the trusted tenant | Hosting decision of 2026-10-03, points 1 to 7 | Compatible: tenant-scoped, no tenant enumeration, no new database function |
+| Current work only through the two active views | 3F final owner review; invariants 2, 13, 14 | Compatible |
+| Diagnostics in memory, closed values only; logs carry no payload or credential | PRD v1 §17; System Architecture v1 §10; invariants 52, 53, 55 | Compatible: no shadow raw-data store |
+| Runtime-role connection only; forced row-level security applies | Invariants 44, 48, 52, 59; R3B-2 | Compatible: no administrative path, no grant change, no bootstrap |
+| Local development boundary only; no Azure | Invariants 68, 69; Gate 3 Definition of Done item 13 | Compatible |
+| Offline fakes are not real monday evidence | Invariants 74, 82; Development Gates v1 (Gate 3 acceptance) | Compatible: real acceptance stays NOT PROVEN and Gate 3 closure is not claimed |
+| No AI, no Premium capability, no Gate 4 work, no new package | Development Gates v1; P0 closure; CLAUDE.md scope discipline | Compatible |
+| Added after the canonical audit of 2026-10-05: a fixed operator identity, built from the configured canonical user with the identity provider key `LocalDemo` and a fixed subject | Invariants 46, 47, 56, 68; Premium architecture §20 constraint 2; R3B-1 | Compatible for the offline slice: the identity is configured server-side, is not derived from an email address, and every call of the authorizer names it. Which identity provider key an owner-operated DEV/TEST harness uses in a real run is not decided here and stays open for the owner before any real execution |
+| Added after the canonical audit of 2026-10-05: disconnect and revocation through the existing authorizer | Invariant 58; Premium architecture §20 constraint 7 | Compatible: the harness keeps no copy of a connection's authorization state, so a disabled connection is refused at its next call by the product itself. A fake provider's answer to a revocation is not evidence of monday's behavior |
+
+**Result: no contradiction, no blocker for the offline slice.** Real execution stays blocked by the open items of
+D3G-8, and this slice decides none of them.
+
+### 3G offline implementation record (2026-10-05)
+
+The offline slice is implemented and locally verified, and it waits for the owner's review. The full record is
+`docs/gates/gate-3G-offline-report.md`. In short, all local and on the uncommitted tree: a clean build with 0 warnings
+and 0 errors; both repository verifiers PASS; 1,694 of 1,694 tests passed with none skipped (unit 949, architecture
+43, security 168, integration 534), of which 92 are new; 97 of 97 targeted mutants of the new harness guards caught,
+each restored and verified by hash; no file under `src/` changed; and the six frozen documents unchanged. The
+canonical-auditor, the tenant-security-reviewer and the gate-verifier reviewed the change set, and their findings are
+in the report. CI for the change set is NOT RUN. No standalone run was performed.
+
+**Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real execution is NOT AUTHORIZED, Gate 3 closure is NOT
+AUTHORIZED, real acceptance is NOT PROVEN, and every real-execution blocker of D3G-8 stays open.

@@ -8,5 +8,7 @@
     <ProjectReference Include="../../src/App.Connectors.Monday/App.Connectors.Monday.csproj" />
     <!-- Referenced so the real Web middleware can be exercised without a live server. -->
     <ProjectReference Include="../../src/App.Web/App.Web.csproj" />
+    <!-- The Gate 3G offline harness, composed in process against the fakes of this project (never the reverse). -->
+    <ProjectReference Include="../App.Harness.Monday/App.Harness.Monday.csproj" />
   </ItemGroup>
 </Project>
