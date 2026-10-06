@@ -180,6 +180,9 @@ public sealed class HarnessHost : IAsyncDisposable
 
     private ServiceProvider Worker => _worker ?? throw new InvalidOperationException("The harness has not started.");
 
+    /// <summary>The sessions the composed transport consumer is limited to, for the harness's own tests (owner decision B-15).</summary>
+    internal IReadOnlyList<string> ConsumerSessions => [.. Worker.GetRequiredService<EventTransportOptions>().ConsumerSessionIds];
+
     /// <summary>Composes and starts the harness.</summary>
     /// <param name="options">The validated configuration.</param>
     /// <param name="seams">What replaces the fail-closed defaults; none for the standalone entry point.</param>
@@ -364,6 +367,17 @@ public sealed class HarnessHost : IAsyncDisposable
             // The database could not be asked. Only the type is logged: a driver's message can name an address.
             _logger.LogError("The database role could not be checked: {ExceptionType}.", exception.GetType().Name);
             return HarnessRefusal.DatabaseUnavailable;
+        }
+
+        // The shared local emulator (owner decision B-15): before anything is published or consumed, the configured
+        // tenant's own session must be empty, and must be the harness's to take.
+        if (Worker.GetService<Azure.Messaging.ServiceBus.ServiceBusClient>() is { } broker)
+        {
+            var session = await TransportSessionPreflight.CheckAsync(broker, options.Tenant, cancellationToken);
+            if (session != HarnessRefusal.None)
+            {
+                return session;
+            }
         }
 
         // Each listener starts on a flow of its own, so no request can inherit a tenant from whoever started the harness:

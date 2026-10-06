@@ -54,6 +54,12 @@ public enum HarnessRefusal
 
     /// <summary>The composition failed while it started.</summary>
     StartFaulted = 14,
+
+    /// <summary>The configured tenant's own session on the local emulator already holds a message (owner decision B-15).</summary>
+    TransportSessionNotEmpty = 15,
+
+    /// <summary>The configured tenant's own session on the local emulator could not be taken and checked (owner decision B-15).</summary>
+    TransportSessionUnavailable = 16,
 }
 
 /// <summary>

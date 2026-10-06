@@ -259,28 +259,45 @@ public sealed class HarnessFailClosedTests(DatabaseFixture fixture)
     [Fact]
     public async Task The_role_check_reads_each_privilege_by_itself_and_any_one_of_them_makes_the_role_privileged()
     {
-        // The decision: any one of the three is enough, and only a role with none of them passes.
-        foreach (var superuser in new[] { false, true })
+        // The decision (owner decisions D3G-2, D3G-4 and B-14, hardened by the owner's Decision 3 of 2026-10-06): any one
+        // of the eleven facts is enough, and only a role with none of them passes. Every combination is checked.
+        for (var mask = 0; mask < 1 << 11; mask++)
         {
-            foreach (var bypasses in new[] { false, true })
-            {
-                foreach (var owns in new[] { false, true })
-                {
-                    Assert.Equal(superuser || bypasses || owns, new DatabaseRoleFacts(superuser, bypasses, owns).IsPrivileged);
-                }
-            }
+            Assert.Equal(mask != 0, Facts(mask).IsPrivileged);
         }
 
         // A role the catalog does not answer about is assumed to have every privilege.
-        Assert.Equal(new DatabaseRoleFacts(true, true, true), DatabaseRoleFacts.Unknown);
+        Assert.Equal(Facts((1 << 11) - 1), DatabaseRoleFacts.Unknown);
 
-        // The catalog, read as each of the two roles the local environment has. The runtime role has none of the three.
+        // The catalog, read as each of the two roles the local environment has. The runtime role is exactly the plain
+        // role: LOGIN and no other attribute, NOINHERIT, owning nothing and a member of no role.
         var tenant = await ConnectorAuthorizationData.NewTenantAsync(fixture, Token);
-        Assert.Equal(new DatabaseRoleFacts(false, false, false), await RoleFactsAsync(fixture.ApplicationConnectionString, tenant));
+        Assert.Equal(Facts(0), await RoleFactsAsync(fixture.ApplicationConnectionString, tenant));
 
-        // The local schema owner is the instance's own superuser: each of the three is read as true by itself. No local
-        // role has exactly one of them, and this test creates none.
-        Assert.Equal(new DatabaseRoleFacts(true, true, true), await RoleFactsAsync(fixture.AdministrativeConnectionString, tenant));
+        // The local schema owner is the instance's own superuser: each attribute is read as true by itself, it can log in,
+        // and it owns the database, its schemas and its tables. No local role is a member of another, so the last is false
+        // for both; no local role has exactly one of the others, and this test creates, grants and alters none.
+        Assert.Equal(
+            new DatabaseRoleFacts(
+                Superuser: true,
+                BypassesRowSecurity: true,
+                CreatesRoles: true,
+                CreatesDatabases: true,
+                Replicates: true,
+                InheritsPrivileges: true,
+                CannotLogIn: false,
+                OwnsDatabase: true,
+                OwnsSchema: true,
+                OwnsRelation: true,
+                MemberOfAnyRole: false),
+            await RoleFactsAsync(fixture.AdministrativeConnectionString, tenant));
+    }
+
+    // The facts whose bits are set in the mask, in the record's order.
+    private static DatabaseRoleFacts Facts(int mask)
+    {
+        bool Bit(int index) => (mask & (1 << index)) != 0;
+        return new DatabaseRoleFacts(Bit(0), Bit(1), Bit(2), Bit(3), Bit(4), Bit(5), Bit(6), Bit(7), Bit(8), Bit(9), Bit(10));
     }
 
     // Reads the catalog through the harness's own check, on a flow of its own that runs as the tenant.
@@ -354,6 +371,13 @@ public sealed class HarnessOptionsTests
     [InlineData(HarnessOptions.TransportKey, "Endpoint=sb://wce.servicebus.windows.net/;SharedAccessKeyName=n;SharedAccessKey=k;UseDevelopmentEmulator=true", HarnessRefusal.TransportNotTheLocalEmulator)]
     [InlineData(HarnessOptions.TransportKey, "Endpoint=sb://localhost;SharedAccessKeyName=n;SharedAccessKey=k", HarnessRefusal.TransportNotTheLocalEmulator)]
     [InlineData(HarnessOptions.TransportNamespaceKey, "wce.servicebus.windows.net", HarnessRefusal.TransportNotTheLocalEmulator)]
+    [InlineData(HarnessOptions.TransportKey, "Endpoint=sb://10.0.0.5;SharedAccessKeyName=n;SharedAccessKey=k;UseDevelopmentEmulator=true", HarnessRefusal.TransportNotTheLocalEmulator)]
+    [InlineData(HarnessOptions.TransportKey, "Endpoint=sb://localhost.example.test;SharedAccessKeyName=n;SharedAccessKey=k;UseDevelopmentEmulator=true", HarnessRefusal.TransportNotTheLocalEmulator)]
+    [InlineData(HarnessOptions.TransportKey, "Endpoint=sb://servicebus-emulator;SharedAccessKeyName=n;SharedAccessKey=k;UseDevelopmentEmulator=true", HarnessRefusal.TransportNotTheLocalEmulator)]
+    [InlineData(HarnessOptions.TransportKey, "Endpoint=sb://localhost;SharedAccessKeyName=n;SharedAccessKey=k;UseDevelopmentEmulator=false", HarnessRefusal.TransportNotTheLocalEmulator)]
+    [InlineData(HarnessOptions.TransportKey, "SharedAccessKeyName=n;SharedAccessKey=k;UseDevelopmentEmulator=true", HarnessRefusal.TransportNotTheLocalEmulator)]
+    [InlineData(HarnessOptions.TransportKey, "Endpoint=not an address;UseDevelopmentEmulator=true", HarnessRefusal.TransportNotTheLocalEmulator)]
+    [InlineData(HarnessOptions.TransportKey, "this is not a connection string", HarnessRefusal.TransportNotTheLocalEmulator)]
     public void An_incomplete_or_invalid_configuration_is_refused_by_a_closed_reason(string key, string? value, HarnessRefusal expected)
     {
         var read = HarnessOptions.Read(Configuration((key, value)));

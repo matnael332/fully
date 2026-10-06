@@ -1134,3 +1134,447 @@ Status:
 - No live wiring exists, and no real credential or provider behavior has been proven.
 - No real credential or certificate was used; there was no Azure, Entra, Key Vault, monday or OAuth contact and no
   deployment.
+
+## Addendum — Stage B3 standalone database and transport preparation
+
+This addendum records a fourth offline slice, implemented on 2026-10-06 on the uncommitted tree at
+`3eb24d9e25bc74fd9d505b1664bd2022e3ed0622`. It does not change the status of Gate 3G and is not provider evidence. No
+persistent standalone database exists, the seed has never been run, the owner-run tool has run only in its test
+sandbox, and the shared local emulator was used only by tests that send to, and remove from, sessions of tenants that
+exist only in the test.
+
+### Authorization
+
+- On 2026-10-06 the product owner authorized Stage B3 of `docs/gates/gate-3G-live-enablement-plan.md` ("Gate 3G — Stage
+  B Live Readiness Preparation") for offline implementation only, under exactly B-14 (standalone database direction)
+  and B-15 (shared-emulator isolation direction), limited to four areas: A, the recursive role-membership safety check;
+  B, a reviewed seed script, authored and not run; C, the fresh RLS and R3B-2 evidence procedure; D, the shared-emulator
+  isolation checks. Record: `docs/gates/gate-3-scope.md`, section "3G — Stage B3 authorization (2026-10-06)".
+- After an unexpected shutdown and a read-only design review, the owner approved the B-14 seed clarification (one fresh
+  tenant and one fresh canonical user only) and the owner-run tool structure (one PowerShell entry point,
+  `eng/harness-standalone.ps1`, with the two SQL files as payloads only). Record: the same file, section "3G — Stage B3
+  owner decisions: B-14 seed clarification and owner-run tool structure (approved 2026-10-06)".
+- The owner then approved one temporary isolated validation database, `wce_it_b3_isolated_20261006`, in two phases, with
+  `workcontinuity_app` left unaltered. Record: the same file, section "3G — Stage B3 temporary isolated validation
+  database (approved 2026-10-06)".
+- The owner's texts, verbatim, are kept in the evidence package outside the repository.
+
+### Exact scope
+
+New files:
+
+- `eng/harness-standalone.ps1`: the owner entry point. `seed` runs the seed payload as the local schema owner and only
+  with `-Approve` (without it, it shows the plan and the payload's SHA-256 and runs nothing); `evidence` runs the evidence
+  procedure as the runtime role, read-only, and succeeds only when each of its 22 checks is reported exactly once, in
+  order, as PASS, with the three tenant-context switches answered. `-Database` is mandatory, has no default, is never
+  taken from `.env`, must match `wce_harness_` and the payloads' naming rule (case-sensitive, anchored), and is refused
+  when it is the shared suite database that `.env` names (or when `.env` or its `POSTGRES_DB` is missing). Another
+  Docker engine, context or compose project is refused. psql runs only in the local compose PostgreSQL service, with
+  every value as an argument of its own. The tool never creates or drops a database, runs a migration, changes a role or
+  a privilege, or prints a secret. Every refusal is one printed line and a non-zero exit. Written in ASCII for Windows
+  PowerShell 5.1 and PowerShell 7.
+- `eng/harness-standalone-seed.sql`: the seed payload, never run. In one transaction it writes one tenant and one
+  canonical user, and nothing else. It refuses unless every value is given and well formed (lower-case, distinct,
+  non-nil GUIDs), the connected database is the named target and is named like a standalone harness database, the
+  session sees every row (so emptiness can be proven), the database is migrated exactly to the latest of the 14
+  migrations, every application table is empty, and `tenants` and `users` keep forced row-level security. It proves
+  afterwards one tenant, one user and no connection. It never writes a connection, a connector authorization, an OAuth
+  transaction, token material, a PKCE verifier or a delegated provider identity.
+- `eng/harness-standalone-evidence.sql`: the evidence procedure, one `BEGIN TRANSACTION READ ONLY` that is rolled back.
+  It reports 22 closed checks: 18 of the catalog (the target and identity, the runtime role's attributes, ownership and
+  membership through the harness's own recursive statement, forced RLS and the isolation policies of the 16 tenant
+  tables, the exact R3B-2 privileges, and no administrative path beyond the approved functions) and 4 of isolation
+  (without a tenant nothing is visible; the fresh tenant sees no other tenant's row, is present once with one active
+  user, and is seen by no other tenant). It shows no payload, value or identifier.
+- `tests/App.Harness.Monday/Composition/TransportSessionPreflight.cs` (area D): the configured tenant's own session on
+  the event-processing queue, taken by its id (never the next available one) in peek-lock mode without prefetch, peeked
+  once and released; any waiting message refuses the start (`TransportSessionNotEmpty`), and a session that cannot be
+  taken within 30 seconds refuses it too (`TransportSessionUnavailable`).
+- Tests: `tests/App.Integration.Tests/Harness/HarnessRoleMembershipTests.cs` (10),
+  `HarnessStandaloneEvidenceTests.cs` (4) and `HarnessTransportIsolationTests.cs` (5);
+  `tests/App.Security.Tests/HarnessStandaloneSeedTests.cs` (5) and `HarnessStandaloneWrapperTests.cs` (52: 12 that read
+  the tool, 29 refusal cases and 11 runs, each in a sandbox copy with a stand-in `docker` that records its arguments and
+  input).
+
+Changed files:
+
+- `tests/App.Harness.Monday/Evidence/EvidenceReaders.cs` (area A): `DatabaseRoleFacts` gains a fourth fact,
+  `MemberOfPrivilegedRole`. A recursive statement follows `pg_auth_members` outwards from the current role through
+  `UNION` (so a cycle ends), and a granted role that is a superuser, has BYPASSRLS, owns a table of the schema, or has
+  no catalog entry or no stated privilege makes the role privileged. Any answer other than one well-formed row with the
+  current role found once fails closed.
+- `tests/App.Harness.Monday/Composition/HarnessHost.cs`: the session check runs before anything is published or
+  consumed, and the composed consumer's session limit (one session, the configured tenant's) is readable by the tests.
+- `tests/App.Harness.Monday/Configuration/HarnessOptions.cs`: the two closed refusals.
+- `tests/App.Integration.Tests/Harness/HarnessFailClosedTests.cs`: the fourth role fact in the role-check tests, and
+  seven more cases of a transport that is not the local emulator (a non-loopback address, a lookalike host name, the
+  compose service name, `UseDevelopmentEmulator=false`, no endpoint, an endpoint that is not an address, and text that is
+  not a connection string).
+- `tests/App.Architecture.Tests/HarnessBoundaryTests.cs`: the harness statements include the membership catalog, read
+  only by the recursive statement; the combination of the four facts is pinned; one new guard pins the empty
+  `HarnessStandaloneGate` (no setting, no environment variable, no standalone database name in the harness), the two
+  holders of the broker's client, and the check's peek of exactly its own session.
+- Documentation: this addendum; `docs/gates/gate-3-scope.md`; `docs/gates/gate-3G-live-enablement-plan.md`; `INIT.md`;
+  `docs/canonical/PROJECT-STATUS.md`.
+
+`HarnessStandaloneGate` still approves no database. Nothing changed under `src/`; no package, project reference or
+configuration key was added.
+
+### Interruption and recovery
+
+A power loss on 2026-10-06 (about 13:24 local time) interrupted the work during a harness test run, whose result was
+lost and is not counted. Before anything else, a read-only recovery check confirmed every changed and new file
+byte-identical to a replay of every edit of the interrupted session onto the committed files, `git fsck` clean and the
+index untouched. The local stack was restarted container by container, without re-running the one-shot bootstrap or
+migrator, so no role or grant statement ran. Every validation in this addendum was run after the recovery.
+
+### Problems found during the work
+
+- **The shared suite database starves the relay.** It holds unrelayable outbox rows left by earlier suite runs (166
+  tenants, 215 rows), and the relay discovers at most 100 tenants, oldest first, so five harness relay tests failed
+  there, among them the two `HarnessBackboneLoopTests`. On the fresh temporary database all of them passed; the cause
+  is the shared database's stale state, not Stage B3. Those rows were not cleaned (the owner's decision of 2026-10-06
+  that stale shared rows are not cleaned in 3G stands).
+- **Fourteen integration tests alter the runtime role.** A read-only scan found 14 tests that bootstrap the real
+  runtime role (and so run `ALTER ROLE workcontinuity_app`): the fresh-database and bootstrap-rerun tests of the
+  connector authorizations, the initial sync and the reconciliation targets, and the bootstrap idempotence test. The
+  owner's condition forbids that statement, so they were not run in Phase 2. None of them is changed by Stage B3, and
+  they ran green in CI on the Stage B2 checkpoint `d1468bb`.
+- **The mutation driver's first records were invalid.** It matched test outcomes by xunit test id, which differs on
+  every run, so no outcome matched its control and the first six mutants were recorded as incomplete. The records were
+  set aside, the driver was changed to match by test name, the control runs were repeated, and every mutant was run
+  again. Every file was restored and verified by SHA-256 in both rounds.
+- **Error text wrapping.** Windows PowerShell 5.1 wraps error text at about 120 columns on redirected output, so each
+  refusal of the tool prints one unwrapped line before it stops, and the tests assert on that line.
+
+### Verification
+
+All local, on the uncommitted tree.
+
+- Clean non-incremental build of the solution: 0 warnings, 0 errors (after the mutation campaign; the rebuilt harness
+  and test assemblies are byte-identical to those of the restored tree, as the build is deterministic).
+- `eng/verify-architecture.py` PASS; `eng/verify-local-env.py` PASS. `git diff --check` clean, and the new files hold no
+  CR byte, no trailing whitespace and a final newline. The six frozen documents unchanged. Nothing under `src/` changed.
+- Temporary isolated database `wce_it_b3_isolated_20261006` (all times UTC): created at 13:06:32 by the local schema
+  owner with only the database-scoped statements of `infra/local/postgres/init/10-runtime-role.sh` (connect, schema
+  usage, default privileges), with no `ALTER ROLE` and no other role statement; migrated from zero by the test fixture;
+  Phase 1 at 13:06:48 to 13:07:53; Phase 2 at 13:08:31 to 13:11:48; the mutation campaign's integration runs at
+  13:26:14 to 13:53:15; dropped at 14:03:53 by a normal `DROP DATABASE` (no open session, no `FORCE`), after which
+  `pg_database` held no database of that name (the server's databases: `postgres`, `template0`, `template1`,
+  `workcontinuity`).
+- **Phase 1:** the two `HarnessBackboneLoopTests` passed (the emulator round trip in 4.4 s, the flow-isolation test in
+  2.5 s), then the 15 harness classes **271 of 271**.
+- **Phase 2: 1,931 of 1,931 executed tests passed, none failed, none skipped** (unit 949, security 225, architecture 46,
+  integration 711, the Service Bus emulator tests included). The full listing is 1,945; the 14 runtime-role bootstrap
+  tests above were not run. The 84 new tests are in it (integration 26, security 57, architecture 1); 1,945 is the
+  Stage B2 suite's 1,861 plus those 84.
+- Final tree, after the mutation campaign and before these documents were written: unit 949/949, security 225/225,
+  architecture 46/46. The only document a test reads, `docs/gates/gate-3-scope.md`, still holds its asserted R3B-2
+  grant line exactly once.
+- **The runtime role was not altered:** `workcontinuity_app` stayed LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE,
+  NOBYPASSRLS and NOINHERIT, and the version of its catalog row (`xmin` 1215206), which any `ALTER ROLE` rewrites, was
+  the same before the temporary database was created, after Phase 2, and after the cleanup. No role was left behind: the
+  roles are still exactly `workcontinuity` and `workcontinuity_app`.
+- **Shared database unchanged:** a read-only fingerprint (each public table's exact row count and an MD5 over its rows;
+  the ACLs of every relation, function, the database and the default privileges; RLS flags and policies; the runtime
+  role's attributes and `xmin`; roles, memberships, databases and the migration history) was taken at 13:03:52 before
+  the temporary database existed and at 14:05:11 after the cleanup. All 216 compared lines are identical. Only the
+  server statistics moved (`xact_commit` +1,091, `tup_updated` +14, `tup_inserted` +0, `tup_deleted` +0), from the running
+  local Web and Worker and the server's own maintenance; no table's content changed.
+- Secret scan with the CI-pinned gitleaks 8.30.1 (binary SHA-256 verified): the history (53 commits) and each of the 19
+  changed or new paths, these documents included: no leaks. The whole working tree was not scanned locally, because it
+  holds the git-ignored `.env`.
+- **CI: NOT RUN.**
+
+### Mutation evidence
+
+59 targeted mutants of the Stage B3 code and of the tool and payloads, each restored and verified by SHA-256; no test
+and nothing under `src/` was mutated. The integration runs used the temporary database. A control run on the unmutated
+tree came first: the six detecting integration classes (71 tests, the four that use the local emulator among them,
+none skipped),
+the harness guards (11) and the four tool and seed classes (57) passed. A mutant counts as CAUGHT only when a test that
+passed on the control run fails with an xunit assertion; a timeout or any other exception never counts. After each batch
+the restored tree was rebuilt, and its assemblies matched the recorded hashes. **59 CAUGHT, 0 SURVIVED, 0 INVALID.**
+
+- Membership and privilege detection (12 of 12): the fourth fact dropped or its answer ignored, the recursion removed,
+  `UNION ALL` (no cycle safety), an unstated privilege counted as safe, each of the three privilege terms removed, and
+  each fail-closed reading of the answer (several rows, the current role found never or twice, a negative count, a null
+  decision).
+- Standalone gate (3 of 3): a database approved, an environment variable that approves one, and a gate that admits
+  everything.
+- Shared-emulator isolation (7 of 7): no session check, a waiting message accepted, a taken session or a broker fault
+  accepted, the next available session checked instead of the tenant's own, the consumer's session limit lifted (run only
+  with the test that reads the limit without consuming, so no mutant consumer takes any other session's messages), a
+  non-loopback emulator address accepted, and a transport not marked as the development emulator accepted.
+- Owner-run tool (22 of 22): the shared database not refused, any name or a name in another case accepted, the target
+  taken from `.env`, the seed run without `-Approve`, another Docker engine accepted, evidence established whatever psql
+  answers, a FAIL check, an unexpected answer line, a missing tenant-context switch, checks out of order or a failing
+  psql run tolerated, the seed run as the runtime role, evidence run as another role, upper-case GUIDs, a subject with
+  shell characters, a tenant and a user sharing an id, seed values or `-Approve` given to `evidence`, a missing `.env` or
+  `POSTGRES_DB` skipped, and a failing seed reported as complete.
+- Seed target protections (10 of 10) and evidence procedure (5 of 5): the connected database not checked against the
+  target, any database name, a database that already holds rows, a session that may not see every row, a database not
+  migrated to the latest migration, a direct connection insert, a grant, a missing target, row-level security not
+  forced, and the no-connection proof dropped; the procedure no longer read-only, another database, another role, rows
+  visible without a tenant, and the R3B-2 comparison weakened.
+
+Detection: 42 mutants were caught at run time, most also by a static guard; 17 only by a static pin, each for a stated
+reason. A02 (the membership answer ignored) cannot be observed at run time here, because no local role is a member of
+another and the Stage B3 tests create, grant and alter no role. A07 to A09 change the role projection, which the
+synthetic-catalog tests pin before they run. G01 and G02 concern a compiled-in empty list, which is static by the
+owner's decision. S01 to S10 concern the seed, which is never run in Stage B3. On E05 the temporary database's
+privileges equal the recorded set, so both forms answer PASS there; the expected value is pinned against the Gate 3
+scope record and the migration. In A04 one cycle test also failed by timeout; that failure was not counted, and the
+assertion failures of four other tests caught the mutant. The driver, the plan, the control runs and every per-mutant report
+are in the evidence package outside the repository.
+
+### Reviews
+
+The three read-only review agents reviewed the change set as an offline slice only, with the repository evidence, the
+diffs and the validation evidence above. Each is advisory; none approves or closes anything, and none could run
+anything. Their reports are kept verbatim in the evidence package. The main agent checked each factual point they
+raised; its checks follow the three verdicts.
+
+- **canonical-auditor: CONFORMS WITH FOLLOW-UP.** No contradiction with a frozen rule or an approved owner decision, and
+  no Gate breach: nothing under `src/` changed, the gate is empty, the seed was not run, and no provider contact is
+  recorded. The quotations in the new scope sections match the owner's texts, and the dated notes under the stale Stage
+  B2 lines of the plan are current-status wording only, as the owner asked. Its findings:
+  1. The status records said "ready for owner review" before the reviews were recorded, and `INIT.md` pointed to
+     verdicts that did not exist yet. Resolved by this section and by the same wording in the five documents.
+  2. No owner text fixes the "approved standalone naming pattern" that Decision 2 requires. `wce_harness_[a-z0-9_]{1,51}`
+     follows only the plan's example `wce_harness_live_<date>` (area I). Confirmed; it is an open question below.
+  3. The temporary database was kept after Phase 2 for the mutation campaign's integration runs (13:26 to 13:53 UTC) and
+     dropped at 14:03:53 UTC. The approval says to drop it "After Phase 1/Phase 2 are complete", and lists the mutation
+     campaign among the work that resumes after a green Phase 2. The main agent read that as covering the campaign's use
+     of the database; it is a reading, not an explicit approval, and an open question below.
+  4. The 14 runtime-role bootstrap tests were not run (disclosed above).
+  5. The seed is unproven at run time. Its pins of 14 migrations and of the latest migration fail closed when a migration
+     is added, so the payload must then be reviewed again.
+  6. B-15 is checked mechanically only in part: the check peeks the session and does not inspect its dead-letter
+     subqueue, and the operator preconditions stay manual. It asked whether a standalone run could compose a transport
+     without the broker client, which would skip the check; it cannot (below).
+  7. Informational notes on the tool's design, with no violation. It also noted that the 3G sentence of `CLAUDE.md` is
+     stale current-status text outside this slice; that file was not changed.
+- **tenant-security-reviewer: PASS WITH FOLLOW-UP.** No tenant-isolation breach and no Gate breach, checked against
+  invariants 44, 45, 50 to 52, 59 and 68, B-14, B-15, R3B-2, D3G-2 and D3G-4. Its follow-ups:
+  1. The seed has never run. A mistake fails closed, because the seed writes in one transaction, but its refusals are not
+     proven by execution.
+  2. A granted role is privileged only as a superuser, with BYPASSRLS or as a table owner, the existing check's meaning;
+     membership in a role with CREATEROLE or in a predefined administrative role does not count. It is an open question
+     below.
+  3. The evidence procedure takes the tenant from an operator setting. It is read-only and shows only counts, but that
+     boundary must stay out of product code; and the seed, a write by the schema owner, must be approved as a step of its
+     own.
+  4. On a database that holds one tenant, "the fresh tenant sees no other tenant's row" cannot fail. There the
+     procedure's denial evidence is structural (the policy checks) plus the other-tenant direction.
+  5. No test establishes that the R3B-2 checks report PASS on a freshly migrated database, because the tests compare them
+     with the catalog. On the temporary database the tests established 17 checks as PASS and the name check as FAIL, by
+     design. Of the four R3B-2 checks, E05's run shows the OAuth and reconciliation check as PASS there, two were only
+     compared with the catalog, and the update-column check was not asserted. The 22-row output itself was not captured,
+     and the database no longer exists.
+  6. The membership tests use synthetic catalogs; a real chain through `pg_auth_members` is not exercised.
+  7. The session check runs only when a broker client is composed (below).
+  8. None of the earlier Stage 10B follow-ups is closed by this slice.
+- **gate-verifier: READY WITH FOLLOW-UP**, in the sense "ready for the owner's review", not READY FOR OWNER CLOSURE.
+  It mapped every required item of the authorization and of the temporary-database approval to evidence, found the
+  hashes tying the mutated files to the candidate, and found no security or architecture defect. Its follow-ups: the 14
+  unrun tests and the static-only proofs, as known limitations; the review results and the status wording, resolved by
+  this section; the identity of the code tree between Phase 2 and the mutation baseline, shown below; the evidence
+  package, built after this record; and the items disclosed above.
+
+The main agent's checks of the points raised:
+
+- **No standalone run skips the session check.** The check is skipped only when no broker client is composed, which
+  happens only when a test supplies an in-memory publisher (`HarnessSeams.TransportPublisher`). Then no Service Bus
+  consumer is composed either, because `AddServiceBusEventTransport` registers the client together with the consumer
+  host (`src/App.Infrastructure/Transport/EventTransportRegistration.cs`), so nothing can be taken from the emulator. The
+  standalone entry point supplies no transport seam (`tests/App.Harness.Monday/HarnessProgram.cs`,
+  `new HarnessSeams { RunBackboneLoops = true }`), so it always composes the client and always runs the check.
+- **The same code throughout.** The last edit of a code path was at 12:11:38 UTC, and a full solution build followed at
+  12:23:12 UTC. From then until these documents were written (14:08 UTC), no tool call of the session wrote a repository
+  file, except the mutation driver after its baseline at 13:26:14 UTC, and every one of its writes was restored and
+  verified by SHA-256. Phase 1, Phase 2 and the mutation baseline therefore ran on the same code. The session's edit
+  timeline is in the evidence package.
+
+### Open questions for the owner
+
+1. Is `wce_harness_[a-z0-9_]{1,51}` (case-sensitive and anchored) the "approved standalone naming pattern" of Decision 2,
+   or should another one be used? It follows only the plan's example.
+2. Was keeping the temporary database after Phase 2 for the mutation campaign's integration runs, and dropping it at
+   14:03:53 UTC after them, within the approval?
+3. Should "privileged role" extend beyond a superuser, BYPASSRLS and a table owner, for example to membership in a role
+   with CREATEROLE or in a predefined administrative role?
+4. Is static proof of the seed's protections, of A02 and A07 to A09 and of E05 accepted until the first owner-run seed?
+   Or are transactional probe roles, or one seed run on a throwaway, freshly migrated database, wanted first? Each would
+   need its own approval.
+5. Is the evidence procedure's isolation result on the one-tenant standalone database accepted as structural evidence
+   plus one direction of denial?
+6. How are the 14 runtime-role bootstrap tests to be covered: by CI after a separately authorized checkpoint commit, or
+   otherwise?
+
+*Answered, 2026-10-06:* the owner's six review decisions answer these questions; see "Final delta: the owner's review
+decisions" at the end of this addendum. The list above keeps the questions as they were asked.
+
+### Known limitations and follow-ups
+
+- **Nothing here is evidence of the persistent standalone database.** It does not exist; the seed and the evidence
+  procedure have never run against it, and the tool has never run outside its sandbox. Each of those is a separately
+  approved owner step.
+- **The B-15 operator preconditions stay manual:** that the run's tenant GUID was never used before, and that no
+  full-suite run shares the emulator during a run. No client of the emulator can observe either.
+- **Fourteen runtime-role bootstrap tests were not run locally** in this slice (above). They are unchanged and run in CI.
+- **Seventeen mutants are detected only by static pins** (above). The membership-to-privilege link and the projection's
+  three privilege terms can be exercised at run time only by a database role that is a member of another, which the
+  Stage B3 tests deliberately never create.
+- The emulator mutants that let the harness start when it should not have (T01, T02) may have left a synthetic message
+  of their own test tenant in that tenant's session or in the queue's dead-letter queue. Each such tenant exists only
+  in its test and is never used again. The emulator was never reset, drained or reconfigured.
+- The tool's tests ran on Windows PowerShell 5.1 only. On other systems they would use PowerShell 7 and a POSIX stand-in
+  for `docker`, which no local run has exercised.
+- The shared suite database keeps its stale outbox rows, by the owner's decision; harness relay tests keep failing there
+  until that is decided otherwise.
+- The seed pins exactly 14 migrations and the latest migration's id, so it refuses to run once a migration is added; it
+  must then be reviewed again before any approved run.
+- The evidence procedure's full 22-row answer on a freshly migrated database was never captured; the tests assert the
+  checks one by one instead (see the tenant-security review, item 5). The first owner-run evidence on the persistent
+  database will be the first full answer.
+- On a database with one tenant, the procedure's cross-tenant evidence is structural plus one direction of denial (see
+  the tenant-security review, item 4).
+- The session check peeks the tenant's session only; it does not inspect the dead-letter subqueue, and whether the
+  emulator's peek also shows deferred or scheduled messages was not verified.
+- `CLAUDE.md` still describes 3G's offline harness as uncommitted and does not mention Stage B; that pre-existing status
+  text is outside this slice and was not changed.
+
+Status at the time of this addendum: **Stage B3: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**; the offline
+implementation is validated locally, the three reviews are recorded above (CONFORMS WITH FOLLOW-UP, PASS WITH
+FOLLOW-UP, READY WITH FOLLOW-UP), and it is ready for owner review, with the open questions above; not PASS and not
+closed; uncommitted; CI NOT RUN. The persistent standalone database is NOT authorized and does not exist; the seed
+was NOT RUN; `HarnessStandaloneGate` is empty; the emulator was not reset or reconfigured; no real credential or
+provider was used; there was no Azure, Entra, Key Vault, monday or OAuth contact and no deployment. The approved B
+decisions remain exactly B-1 (authoring only), B-7, B-10, B-11, B-14 (as clarified) and B-15. **Gate 3G: IN PROGRESS —
+OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT AUTHORIZED. Gate 3G closure: NOT
+AUTHORIZED.**
+
+### Final delta: the owner's review decisions (2026-10-06)
+
+On 2026-10-06 the product owner approved six decisions on the open questions above. The record, in the owner's words,
+is `docs/gates/gate-3-scope.md`, section "3G — Stage B3 owner review decisions (approved 2026-10-06)"; the owner's
+text, verbatim, is in the evidence package. In short:
+
+1. The standalone naming rule `^wce_harness_[a-z0-9_]{1,51}$`, full-string, lowercase and case-sensitive, with no
+   default target and the shared suite database refused in any case. The tool and both payloads already implement it,
+   so nothing changed.
+2. The temporary database's use by the mutation campaign is accepted, for that evidence run only, as a procedural
+   deviation. No rerun; future temporary-database approvals must name mutation use.
+3. The runtime-role hardening, implemented below.
+4. Static and offline proof of the seed is accepted for Stage B3. The seed is not run; its first execution belongs to the
+   separately approved provisioning of the persistent database.
+5. One-tenant isolation evidence is accepted for Stage B3 only. Multi-tenant acceptance stays OPEN for Gate 3G, and no
+   second tenant is required in the standalone database now.
+6. The 14 tests that alter the runtime role stay OWNER-EXCLUDED FROM LOCAL RUN — SAFETY BOUNDARY. Before Stage B3 may
+   PASS they must execute and pass in CI on the exact checkpoint commit; if CI skips or omits any of them, Stage B3
+   cannot PASS and a separately isolated PostgreSQL environment is required. Their names are in the scope record.
+
+**What changed for decision 3.** Seven files of the Stage B3 tree changed again: `EvidenceReaders.cs`, the evidence
+procedure, the tool (its check list only) and four test files. The design of the seed and of the tool is unchanged.
+
+- `DatabaseRoleFacts` now holds eleven facts, each read by itself in one catalog statement: SUPERUSER, BYPASSRLS,
+  CREATEROLE, CREATEDB, REPLICATION, INHERIT, the absence of LOGIN, and ownership (directly or through a membership,
+  by `pg_has_role(..., 'MEMBER')`) of the current database, of any schema, and of any table, partitioned table, view,
+  materialized view, sequence or foreign table outside the temporary schemas; the eleventh is membership in any role.
+  Any one of them refuses the start, and a role the catalog does not answer about counts as having all eleven.
+- The recursive membership statement is unchanged. Its answer now passes only when the current role is found once and
+  is a member of no role at all; it still reports whether a privileged role is reached, and a privileged or unreadable
+  answer still refuses. Membership counts whatever its INHERIT, SET or ADMIN option. There is no allowlist.
+- The evidence procedure's role checks: `role.login_nosuperuser_nobypassrls_nocreaterole_nocreatedb_noreplication_noinherit`,
+  `role.owns_no_table_view_or_sequence`, `role.owns_neither_database_nor_schema` (now every schema) and
+  `role.member_of_no_role`. The tool's check list follows the procedure, and the tool's tests compare the two.
+- Tests and guards: the decision over all 2,048 combinations of the eleven facts; the real catalog read as both local
+  roles (the runtime role has none of the facts; the schema owner has every attribute except the absence of LOGIN, owns
+  the database, its schemas and its tables, and is a member of no role); on synthetic catalogs, a direct membership,
+  chains, two paths and a cycle through ordinary roles are now refused and only no membership passes; the procedure's
+  owner-session negative case now also fails the database-and-schema check; the procedure's new conditions are pinned
+  word for word; the harness guard pins the role statement word for word, the eleven-fact decision, the membership rule
+  and its composition, and its allowlist of the catalogs the harness reads adds `pg_class`, `pg_database` and
+  `pg_namespace`, read only by the role statement.
+
+**Final-delta verification.** All local, on the uncommitted tree.
+
+- Build 0 warnings, 0 errors. Unit 949/949, security 225/225, architecture 46/46.
+- The 15 harness integration classes on the shared suite database: 271 tests, 266 passed. The other 5 failed only by
+  that database's documented relay starvation: 174 tenants hold unpublished outbox rows, beyond the relay's 100-tenant
+  discovery limit, so their waits for a publication time out (`HarnessBackboneLoopTests` (2),
+  `HarnessCompositionTests.The_offline_composition_runs_authorization_intake_processing_sync_and_reconciliation_against_fakes`,
+  `HarnessLeakPreventionTests.No_credential_callback_secret_cursor_or_provider_text_reaches_a_log_the_console_diagnostics_telemetry_or_the_database`,
+  `HarnessTenantIsolationTests.Another_tenants_work_passing_through_the_harness_leaves_none_of_its_identifiers_in_the_log_the_console_or_the_diagnostics`).
+  All five got past the hardened role check: no test was refused for its database role. They passed on the isolated
+  temporary database before the final delta, and their relay code has not changed since. Four of them run in CI on a
+  fresh database; the fifth is an emulator test that CI skips.
+- The directly affected classes all passed there: `HarnessRoleMembershipTests` 10/10, `HarnessFailClosedTests` 9/9,
+  `HarnessOptionsTests` 41/41, `HarnessStandaloneEvidenceTests` 4/4, `HarnessTransportIsolationTests` 5/5.
+- No temporary database was created. The earlier isolated full-suite result (1,931 of 1,931 executed) remains valid for
+  everything the final delta did not touch: the delta changes only the harness's role check, the evidence procedure's
+  role checks, the tool's check list and their tests, and the harness start path that calls the check is exercised
+  again by the 266 passing harness tests.
+- The shared database: read-only fingerprints before (16:44:22 UTC) and after (17:09:54 UTC) the final-delta runs show
+  every ACL, row-level security flag and policy, the runtime role with the version of its catalog row (`xmin`
+  1215206), the roles, memberships, databases and migration history identical. Tables only gained test rows. No role was
+  created, granted or altered.
+- Both verifiers PASS; `git diff --check` clean; the six frozen documents unchanged; pinned gitleaks 8.30.1: no leaks.
+
+**Final-delta mutation evidence.** 32 targeted mutants of the hardened boundary, on the shared suite database for the
+integration runs, each restored and verified by SHA-256, the restored tree rebuilt after each batch and byte-identical
+to the baseline build: **32 CAUGHT, 0 SURVIVED, 0 INVALID.** Every fact dropped from the decision (11); every fact the
+role statement stops reading (8); the ownership read narrowed to tables or to `public` (2); membership in an ordinary
+role accepted, an unanswered catalog not assuming membership, and the membership answer ignored (3); the procedure's
+four new conditions narrowed and three of its role checks forced to pass (7); and the tool requiring the old check
+name (1). 24 were caught at run time; 8 only by a word-for-word pin, because no local role can show the case without a
+role or ownership change the owner forbids: no LOGIN (C05), owning only a view, sequence or non-public schema (N01,
+N02), a membership (M03), and the procedure's narrowed conditions (P01 to P04). No mutant could make the schema owner
+look like the plain runtime role, so the harness never started as the owner on the shared database.
+
+**Known limitations after the final delta.**
+
+- The 14 OWNER-EXCLUDED tests did not run locally. For the checkpoint commit, the exact-commit CI run must show none of
+  them skipped or failed. If nothing else changes, its test summary should read: total 1,945, failed 0, skipped exactly
+  13 — the 10 emulator tests CI skips today plus the 3 new emulator tests of `HarnessTransportIsolationTests`.
+- The five relay-dependent harness tests stay environment-blocked on the shared suite database, whose stale rows the
+  owner decided not to clean in 3G.
+- Multi-tenant isolation for Gate 3G acceptance is OPEN (decision 5); the seed has never run (decision 4).
+- The checkpoint's CI will be the first run of the tool's sandbox tests under PowerShell 7 on Linux.
+- The earlier limitations above still apply.
+
+**Status after the final delta.** **Stage B3: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**, validated locally and ready
+for owner checkpoint review; NOT PASS; uncommitted; CI NOT RUN. The final-tree reviews (canonical-auditor,
+tenant-security-reviewer and gate-verifier) are recorded in the evidence package outside the repository. Stage B3 may
+PASS only after a separately authorized checkpoint commit whose exact-commit CI executes and passes the 14 tests, and
+only by the owner's decision. **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real
+execution: NOT AUTHORIZED. Gate 3G closure: NOT AUTHORIZED.**
+
+### Owner clarification: temporary relations (2026-10-06)
+
+After the final-tree reviews, whose first owner follow-up was the ownership read's exclusion of temporary relations,
+the owner approved a clarification. The record, in the owner's words, is `docs/gates/gate-3-scope.md`, section "3G —
+Stage B3 owner clarification: temporary relations (approved 2026-10-06)". In short:
+
+- Temporary relations remain outside the Stage B3 runtime-role ownership check, as implemented: the harness's role
+  statement and the evidence procedure's `role.owns_no_table_view_or_sequence` leave out relations whose
+  `relpersistence` is `'t'`. The owner's reasons: such relations are session-private and are not the persistent
+  ownership risk R3B-2 and decision 3 target; a start-up check could not prevent their creation after it; and the
+  broader control is PostgreSQL's TEMPORARY privilege.
+- The TEMPORARY privilege the runtime role currently has through PUBLIC is accepted as a **NON-BLOCKING FOLLOW-UP**.
+  Revoking TEMPORARY from PUBLIC would be a separate privilege-model owner decision, outside Stage B3; no grant or role
+  was changed.
+- Decision 3 is otherwise unchanged. Documentation only: no code or test changed, and no validation or review was
+  rerun. Every code, test and tool path is byte-identical to the final tree of the evidence package
+  `FULLY-3G-stage-B3-final-evidence-20261006T172600Z.zip` (SHA-256
+  `d40d10d22740ae211c52b9be146c837992e2abce48b6edab75d876b22b280ed9`), whose validation, mutation evidence and
+  final-tree reviews remain valid; only the hashes it records for the five status documents predate this
+  clarification.
+
+**Status after the clarification.** **Stage B3: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**; NOT PASS; uncommitted; CI
+NOT RUN. The next owner boundary is the Stage B3 checkpoint authorization: the owner's checkpoint review of the final
+tree and its evidence package, and a checkpoint commit and push only by separate authorization. Stage B3 may PASS only
+after that checkpoint's exact-commit CI executes and passes the 14 tests, and only by the owner's decision. **Gate 3G:
+IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT AUTHORIZED. Gate 3G
+closure: NOT AUTHORIZED.**

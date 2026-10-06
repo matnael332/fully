@@ -12,7 +12,7 @@
 | 3E — API reconciliation and authoritative reread | **PASS** — approved by the product owner on 2026-10-02 |
 | 3F — Initial sync, watermark and buffered replay | **PASS** — approved by the product owner on 2026-10-03 |
 | 3B maintenance before 3G — PKCE verifier cleanup | **PASS** — approved by the product owner on 2026-10-03 |
-| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; Stage B decisions B-1 (authoring only), B-7, B-10, B-11, B-14 and B-15 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED; Stage B2 (real transport and token source) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-06; checkpoint `d1468bb`, CI run 37434239946 SUCCESS), four BEFORE-WIRING requirements open, no live wiring, Stage B3 decision prerequisites complete (B-14, B-15) but B3 NOT STARTED and NOT AUTHORIZED; every other Stage B slice not authorized or started; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
+| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; Stage B decisions B-1 (authoring only), B-7, B-10, B-11, B-14 and B-15 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED; Stage B2 (real transport and token source) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-06; checkpoint `d1468bb`, CI run 37434239946 SUCCESS), four BEFORE-WIRING requirements open, no live wiring, Stage B3 (standalone database and transport preparation) **AUTHORIZED 2026-10-06, IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** under B-14 and B-15, with the B-14 seed clarification (the seed prepares only one fresh tenant and one fresh canonical user), the owner-run tool structure (`eng/harness-standalone.ps1`), one temporary isolated validation database and the owner's six review decisions APPROVED 2026-10-06 (the standalone naming rule; the mutation use of the temporary database accepted as a procedural deviation; the runtime-role hardening, now implemented; static proof of the seed; one-tenant isolation evidence for Stage B3 only, multi-tenant acceptance OPEN for Gate 3G; the 14 tests that alter the runtime role OWNER-EXCLUDED FROM LOCAL RUN), and the owner's clarification of 2026-10-06 that temporary relations remain outside the runtime-role ownership check (the TEMPORARY privilege inherited through PUBLIC a NON-BLOCKING FOLLOW-UP; revoking it a separate owner decision outside Stage B3); validated locally, uncommitted, CI NOT RUN, ready for owner checkpoint review; next owner boundary: the Stage B3 checkpoint authorization; Stage B3 cannot PASS until those 14 tests execute and pass in CI on the exact checkpoint commit (the temporary database was used for validation only and dropped; persistent standalone database NOT authorized; seed NOT RUN; `HarnessStandaloneGate` empty; no live run; B3 NOT PASS); every other Stage B slice not authorized or started; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -3603,6 +3603,279 @@ State after these decisions:
     approval.
 - D3G-1 to D3G-3 and D3G-5 to D3G-8, S-1 to S-5, R3B-1, R3B-2 and every earlier Gate 3 decision are unchanged. D3G-4 is
   superseded only as B-14 states, and only for this Stage B preparation path.
+
+**Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate 3G
+closure are NOT AUTHORIZED.
+
+## 3G — Stage B3 authorization (2026-10-06)
+
+On 2026-10-06, after the B-14 and B-15 decision set was recorded and pushed as `3eb24d9` (CI run 37442070826 SUCCESS),
+the product owner explicitly authorized:
+
+**Stage B3 — Standalone Database and Transport Preparation: AUTHORIZED — 2026-10-06. IN PROGRESS — OFFLINE
+IMPLEMENTATION ONLY.**
+
+- Approved decision set governing the slice: exactly **B-14** (standalone database direction) and **B-15**
+  (shared-emulator isolation direction).
+- Authorized offline scope, limited to four areas: A, the recursive PostgreSQL role-membership safety check; B, a
+  reviewed standalone seed script, authored and not run; C, the fresh RLS and R3B-2 evidence procedure; D, the
+  shared-emulator isolation checks and procedure.
+- **Persistent standalone database provisioning is NOT authorized yet.** No persistent database is created, dropped,
+  migrated or seeded; the seed script is not executed; no role or grant is altered.
+- **`HarnessStandaloneGate` stays empty**, with no configuration or environment override around it.
+- **No live run is authorized. No real provider execution is authorized.** No Azure, Entra, Key Vault, monday or OAuth
+  contact, no real credential and no deployment.
+- A temporary isolated test database, if one is needed, is a separate approval: the Stage B2 temporary-database approval
+  does not carry forward.
+- Stage B2 remains **PASS — OFFLINE SLICE COMPLETE**; its four BEFORE-WIRING requirements remain OPEN and are not
+  addressed by B3. No other Stage B slice is authorized.
+
+Stage B3 is not PASS and not complete. **Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is
+NOT PROVEN; real execution and Gate 3G closure are NOT AUTHORIZED.
+
+## 3G — Stage B3 owner decisions: B-14 seed clarification and owner-run tool structure (approved 2026-10-06)
+
+On 2026-10-06, after the Stage B3 working tree had been verified intact following an unexpected shutdown, and after a
+read-only design review of the seed, the product owner explicitly approved the following two decisions. The list
+restates the owner's text closely; quoted sentences are the owner's words.
+
+**Decision 1 — B-14 clarification: APPROVED — 2026-10-06.** The Stage B3 standalone seed prepares only:
+- one fresh tenant;
+- one fresh canonical user.
+
+It MUST NOT directly seed:
+- a monday connection;
+- connector authorization;
+- OAuth transaction;
+- token material;
+- PKCE verifier;
+- delegated provider identity.
+
+The single fresh monday connection required by the Stage B preparation path must be created later through the
+product's existing Connect / `MondayConnectionAuthorizer` lifecycle during a separately approved run.
+
+Reason: "A direct SQL connection insert would bypass the existing connector lifecycle and could create a connection
+without valid authorization/delegated identity."
+
+"This clarification supersedes only the literal earlier wording that implied the seed itself creates the connection."
+That wording is B-14's "one fresh tenant, user and connection seeded by a reviewed owner-run script outside the
+harness" and, in `docs/gates/gate-3G-live-enablement-plan.md` area I, "the `tenants`, `users` and `connections` rows
+must exist". "R3B-1, D3B-1 and all earlier Gate 3 decisions remain unchanged."
+
+**Decision 2 — Owner-run tool structure: APPROVED — 2026-10-06.**
+- One PowerShell owner entry point: `eng/harness-standalone.ps1`.
+- The existing SQL files remain reviewed payloads: `eng/harness-standalone-seed.sql` and
+  `eng/harness-standalone-evidence.sql`. "The SQL files are payloads only, not supported operator entry points."
+- The wrapper must: require an explicit database name; have no default target database; refuse the shared suite
+  database; never derive the target database from `.env`; accept only the approved standalone naming pattern; require
+  `-Approve` before seed execution; support a read-only evidence command separately; never print passwords,
+  connection strings, tokens or secrets; never create or drop a database; never alter, grant or revoke roles or
+  privileges; never run migrations; and operate only against the local PostgreSQL container.
+
+State after these decisions:
+- **Stage B3 stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Stage B3 is NOT PASS.**
+- Provisioning the persistent standalone database still requires a separate owner approval. The seed has never been
+  executed, and `HarnessStandaloneGate` stays empty.
+- Creating and dropping a temporary isolated test database still requires a separate owner approval.
+- The approved B decisions remain exactly B-1, B-7, B-10, B-11, B-14 (as clarified above) and B-15; every other B
+  decision remains PROPOSED — NOT APPROVED. Stage B2 remains PASS — OFFLINE SLICE COMPLETE, and its four
+  BEFORE-WIRING requirements remain OPEN.
+- Areas A, C and D of Stage B3 need no change because of the seed clarification.
+
+**Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate 3G
+closure are NOT AUTHORIZED.
+
+## 3G — Stage B3 temporary isolated validation database (approved 2026-10-06)
+
+On 2026-10-06, with the Stage B3 offline implementation validated up to the temporary-database boundary, the product
+owner explicitly approved "the temporary isolated database lifecycle" for "Stage B3 validation only". The list restates
+the owner's text closely; quoted sentences are the owner's words.
+
+- Exact database name: `wce_it_b3_isolated_20261006`.
+- **Phase 1 — APPROVED:** create the database, apply only the approved database-scoped grants, let the existing test
+  fixture migrate it from zero, then run the two `HarnessBackboneLoopTests` first and, if both pass, the same 15 harness
+  test classes (271 tests). Had either of them failed, the work would have stopped before Phase 2 and the failure would
+  have been treated as a potential Stage B3 regression. If both passed, "the shared-database stale-state hypothesis is
+  accepted as the explanation for the prior shared-DB failures, and Phase 2 is authorized automatically."
+- **Phase 2 — CONDITIONALLY APPROVED**, only after Phase 1 passed fully: the full local suite against the same database,
+  with the suite's existing test lifecycle (its ordinary exact-named temporary test databases, the documented throwaway
+  bootstrap role, and transactional NOLOGIN probe roles that are rolled back). "This approval does NOT permit changing
+  the attributes of workcontinuity_app." The runtime role must remain LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE,
+  NOBYPASSRLS and NOINHERIT: "Do not ALTER ROLE workcontinuity_app."
+- Grants: only the existing database-scoped grant model of `infra/local/postgres/init/10-runtime-role.sh`. "No new
+  privilege model is authorized." "No shared-database grant or role change is authorized."
+- Migration: the existing test fixture's migration from zero. "Do not use this approval to provision the future
+  persistent B3 standalone DB." The Stage B3 seed payload is not run against the temporary database, and "The owner-run
+  persistent seed remains NOT RUN."
+- Shared database: a read-only fingerprint before the temporary database is created and the same fingerprint after all
+  validation and cleanup, compared. Its stale rows are not cleaned, no application row is deleted, it is not reset or
+  migrated, and its grants and roles are not changed. "Normal Web/Worker health-check/statistical activity is not
+  considered an application-data change, but record it if observed."
+- Cleanup: drop exactly `wce_it_b3_isolated_20261006`, with a normal `DROP DATABASE` first and `WITH (FORCE)` only if an
+  open session prevents cleanup, and verify that `pg_database` reports no database of that name. "Do not drop any other
+  database."
+- After a green Phase 2: resume the remaining Stage B3 validation (targeted mutation, both verifiers, architecture and
+  security checks, the secret scan, the three review agents, the implementation record in
+  `docs/gates/gate-3G-offline-report.md`, and the evidence package), and correct the stale Stage B2 status line of the
+  live-enablement plan by current-status wording only. "Do not mark Stage B3 PASS. Stop at owner review."
+- Boundaries kept: no persistent standalone database; no owner seed; no database added to `HarnessStandaloneGate`; the
+  shared database not cleaned; the runtime role's attributes not altered; the emulator not reset or reconfigured;
+  nothing under `src/`; no package; no Azure, Entra, Key Vault, monday or OAuth contact; no real credential; no
+  deployment; no staging, commit or push.
+
+## 3G — Stage B3 implementation record (2026-10-06, offline, uncommitted)
+
+Implemented as authorized above, offline only, on the uncommitted tree at `3eb24d9`. Full record and evidence:
+`docs/gates/gate-3G-offline-report.md`, section "Addendum — Stage B3 standalone database and transport preparation".
+
+- Area A (B-14): the harness's runtime-role safety check follows `pg_auth_members` recursively. Membership at any depth
+  in a superuser, in a role with BYPASSRLS or in the owner of a table of the schema is a fourth privilege, enough by
+  itself, and any answer the check cannot read fails closed (`tests/App.Harness.Monday/Evidence/EvidenceReaders.cs`).
+- Area B (B-14 as clarified): `eng/harness-standalone-seed.sql`, a reviewed payload that writes one fresh tenant and one
+  fresh canonical user only, never run; and the owner entry point `eng/harness-standalone.ps1` (`seed` behind
+  `-Approve`, and a separate read-only `evidence` command), never run outside its test sandbox.
+- Area C (B-14, R3B-2): `eng/harness-standalone-evidence.sql`, one read-only transaction, rolled back, of 22 closed
+  checks (18 catalog checks and 4 isolation checks), never run on a standalone database.
+- Area D (B-15): `tests/App.Harness.Monday/Composition/TransportSessionPreflight.cs`. Before it publishes or consumes
+  anything, the harness requires the configured tenant's own session on the local emulator to be empty and its own to
+  take (two new closed refusals), and its consumer stays limited to that session.
+- `HarnessStandaloneGate` is still empty; no change under `src/`, no package, no configuration key; no real credential
+  or provider contact.
+- Local results: 84 new tests (integration 26, security 57, architecture 1); clean non-incremental build 0 warnings,
+  0 errors. Phase 1 on the temporary database: both `HarnessBackboneLoopTests` passed, then the 15 harness classes
+  271 of 271. Phase 2: **1,931 of 1,931 executed tests passed, none failed, none skipped** (unit 949, security 225,
+  architecture 46, integration 711); the 14 integration tests that bootstrap the real runtime role, and so run
+  `ALTER ROLE workcontinuity_app`, were not run, by the owner's condition. Targeted mutation: 59 mutants, 59 CAUGHT,
+  0 SURVIVED, 0 INVALID. Both verifiers PASS; pinned gitleaks 8.30.1: no leaks. The temporary database was dropped by a
+  normal `DROP DATABASE` and none of that name remains; the shared database's fingerprint is unchanged apart from server
+  statistics. **CI: NOT RUN.**
+
+Status at the time of this record: **Stage B3: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**; the offline implementation
+is validated locally and is ready for owner review only after the reviews recorded in the report; not PASS and not
+closed. The reviews were then recorded in the report: canonical-auditor CONFORMS WITH FOLLOW-UP, tenant-security-reviewer
+PASS WITH FOLLOW-UP, and gate-verifier READY WITH FOLLOW-UP (in the sense "ready for the owner's review"); none found a
+defect. Their follow-ups and six open questions for the owner are recorded there, among them the naming pattern of the
+standalone database, and whether keeping the temporary database after Phase 2 for the mutation campaign's integration
+runs (13:26 to 13:53 UTC; dropped at 14:03:53 UTC) was within the approval.
+
+**Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate 3G
+closure are NOT AUTHORIZED.
+
+## 3G — Stage B3 owner review decisions (approved 2026-10-06)
+
+On 2026-10-06, after the Stage B3 offline implementation, its evidence package and a read-only review of six proposed
+decisions, the product owner explicitly approved the following six decisions. The list restates the owner's text
+closely; quoted sentences are the owner's words.
+
+1. **Standalone database naming.** `^wce_harness_[a-z0-9_]{1,51}$`: "Full-string, lowercase, case-sensitive." "No
+   default target." "The shared DB must also be refused case-insensitively."
+2. **The temporary database's use for mutation.** "The already-completed use of wce_it_b3_isolated_20261006 for
+   mutation is accepted for this evidence run only." It is recorded as an accepted procedural deviation. "No rerun is
+   required solely because of that deviation." "Future temp-DB approvals must explicitly include mutation use."
+3. **Runtime-role hardening.** `workcontinuity_app` must be LOGIN, NOSUPERUSER, NOBYPASSRLS, NOCREATEROLE, NOCREATEDB,
+   NOREPLICATION and NOINHERIT. Additionally: zero direct or transitive memberships in `pg_auth_members`; no ownership
+   of database, schema, table, view or sequence; and "missing or unexpected evidence fails closed." "Do not maintain a
+   pg_* allowlist." "Membership itself is disqualifying regardless of INHERIT semantics."
+4. **The owner-run seed.** "Stage B3 accepts static/offline proof of the owner-run seed." "Do not execute the seed."
+   "Its first execution remains part of a separately approved persistent-DB provisioning step."
+5. **Isolation evidence.** "One-tenant isolation evidence is accepted for Stage B3 only." "Multi-tenant acceptance
+   remains OPEN for Gate 3G." "Do not require a second tenant inside the B3 standalone DB now."
+6. **The 14 tests that alter the runtime role.** They remain "OWNER-EXCLUDED FROM LOCAL RUN — SAFETY BOUNDARY." "Do not
+   ALTER ROLE locally." "Before Stage B3 may PASS, those exact tests must execute and pass in CI on the exact future B3
+   checkpoint commit." "If CI skips or omits any of them, Stage B3 cannot PASS and a separately isolated PostgreSQL
+   environment will be required."
+
+The 14 tests of decision 6, each of which runs the runtime-role bootstrap and so `ALTER ROLE workcontinuity_app`
+(namespace `WorkContinuity.Integration.Tests`):
+
+- `Connectors.ConnectorAuthorizationFreshDatabaseTests`: `After_bootstrap_then_migration_the_runtime_role_holds_exactly_read_insert_and_update_under_forced_row_level_security`,
+  `There_the_store_reads_inserts_and_updates_while_delete_truncate_and_every_cross_tenant_access_are_refused`,
+  `A_later_global_bootstrap_rerun_re_grants_delete_until_the_recorded_reassertion_restores_the_3b_privileges`.
+- `Database.RuntimeRoleBootstrapTests`: `Bootstrapping_the_real_runtime_role_with_its_current_password_is_idempotent`.
+- `InitialSync.InitialSyncDatabaseSecurityTests`: `After_bootstrap_then_migration_the_runtime_role_holds_exactly_what_initial_sync_needs_under_forced_row_level_security`,
+  `A_sync_rows_shape_and_scope_set_versions_are_checked_by_the_database_so_no_live_row_stands_on_an_earlier_scope_set`,
+  `The_ingress_sequence_is_generated_once_never_supplied_never_changed_and_never_cached_per_session`,
+  `A_bootstrap_rerun_re_grants_delete_which_the_restrictive_policies_still_refuse_until_the_reassertion_restores_the_exact_grants`,
+  `The_current_work_view_shows_only_enabled_baselined_scopes_to_the_callers_own_tenant_and_the_check_is_not_vacuous`,
+  `A_disabled_scope_can_hold_no_baseline_and_a_field_awaits_one_only_at_a_real_version`,
+  `Another_tenant_sees_claims_and_changes_no_scope_or_sync_and_the_check_is_not_vacuous`.
+- `Reconciliation.ReconciliationTargetDatabaseSecurityTests`: `After_bootstrap_then_migration_the_runtime_role_reads_inserts_and_updates_targets_under_forced_row_level_security`,
+  `A_bootstrap_rerun_re_grants_delete_which_the_restrictive_policy_still_refuses_until_the_reassertion_removes_it`,
+  `Another_tenant_sees_and_changes_no_target_and_the_check_is_not_vacuous`.
+
+These decisions answer the six open questions the Stage B3 addendum of `docs/gates/gate-3G-offline-report.md` recorded.
+They change no frozen rule. B-14, B-15, R3B-1, R3B-2, D3B-1 and D3G-1 to D3G-8 stand; decision 3 makes the
+runtime-role safety check that B-14 extended stricter. The four Stage B2 BEFORE-WIRING requirements remain OPEN.
+
+## 3G — Stage B3 final delta (2026-10-06, offline, uncommitted)
+
+Decision 3 was implemented on the same uncommitted tree; the other five decisions needed no code. Full record and
+evidence: `docs/gates/gate-3G-offline-report.md`, Stage B3 addendum, section "Final delta: the owner's review
+decisions".
+
+- The harness's runtime-role check (`tests/App.Harness.Monday/Evidence/EvidenceReaders.cs`) reads eleven facts, each
+  by itself: SUPERUSER, BYPASSRLS, CREATEROLE, CREATEDB, REPLICATION, INHERIT, the absence of LOGIN, ownership of the
+  current database, of any schema, and of any table, view, materialized view, sequence or foreign table outside the
+  temporary schemas (directly or through a membership), and membership in any role. Any one of them refuses the start.
+  Only an answer of exactly one well-formed row with no membership at all passes the membership check; a role the
+  catalog does not answer about counts as having every fact. There is no allowlist.
+- The evidence procedure's role checks follow the same rule, under names that say what they check:
+  `role.login_nosuperuser_nobypassrls_nocreaterole_nocreatedb_noreplication_noinherit`,
+  `role.owns_no_table_view_or_sequence`, `role.owns_neither_database_nor_schema` (now every schema) and
+  `role.member_of_no_role`. The owner-run tool's check list follows the procedure.
+- Tests and guards: the decision is tested over every combination of the eleven facts; the real catalog is read as both
+  local roles; a membership of any kind is refused on synthetic catalogs; the procedure's new conditions and the role
+  statement are pinned word for word; the harness guard's allowlist of the catalogs it may read adds `pg_class`,
+  `pg_database` and `pg_namespace`, read only by the role statement. No new test class.
+- Nothing changed under `src/`; no package; `HarnessStandaloneGate` still empty; the seed design and the tool's design
+  are unchanged and the seed was not run.
+- Local results: clean build 0 warnings, 0 errors; unit 949/949, security 225/225, architecture 46/46; the 15 harness
+  classes on the shared suite database 266 of 271, the other 5 failing only by the documented relay starvation of that
+  database (174 tenants with unpublished outbox rows, beyond the relay's 100-tenant discovery limit), with relay code
+  unchanged since they passed on the isolated temporary database and with exact-commit CI running them on a fresh
+  database; targeted mutation of the hardened boundary 32 of 32 CAUGHT; both verifiers PASS; pinned gitleaks: no
+  leaks. The shared database's security state (every ACL, row-level security flag and policy, the runtime role and the
+  version of its catalog row, roles, memberships, databases and migrations) was identical before and after; only test
+  rows were added. No temporary database was created and no role was altered.
+- **CI: NOT RUN.** The final-tree reviews are recorded in the evidence package outside the repository.
+
+Status: **Stage B3: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**, ready for owner checkpoint review, NOT PASS. Stage B3
+may PASS only after a separately authorized checkpoint commit whose exact-commit CI executes and passes the 14 tests of
+decision 6, and only by the owner's own decision.
+
+**Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate 3G
+closure are NOT AUTHORIZED.
+
+## 3G — Stage B3 owner clarification: temporary relations (approved 2026-10-06)
+
+On 2026-10-06, after the final delta, its evidence package (`FULLY-3G-stage-B3-final-evidence-20261006T172600Z.zip`,
+SHA-256 `d40d10d22740ae211c52b9be146c837992e2abce48b6edab75d876b22b280ed9`) and a read-only investigation of the
+ownership read's exclusion of temporary relations, the product owner approved the following clarification. Quoted
+sentences are the owner's words.
+
+- "Temporary relations remain outside the Stage B3 runtime-role ownership check." The owner's reasons: "temporary
+  relations are session-private and are not the persistent ownership risk targeted by R3B-2 / Decision 3"; "adding
+  temporary-relation ownership to the startup check would not prevent creation after that check"; and "the actual
+  broader control is PostgreSQL TEMPORARY privilege."
+- "The current TEMPORARY privilege inherited through PUBLIC is accepted as a NON-BLOCKING FOLLOW-UP."
+- "Any future revocation of TEMPORARY from PUBLIC is a separate privilege-model / Owner decision outside Stage B3."
+- "No code/test change is required." "No validation or review rerun is required solely because of this documentation
+  clarification."
+
+This confirms the ownership read as implemented in the final delta: the harness's role statement and the evidence
+procedure's `role.owns_no_table_view_or_sequence` both leave out relations whose `relpersistence` is `'t'`. Decision 3
+is otherwise unchanged, and so are B-14, B-15, R3B-1, R3B-2, D3B-1 and D3G-1 to D3G-8. No grant or role changes: the
+TEMPORARY privilege that PUBLIC holds is not revoked. The clarification changes documents only; every code, test and
+tool path of the Stage B3 tree is byte-identical to the final tree recorded in that package, so its validation,
+mutation evidence and three final-tree reviews remain valid, and the owner follow-up those reviews raised about the
+exclusion of temporary relations is answered by this clarification. Only the hashes the package records for the five
+status documents predate it.
+
+Current status: **Stage B3: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**, NOT PASS; uncommitted; CI NOT RUN. The next
+owner boundary is the Stage B3 checkpoint authorization: the owner's checkpoint review of the final tree and its
+evidence package, and a checkpoint commit and push only by the owner's separate authorization. Stage B3 may PASS only
+after that checkpoint's exact-commit CI executes and passes the 14 tests of decision 6, and only by the owner's own
+decision.
 
 **Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate 3G
 closure are NOT AUTHORIZED.

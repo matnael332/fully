@@ -30,6 +30,7 @@ public sealed class HarnessBoundaryTests
     private const string LiveTransportFile = LiveDirectory + "LiveTransport.cs";
     private const string TokenSourceFile = LiveDirectory + "EntraCertificateTokenSource.cs";
     private const string AssertionFile = LiveDirectory + "EntraClientAssertion.cs";
+    private const string PreflightFile = HarnessDirectory + "Composition/TransportSessionPreflight.cs";
 
     // The raw Snapshot tables by name, their entity sets and their records, exactly as the production guard names them.
     private static readonly Regex RawSnapshot = new(
@@ -194,7 +195,7 @@ public sealed class HarnessBoundaryTests
         // Every statement lives in the evidence readers, is a single fixed SELECT, and takes no parameter and no text.
         Assert.Equal([EvidenceFile], Holders(new Regex(@"\bSELECT\b", RegexOptions.CultureInvariant)));
         var statements = Statements();
-        Assert.Equal(12, statements.Count);
+        Assert.Equal(13, statements.Count);
         Assert.All(statements, statement =>
         {
             Assert.StartsWith("SELECT ", statement, StringComparison.Ordinal);
@@ -204,19 +205,30 @@ public sealed class HarnessBoundaryTests
         });
         Assert.Equal(1, Regex.Count(Read(EvidenceFile), @"command\.CommandText = sql;"));
         var executed = Regex.Matches(Read(EvidenceFile), @"EvidenceSql\.ReadAsync\(\s*dbContext,\s*(\w+)").Select(match => match.Groups[1].Value).ToList();
-        Assert.Equal(12, executed.Count);
+        Assert.Equal(13, executed.Count);
         Assert.All(executed, name => Assert.EndsWith("Sql", name, StringComparison.Ordinal));
         Assert.Equal(executed.Count, executed.Distinct(StringComparer.Ordinal).Count());
 
         // The relations it names are the two active views, the operational tables and the role catalog, and no other.
+        // Stage B3 (owner decision B-14) adds the membership catalog, read only by the recursive membership statement,
+        // whose own common table expressions are named in it and are not relations. Exactly those four names are set
+        // aside, and only because that one statement declares them. The owner's Decision 3 of 2026-10-06 adds the database,
+        // schema and relation catalogs, read only by the role statement to find what the role owns.
+        var declared = statements
+            .SelectMany(statement => Regex.Matches(statement, @"(?:WITH RECURSIVE |\), )([a-z_]+) \([a-z_, ]+\) AS \(").Select(match => match.Groups[1].Value))
+            .ToList();
+        Assert.Equal(["role_facts", "memberships", "current_role_row", "granted"], declared);
+        Assert.Single(statements, statement => statement.Contains("WITH RECURSIVE ", StringComparison.Ordinal));
         var relations = statements
-            .SelectMany(statement => Regex.Matches(statement, @"\bFROM\s+([a-z_]+)").Select(match => match.Groups[1].Value))
+            .SelectMany(statement => Regex.Matches(statement, @"\b(?:FROM|JOIN)\s+([a-z_]+)").Select(match => match.Groups[1].Value))
+            .Where(name => !declared.Contains(name, StringComparer.Ordinal))
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal);
         Assert.Equal(
             [
                 "active_snapshot_fields", "active_snapshot_objects", "connection_sync_scopes", "connection_syncs", "connector_authorization_transactions",
-                "connector_authorizations", "connector_source_scopes", "event_ledger", "pg_roles", "pg_tables", "raw_receipts", "reconciliation_targets",
+                "connector_authorizations", "connector_source_scopes", "event_ledger", "pg_auth_members", "pg_class", "pg_database", "pg_namespace",
+                "pg_roles", "pg_tables", "raw_receipts", "reconciliation_targets",
             ],
             relations);
 
@@ -229,9 +241,26 @@ public sealed class HarnessBoundaryTests
 
         Assert.Equal(["active_snapshot_fields"], statements.Where(statement => Regex.IsMatch(statement, @"\bvalue\b")).Select(statement => Regex.Match(statement, @"\bFROM\s+([a-z_]+)").Groups[1].Value));
 
-        // The harness never runs as a role that could step around row-level security: any one of the three privileges
-        // refuses the start. And no database is approved for a standalone run: the list is empty.
-        Assert.Contains("public bool IsPrivileged => Superuser || BypassesRowSecurity || OwnsTables;", Read(EvidenceFile), StringComparison.Ordinal);
+        // The harness never runs as anything other than the plain runtime role (owner decisions D3G-2, D3G-4 and B-14,
+        // hardened by the owner's Decision 3 of 2026-10-06): any one of the eleven facts refuses the start, the role
+        // statement reads each of them exactly as pinned here, and membership in any role at all is disqualifying. And no
+        // database is approved for a standalone run: the list is empty.
+        Assert.Contains(
+            "public bool IsPrivileged =>\n"
+            + "        Superuser || BypassesRowSecurity || CreatesRoles || CreatesDatabases || Replicates || InheritsPrivileges || CannotLogIn\n"
+            + "        || OwnsDatabase || OwnsSchema || OwnsRelation || MemberOfAnyRole;",
+            Read(EvidenceFile),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SELECT r.rolsuper, r.rolbypassrls, r.rolcreaterole, r.rolcreatedb, r.rolreplication, r.rolinherit, NOT r.rolcanlogin, "
+            + "EXISTS (SELECT 1 FROM pg_database AS d WHERE d.datname = current_database() AND pg_has_role(current_user, d.datdba, 'MEMBER')), "
+            + "EXISTS (SELECT 1 FROM pg_namespace AS n WHERE pg_has_role(current_user, n.nspowner, 'MEMBER')), "
+            + "EXISTS (SELECT 1 FROM pg_class AS c WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f') AND c.relpersistence <> 't' "
+            + "AND pg_has_role(current_user, c.relowner, 'MEMBER')) "
+            + "FROM pg_roles AS r WHERE r.rolname = current_user",
+            statements);
+        Assert.Contains("? role[0] with { MemberOfAnyRole = RoleMembershipFacts.IsPrivileged(membership) }", Read(EvidenceFile), StringComparison.Ordinal);
+        Assert.Contains("            || rows[0].GrantedRoles != 0\n", Read(EvidenceFile), StringComparison.Ordinal);
         Assert.Contains(
             "if (privileged.Value)\n            {\n                return HarnessRefusal.PrivilegedDatabaseRole;\n            }",
             Read(HostFile),
@@ -552,6 +581,45 @@ public sealed class HarnessBoundaryTests
         }
 
         Assert.DoesNotMatch(new Regex(@"RS256|Pkcs1|SHA1|HMAC|""x5t""|""none""|ECDsa|GetECDsa"), assertion);
+    }
+
+    [Fact]
+    public void Stage_b3_keeps_the_standalone_gate_empty_and_the_harness_broker_use_to_a_peek_of_its_own_session()
+    {
+        // The standalone gate (owner decisions D3G-4 and B-14): its list is empty, it reads no setting and no environment
+        // variable, and nothing else decides whether a standalone run may use a database.
+        var options = Read(OptionsFile);
+        var gate = options[options.IndexOf("public static class HarnessStandaloneGate", StringComparison.Ordinal)..];
+        Assert.Equal(
+            "public static class HarnessStandaloneGate\n{\n    private static readonly string[] ApprovedDatabases = [];\n\n"
+            + "    /// <summary>Whether a standalone run may use the options' database.</summary>\n"
+            + "    public static bool Permits(HarnessOptions options)\n    {\n        ArgumentNullException.ThrowIfNull(options);\n"
+            + "        return ApprovedDatabases.Contains(options.DatabaseName, StringComparer.Ordinal);\n    }\n}\n",
+            gate);
+        Assert.Equal(2, Regex.Count(string.Concat(HarnessSources().Select(Read)), @"\bApprovedDatabases\b"));
+        Assert.Empty(Holders(new Regex(@"GetEnvironmentVariable|Environment\.GetCommandLineArgs|wce_harness_", RegexOptions.CultureInvariant)));
+        Assert.Equal(1, Regex.Count(Read(ProgramFile), @"if \(!HarnessStandaloneGate\.Permits\(options\)\)"));
+
+        // The harness names the broker's client in two places only: the host, which hands the composed client to the check,
+        // and the check itself.
+        Assert.Equal([HostFile, PreflightFile], Holders(new Regex(@"\bServiceBusClient\b", RegexOptions.CultureInvariant)));
+        Assert.Equal(1, Regex.Count(Read(HostFile), @"Worker\.GetService<Azure\.Messaging\.ServiceBus\.ServiceBusClient>\(\) is \{ \} broker"));
+        Assert.Equal(1, Regex.Count(Read(HostFile), @"TransportSessionPreflight\.CheckAsync\(broker, options\.Tenant, cancellationToken\)"));
+
+        // The check takes exactly the configured tenant's session, in peek-lock mode with no prefetch, peeks one message
+        // and settles, receives, sends and processes nothing.
+        var preflight = Read(PreflightFile);
+        Assert.Equal(1, Regex.Count(preflight, @"client\.AcceptSessionAsync\(\s*TransportContract\.EventProcessingQueue,\s*TransportEnvelope\.SessionIdFor\(tenant\),"));
+        Assert.Equal(1, Regex.Count(preflight, Regex.Escape("new ServiceBusSessionReceiverOptions { ReceiveMode = ServiceBusReceiveMode.PeekLock, PrefetchCount = 0 }")));
+        Assert.Equal(1, Regex.Count(preflight, Regex.Escape("var waiting = await session.PeekMessageAsync(cancellationToken: bounded.Token);")));
+        Assert.Equal(1, Regex.Count(preflight, Regex.Escape("return waiting is null ? HarnessRefusal.None : HarnessRefusal.TransportSessionNotEmpty;")));
+        Assert.Equal(1, Regex.Count(preflight, Regex.Escape("internal static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);")));
+        Assert.DoesNotMatch(
+            new Regex(@"ReceiveMessage|ReceiveDeferred|Complete|Abandon|DeadLetter|Defer|RenewSessionLock|SetSessionState|PeekMessagesAsync|AcceptNextSession|CreateSender|CreateReceiver|CreateProcessor|CreateSessionProcessor|ReceiveAndDelete|SubQueue|Purge"),
+            preflight);
+        Assert.DoesNotMatch(
+            new Regex(@"ServiceBusReceiver\b|ServiceBusSender\b|ServiceBusProcessor\b|AcceptSessionAsync|PeekMessage"),
+            string.Concat(HarnessSources().Where(path => path != PreflightFile).Select(Read)));
     }
 
     private static void AssertNamedNowhere(params string[] fragments)

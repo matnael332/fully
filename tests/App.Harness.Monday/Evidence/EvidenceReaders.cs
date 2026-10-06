@@ -314,32 +314,133 @@ public sealed class OperationalEvidenceReader
 /// <summary>What the catalog says about the role the harness connects as.</summary>
 /// <param name="Superuser">The role is a superuser.</param>
 /// <param name="BypassesRowSecurity">The role has BYPASSRLS.</param>
-/// <param name="OwnsTables">The role owns a table of the schema, or is a member of a role that does.</param>
-public sealed record DatabaseRoleFacts(bool Superuser, bool BypassesRowSecurity, bool OwnsTables)
+/// <param name="CreatesRoles">The role has CREATEROLE.</param>
+/// <param name="CreatesDatabases">The role has CREATEDB.</param>
+/// <param name="Replicates">The role has REPLICATION.</param>
+/// <param name="InheritsPrivileges">The role has INHERIT rather than NOINHERIT.</param>
+/// <param name="CannotLogIn">The role does not have LOGIN.</param>
+/// <param name="OwnsDatabase">The role owns the current database, or is a member of a role that does.</param>
+/// <param name="OwnsSchema">The role owns a schema of the database, or is a member of a role that does.</param>
+/// <param name="OwnsRelation">
+/// The role owns a table, partitioned table, view, materialized view, sequence or foreign table of the database outside
+/// the temporary schemas, or is a member of a role that does.
+/// </param>
+/// <param name="MemberOfAnyRole">
+/// The role is a member of another role, directly or through any chain of memberships, or the answer about its
+/// memberships could not be read (owner decision B-14, hardened by the owner's Decision 3 of 2026-10-06: membership
+/// itself is disqualifying, whatever its options).
+/// </param>
+public sealed record DatabaseRoleFacts(
+    bool Superuser,
+    bool BypassesRowSecurity,
+    bool CreatesRoles,
+    bool CreatesDatabases,
+    bool Replicates,
+    bool InheritsPrivileges,
+    bool CannotLogIn,
+    bool OwnsDatabase,
+    bool OwnsSchema,
+    bool OwnsRelation,
+    bool MemberOfAnyRole)
 {
     /// <summary>What the harness assumes when the catalog does not answer about the role: every privilege.</summary>
-    public static DatabaseRoleFacts Unknown { get; } = new(true, true, true);
+    public static DatabaseRoleFacts Unknown { get; } =
+        new(true, true, true, true, true, true, true, true, true, true, true);
 
-    /// <summary>Gets whether the role could step around row-level security: any one of the three is enough.</summary>
-    public bool IsPrivileged => Superuser || BypassesRowSecurity || OwnsTables;
+    /// <summary>Gets whether the role is anything other than the plain runtime role: any one of the eleven is enough.</summary>
+    public bool IsPrivileged =>
+        Superuser || BypassesRowSecurity || CreatesRoles || CreatesDatabases || Replicates || InheritsPrivileges || CannotLogIn
+        || OwnsDatabase || OwnsSchema || OwnsRelation || MemberOfAnyRole;
 }
 
 /// <summary>
-/// Whether the role the harness connects as could step around row-level security.
+/// The one row the recursive membership statement answers: how many roles are the current role, how many roles it is a
+/// member of through <c>pg_auth_members</c>, directly or transitively, and whether any of them is privileged.
+/// </summary>
+/// <param name="CurrentRoleRows">The roles named like the current role; exactly one in a well-formed catalog.</param>
+/// <param name="GrantedRoles">The distinct roles the current role is a member of, at any depth.</param>
+/// <param name="PrivilegedGrantedRole">
+/// One of them is a superuser, has BYPASSRLS, owns a table of the schema, or has no catalog entry; null when the answer
+/// did not say.
+/// </param>
+public sealed record RoleMembershipFacts(long CurrentRoleRows, long GrantedRoles, bool? PrivilegedGrantedRole)
+{
+    /// <summary>
+    /// True unless the database answered exactly one well-formed row in which the current role is found exactly once, is
+    /// a member of no role at all, and so of no privileged one (the owner's Decision 3 of 2026-10-06: membership itself
+    /// is disqualifying). Every other answer fails closed.
+    /// </summary>
+    /// <param name="rows">The rows the statement answered.</param>
+    public static bool IsPrivileged(IReadOnlyList<RoleMembershipFacts> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        return rows.Count != 1
+            || rows[0].CurrentRoleRows != 1
+            || rows[0].GrantedRoles != 0
+            || rows[0].PrivilegedGrantedRole is not false;
+    }
+}
+
+/// <summary>
+/// Whether the role the harness connects as is anything other than the plain runtime role.
 /// </summary>
 /// <remarks>
+/// <para>
 /// A superuser, a role with BYPASSRLS and the owner of the schema's tables are not subject to the policies that isolate
 /// tenants, and the owner can change the schema; a member of the owning role can become it. The harness therefore
 /// refuses to start as any of them (owner decisions D3G-2 and D3G-4): it holds the runtime role's connection only. The
 /// check reads the catalog about the current role and no data, inside the tenant-scoped transaction like every other
 /// harness read. A role the catalog does not answer about counts as privileged.
+/// </para>
+/// <para>
+/// Hardened by the owner's Decision 3 of 2026-10-06: the role must be exactly the plain role the runtime-role procedure
+/// creates, LOGIN, NOSUPERUSER, NOBYPASSRLS, NOCREATEROLE, NOCREATEDB, NOREPLICATION and NOINHERIT; it may own neither
+/// the database, nor any schema, nor any table, view or sequence, directly or through a role it is a member of; and it
+/// may be a member of no role at all. Each of these is read by itself, and any one of them refuses the start. There is no
+/// allowlist, of predefined <c>pg_</c> roles or of any other. Temporary relations are left out of the ownership read: a
+/// session may create those, and they change no one's privileges.
+/// </para>
+/// <para>
+/// Membership (owner decision B-14). The statement follows <c>pg_auth_members</c> from the current role outwards, one
+/// membership after another, and never stops at the immediate parent. The recursion is a <c>UNION</c>, which drops every
+/// role already reached, so a cycle ends it and it visits each role at most once: it is bounded by the number of roles
+/// in the catalog. Every membership counts, whatever its INHERIT, SET or ADMIN option. Since Decision 3, any role
+/// reached at all refuses the start, so the statement's count of the roles reached decides; whether one of them is
+/// privileged is still answered, and a privileged answer, a role reached through a membership that has no catalog entry
+/// and an answer that is not exactly one well-formed row each refuse as well. The check changes nothing: it grants,
+/// revokes and alters no role.
+/// </para>
 /// </remarks>
 public sealed class DatabaseRoleCheck
 {
     private const string RoleSql =
-        "SELECT r.rolsuper, r.rolbypassrls, "
-        + "EXISTS (SELECT 1 FROM pg_tables AS t WHERE t.schemaname = 'public' AND pg_has_role(current_user, t.tableowner, 'MEMBER')) "
+        "SELECT r.rolsuper, r.rolbypassrls, r.rolcreaterole, r.rolcreatedb, r.rolreplication, r.rolinherit, NOT r.rolcanlogin, "
+        + "EXISTS (SELECT 1 FROM pg_database AS d WHERE d.datname = current_database() AND pg_has_role(current_user, d.datdba, 'MEMBER')), "
+        + "EXISTS (SELECT 1 FROM pg_namespace AS n WHERE pg_has_role(current_user, n.nspowner, 'MEMBER')), "
+        + "EXISTS (SELECT 1 FROM pg_class AS c WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f') AND c.relpersistence <> 't' "
+        + "AND pg_has_role(current_user, c.relowner, 'MEMBER')) "
         + "FROM pg_roles AS r WHERE r.rolname = current_user";
+
+    // The two catalog projections the recursion reads are kept as two separate common table expressions, so that the
+    // harness's tests can run exactly this statement over a synthetic catalog of their own.
+    private const string MembershipSql =
+        "SELECT answer.current_role_rows, answer.granted_roles, answer.privileged_granted_role FROM ("
+        + "WITH RECURSIVE "
+        + "role_facts (oid, rolname, privileged) AS ("
+        + "SELECT r.oid, r.rolname, (r.rolsuper OR r.rolbypassrls OR EXISTS (SELECT 1 FROM pg_tables AS t WHERE t.schemaname = 'public' AND t.tableowner = r.rolname)) "
+        + "FROM pg_roles AS r), "
+        + "memberships (member, roleid) AS ("
+        + "SELECT m.member, m.roleid FROM pg_auth_members AS m), "
+        + "current_role_row (oid) AS ("
+        + "SELECT f.oid FROM role_facts AS f WHERE f.rolname = current_user), "
+        + "granted (roleid) AS ("
+        + "SELECT m.roleid FROM memberships AS m JOIN current_role_row AS c ON m.member = c.oid "
+        + "UNION "
+        + "SELECT m.roleid FROM memberships AS m JOIN granted AS g ON m.member = g.roleid) "
+        + "SELECT (SELECT count(*) FROM current_role_row) AS current_role_rows, "
+        + "(SELECT count(*) FROM granted) AS granted_roles, "
+        + "EXISTS (SELECT 1 FROM granted AS g LEFT JOIN role_facts AS f ON f.oid = g.roleid WHERE f.privileged IS NOT FALSE) AS privileged_granted_role"
+        + ") AS answer";
 
     private readonly ITenantScopedDatabase _database;
 
@@ -351,25 +452,50 @@ public sealed class DatabaseRoleCheck
         _database = database;
     }
 
+    /// <summary>The recursive membership statement, for the harness's own tests and the evidence procedure's pin.</summary>
+    internal static string MembershipStatement => MembershipSql;
+
     /// <summary>Reads what the catalog says about the current role; a failure when the database cannot say.</summary>
     public async Task<Result<DatabaseRoleFacts>> ReadAsync(CancellationToken cancellationToken)
     {
         var read = await _database.ExecuteAsync(
-            (dbContext, token) => EvidenceSql.ReadAsync(
-                dbContext,
-                RoleSql,
-                row => new DatabaseRoleFacts(
-                    row.IsDBNull(0) || row.GetBoolean(0),
-                    row.IsDBNull(1) || row.GetBoolean(1),
-                    row.IsDBNull(2) || row.GetBoolean(2)),
-                token),
+            async (dbContext, token) =>
+            {
+                var role = await EvidenceSql.ReadAsync(
+                    dbContext,
+                    RoleSql,
+                    row => new DatabaseRoleFacts(
+                        row.IsDBNull(0) || row.GetBoolean(0),
+                        row.IsDBNull(1) || row.GetBoolean(1),
+                        row.IsDBNull(2) || row.GetBoolean(2),
+                        row.IsDBNull(3) || row.GetBoolean(3),
+                        row.IsDBNull(4) || row.GetBoolean(4),
+                        row.IsDBNull(5) || row.GetBoolean(5),
+                        row.IsDBNull(6) || row.GetBoolean(6),
+                        row.IsDBNull(7) || row.GetBoolean(7),
+                        row.IsDBNull(8) || row.GetBoolean(8),
+                        row.IsDBNull(9) || row.GetBoolean(9),
+                        false),
+                    token);
+                var membership = await EvidenceSql.ReadAsync(
+                    dbContext,
+                    MembershipSql,
+                    row => new RoleMembershipFacts(
+                        row.IsDBNull(0) ? -1 : row.GetInt64(0),
+                        row.IsDBNull(1) ? -1 : row.GetInt64(1),
+                        row.IsDBNull(2) ? null : row.GetBoolean(2)),
+                    token);
+                return role.Count == 1
+                    ? role[0] with { MemberOfAnyRole = RoleMembershipFacts.IsPrivileged(membership) }
+                    : DatabaseRoleFacts.Unknown;
+            },
             cancellationToken);
         return read.IsFailure
             ? Result<DatabaseRoleFacts>.Failure(read.Error)
-            : Result<DatabaseRoleFacts>.Success(read.Value.Count == 1 ? read.Value[0] : DatabaseRoleFacts.Unknown);
+            : Result<DatabaseRoleFacts>.Success(read.Value);
     }
 
-    /// <summary>True when the current role is privileged or owns a table; a failure when the database cannot say.</summary>
+    /// <summary>True when the current role is not the plain runtime role; a failure when the database cannot say.</summary>
     public async Task<Result<bool>> IsPrivilegedAsync(CancellationToken cancellationToken)
     {
         var facts = await ReadAsync(cancellationToken);
