@@ -207,7 +207,7 @@ Gate passes. P0 is a planning prerequisite to Core Gate 3, not a technical depen
 planned and NOT STARTED.
 
 ### Gate 3 — monday Connector
-Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B PASS (approved 2026-09-30); 3C PASS (approved 2026-09-30); 3D PASS (approved 2026-10-01); 3E PASS (approved 2026-10-02); 3F PASS (approved 2026-10-03); 3B maintenance (PKCE verifier cleanup) PASS (approved 2026-10-03); 3G IN PROGRESS — OFFLINE IMPLEMENTATION ONLY (authorized 2026-10-05; offline harness and offline Key Vault adapter integrated at `446fa5a`, CI run 37409608267 PASS; Stage B planning complete and committed at `34e1705`, CI run 37414993310 PASS; B-1 (authoring only), B-7, B-10 and B-11 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED; Stage B2 PASS — OFFLINE SLICE COMPLETE (approved 2026-10-06; checkpoint `d1468bb`, CI run 37434239946 SUCCESS); four BEFORE-WIRING requirements open; no live wiring; real acceptance NOT PROVEN; real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED); later Gates not started**
+Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B PASS (approved 2026-09-30); 3C PASS (approved 2026-09-30); 3D PASS (approved 2026-10-01); 3E PASS (approved 2026-10-02); 3F PASS (approved 2026-10-03); 3B maintenance (PKCE verifier cleanup) PASS (approved 2026-10-03); 3G IN PROGRESS — OFFLINE IMPLEMENTATION ONLY (authorized 2026-10-05; offline harness and offline Key Vault adapter integrated at `446fa5a`, CI run 37409608267 PASS; Stage B planning complete and committed at `34e1705`, CI run 37414993310 PASS; B-1 (authoring only), B-7, B-10, B-11, B-14 and B-15 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED; Stage B3 decision prerequisites complete, B3 NOT STARTED and NOT AUTHORIZED; Stage B2 PASS — OFFLINE SLICE COMPLETE (approved 2026-10-06; checkpoint `d1468bb`, CI run 37434239946 SUCCESS); four BEFORE-WIRING requirements open; no live wiring; real acceptance NOT PROVEN; real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED); later Gates not started**
 
 Gate 3 builds real monday authentication, webhooks, source mapping, API reconciliation and initial sync on top of
 the Gate 2 Event Backbone, reading and ingesting only. Scope, the verified monday platform baseline, sub-gates 3A to
@@ -266,8 +266,8 @@ B-11"): the certificate-credential service principal as the future runtime ident
 hand-written certificate assertion with no new package, an explicit credential only, a pinned `SocketsHttpHandler` per
 destination and enablement only through reviewed code, with `Azure.Identity` / `ClientCertificateCredential` not
 approved (B-10); and guards replaced only by equal-or-stricter pinned allowances in exactly named files, never simply
-deleted, with targeted mutation evidence (B-11). Exactly four B decisions are approved (B-1, B-7, B-10, B-11); **B-2 to
-B-6, B-8, B-9 and B-12 to B-19 remain PROPOSED — NOT APPROVED**. That decision set was recorded and pushed as `56f61a0`
+deleted, with targeted mutation evidence (B-11). At that point exactly four B decisions were approved (B-1, B-7, B-10,
+B-11). That decision set was recorded and pushed as `56f61a0`
 (CI run 37419000306 PASS).
 
 **Stage B2 (real transport and token source): PASS — OFFLINE SLICE COMPLETE.** The owner authorized Stage B2 on
@@ -294,7 +294,28 @@ approved **"Stage B2 — Real Transport and Token Source = PASS"** (2026-10-06),
   - destination-specific header allowlists;
   - telemetry handling for Key Vault URL paths;
   - the trusted Fully tenant context when wired.
-- No other Stage B slice is authorized or started.
+
+**B-14 and B-15: APPROVED — 2026-10-06** (`docs/gates/gate-3-scope.md`, section "3G — Stage B owner decisions B-14 and
+B-15").
+- **B-14 (standalone database):** a persistent dedicated database on the existing local PostgreSQL server, migrated from
+  zero, with only the database-scoped grants of the local runtime-role procedure; one fresh tenant, user and connection
+  seeded by a reviewed owner-run script outside the harness; no administrative path in the harness; fresh RLS and
+  privilege evidence on that database, never the shared suite database; a recursive `pg_auth_members` membership check
+  added to the runtime-role safety check; the cluster-wide `workcontinuity_app` limitation accepted. It supersedes the
+  D3G-4 deferral for this Stage B path. It does not authorize creating the persistent database, which stays a separate
+  local approval.
+- **B-15 (transport isolation):** the shared local emulator, with no concurrent full-suite run, a never-used tenant
+  GUID, the consumer limited to its own session, and the session verified empty before the run. It authorizes no live
+  run and no provider execution.
+
+Exactly six B decisions are approved (B-1, B-7, B-10, B-11, B-14, B-15); **B-2 to B-6, B-8, B-9, B-12, B-13 and B-16 to
+B-19 remain PROPOSED — NOT APPROVED**. **Stage B3** (standalone database and transport preparation) has its decision
+prerequisites complete, but it is **NOT STARTED and NOT AUTHORIZED** until the owner authorizes the slice.
+- Its offline scope is limited to the recursive role-membership check, a reviewed seed script, the procedure for fresh
+  RLS and R3B-2 evidence, and the shared-emulator isolation checks and procedure.
+- `HarnessStandaloneGate` stays empty.
+
+No other Stage B slice is authorized or started.
 
 Real execution is NOT AUTHORIZED, Gate 3 closure is NOT AUTHORIZED and real acceptance is NOT PROVEN.
 
@@ -465,11 +486,14 @@ progress: 3A to 3F are PASS (3F, initial sync, watermark and buffered replay, ap
 (3B maintenance PASS, 2026-10-03), and the 3G host must run the verifier cleanup at start-up and every 5 minutes. The
 offline harness and the offline Key Vault adapter are integrated at `446fa5a` (CI run 37409608267 PASS), and the Stage
 B planning is committed at `34e1705` (CI run 37414993310 PASS) and the B-1 record at `b0b7248` (CI run 37416642461
-PASS), and the B2 decision set at `56f61a0` (CI run 37419000306 PASS). B-1 (authoring only), B-7, B-10 and B-11 are
-APPROVED — 2026-10-06; every other B decision is PROPOSED — NOT APPROVED. **Stage B2 is PASS — OFFLINE SLICE COMPLETE**
+PASS), the B2 decision set at `56f61a0` (CI run 37419000306 PASS), the Stage B2 checkpoint at `d1468bb` and its PASS
+record at `2aa9575` (CI run 37437521793 PASS). B-1 (authoring only), B-7, B-10, B-11, B-14 and B-15 are APPROVED —
+2026-10-06; every other B decision is PROPOSED — NOT APPROVED. **Stage B2 is PASS — OFFLINE SLICE COMPLETE**
 (checkpoint `d1468bb`, CI run 37434239946 SUCCESS) and needs no further work unless separately authorized; the four
 BEFORE-WIRING requirements stay open. **The next phase is the owner's selection and authorization of the next Stage B
-slice and the owner decisions it requires**; no other Stage B slice is currently authorized.
+slice and the owner decisions it requires**. Stage B3 has its decisions (B-14, B-15) but is NOT STARTED and NOT
+AUTHORIZED, and creating the persistent standalone database stays a separate local approval; no other Stage B slice is
+currently authorized.
 Do
 not run anything against real monday, do not close Gate 3, and do not start any later Gate or
 any Premium Gate P1 to P11, without the product owner's explicit authorization, do not start the bootstrap or

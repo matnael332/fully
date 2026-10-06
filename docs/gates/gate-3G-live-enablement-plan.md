@@ -29,8 +29,12 @@ Azure behaves.
 - Stage B planning is complete and recorded in the last section of this file, "Gate 3G — Stage B Live Readiness
   Preparation". **B-1 is APPROVED — 2026-10-06** (authoring only; recorded in `docs/gates/gate-3-scope.md`, section
   "3G — Stage B owner decision B-1 (approved 2026-10-06)"). **B-7, B-10 and B-11 are APPROVED — 2026-10-06** (recorded
-  in the same file, section "3G — Stage B owner decisions B-7, B-10 and B-11 (approved 2026-10-06)"). **B-2 to B-6, B-8,
-  B-9 and B-12 to B-19 remain PROPOSED — NOT APPROVED.**
+  in the same file, section "3G — Stage B owner decisions B-7, B-10 and B-11 (approved 2026-10-06)"). **B-14 and B-15
+  are APPROVED — 2026-10-06** (same file, section "3G — Stage B owner decisions B-14 and B-15 (approved 2026-10-06)").
+  **B-2 to B-6, B-8, B-9, B-12, B-13 and B-16 to B-19 remain PROPOSED — NOT APPROVED.**
+- Status update, 2026-10-06: **Stage B3** (standalone database and transport preparation) has its decision
+  prerequisites complete (B-14 and B-15), but Stage B3 itself is **NOT STARTED and NOT AUTHORIZED** until the owner
+  authorizes the slice. Creating the persistent standalone database remains a separate local approval.
 - Status update, 2026-10-06: **Stage B2** (real transport and token source) was authorized by the owner for offline
   implementation only.
   - **Stage B2: PASS — OFFLINE SLICE COMPLETE** (approved by the owner on 2026-10-06; checkpoint `d1468bb`, CI run
@@ -607,8 +611,9 @@ closure are NOT AUTHORIZED. This plan recommends; it decides nothing and starts 
 Planning recorded on 2026-10-06 at baseline `446fa5a1b1e77223d3eedfd89569c338dfda12eb` (CI run 37409608267 passed).
 This section is planning only. **At planning time every decision B-1 to B-19 was PROPOSED — NOT APPROVED**, and none
 may be read as an owner decision until the product owner approves it in their own words. Since then only B-1 has been
-approved (2026-10-06, see the update below), and then B-7, B-10 and B-11 (2026-10-06, see the second update below);
-**B-2 to B-6, B-8, B-9 and B-12 to B-19 remain PROPOSED — NOT APPROVED.**
+approved (2026-10-06, see the update below), then B-7, B-10 and B-11 (2026-10-06, see the second update below), and then
+B-14 and B-15 (2026-10-06, see their entries and the fifth update below); **B-2 to B-6, B-8, B-9, B-12, B-13 and B-16 to
+B-19 remain PROPOSED — NOT APPROVED.**
 
 - **D3G-1 remains fully in force**, as clarified by the owner on 2026-10-06: it prohibits every real-credential adapter
   and every real connection to Azure or Key Vault.
@@ -785,7 +790,7 @@ inbound: no webhook, no Signing Secret, no public ingress. Those belong to Stage
 - Alternatives: a dedicated PostgreSQL container and a dedicated emulator instance; each changes `infra/local` and
   needs its own approval.
 
-### Proposed owner decisions B-1 to B-19 (B-1, B-7, B-10, B-11 APPROVED — 2026-10-06; all others PROPOSED — NOT APPROVED)
+### Proposed owner decisions B-1 to B-19 (B-1, B-7, B-10, B-11, B-14, B-15 APPROVED — 2026-10-06; all others PROPOSED — NOT APPROVED)
 
 Each entry gives the question, the recommendation, the alternatives, the practical and security effect, why it is
 needed now, what approval would enable, what stays prohibited, and whether an existing decision changes. Each entry
@@ -927,7 +932,21 @@ records the proposal as written at planning time; an approval is recorded in the
 - Alternative: a trusted `dotnet dev-certs` certificate, which changes machine trust and is excluded by D3G-1 unless
   superseded. Closes open question 4 of the offline report.
 
-**B-14 — Standalone database. PROPOSED — NOT APPROVED.**
+**B-14 — Standalone database. APPROVED — 2026-10-06.**
+
+- *Owner approval, 2026-10-06:* approved exactly as recommended. Record: `docs/gates/gate-3-scope.md`, section "3G —
+  Stage B owner decisions B-14 and B-15 (approved 2026-10-06)".
+  - A persistent dedicated database on the existing local PostgreSQL server, migrated from zero, with only the
+    database-scoped privileges of the existing local runtime-role grant procedure.
+  - One fresh tenant, user and connection seeded by a reviewed owner-run script outside the harness; the harness keeps no
+    administrative database path.
+  - Fresh RLS and privilege evidence taken on that database; the shared suite database is not acceptable as live evidence.
+  - The runtime-role safety check extended with a recursive `pg_auth_members` membership check.
+  - The remaining limitation is accepted: `workcontinuity_app` is a cluster-wide role shared with the suite database.
+  - It supersedes the D3G-4 deferral of a persistent standalone database for this Stage B preparation path. The
+    dedicated PostgreSQL container is not selected.
+  - It does not authorize creating or provisioning the persistent database now; that stays a separate local approval
+    boundary.
 
 - Recommended: as in area I, on the local server, with the membership check added to the role check and the cluster-wide
   role limitation accepted.
@@ -935,7 +954,14 @@ records the proposal as written at planning time; an approval is recorded in the
 - Changes an existing decision: **yes — it supersedes the D3G-4 deferral** of a persistent standalone database. Closes
   open questions 2 and 5 of the offline report.
 
-**B-15 — Transport isolation. PROPOSED — NOT APPROVED.**
+**B-15 — Transport isolation. APPROVED — 2026-10-06.**
+
+- *Owner approval, 2026-10-06:* approved exactly as recommended. Record: `docs/gates/gate-3-scope.md`, section "3G —
+  Stage B owner decisions B-14 and B-15 (approved 2026-10-06)".
+  - The existing shared local emulator, under the Stage B plan conditions: no concurrent full-suite run; a fresh tenant
+    GUID never used before; the consumer limited to its own session; the session verified empty before the run.
+  - The dedicated emulator instance is not selected.
+  - It does not authorize a live run or any provider execution.
 
 - Recommended: the shared emulator under the conditions of area I. Alternative: a dedicated emulator instance.
 
@@ -976,7 +1002,8 @@ records the proposal as written at planning time; an approval is recorded in the
   `src/` would be needed, or a guard would have to be weakened.
 - **B3 — Standalone database and transport preparation.** The membership test in the role check; a reviewed seed
   script; the procedure for fresh RLS and R3B-2 evidence. `HarnessStandaloneGate` stays empty. Offline code; provisioning
-  the persistent local database itself is a separate local approval. Approval: B-14, B-15.
+  the persistent local database itself is a separate local approval. Approval: B-14, B-15 (both approved on 2026-10-06;
+  B3 itself is NOT STARTED and NOT AUTHORIZED).
 - **B4 — Operator and TLS.** The honest operator key; the ephemeral certificate and its fingerprint; the standalone
   wiring of the certificate and the seams. Offline. Approval: B-12, B-13.
 - **B5 — Live-run preparation package.** A run book: preflight (effective permissions, privileges, empty session),
@@ -1081,8 +1108,16 @@ pushed. CI run 37434239946 succeeded (1,861 total; 1,851 passed, 0 failed, 10 sk
 owner then approved "Stage B2 — Real Transport and Token Source = PASS" for the offline slice only. The four
 BEFORE-WIRING requirements remain open.
 
+Status after the fourth update (superseded below): approved B-1, B-7, B-10, B-11; Stage B2 PASS; no other Stage B slice
+authorized.
+
+*Fifth update, 2026-10-06 (status only):* the owner approved B-14 and B-15 exactly as recommended. Their approval texts
+are in their entries above, and the record is in `docs/gates/gate-3-scope.md`. With them, the decision prerequisites of
+Stage B3 are complete. Stage B3 itself is not started and not authorized, and creating the persistent standalone
+database remains a separate local approval.
+
 Current status: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT
-AUTHORIZED. Gate 3G closure: NOT AUTHORIZED. Approved: B-1 (authoring only), B-7, B-10, B-11 — 2026-10-06; every other B
-decision: PROPOSED — NOT APPROVED. Stage B2: PASS — OFFLINE SLICE COMPLETE (checkpoint `d1468bb`, CI run 37434239946 —
-SUCCESS). Four BEFORE-WIRING requirements open. No live wiring; no real credential or provider behavior proven. No
-other Stage B slice authorized.**
+AUTHORIZED. Gate 3G closure: NOT AUTHORIZED. Approved: B-1 (authoring only), B-7, B-10, B-11, B-14, B-15 — 2026-10-06;
+every other B decision: PROPOSED — NOT APPROVED. Stage B2: PASS — OFFLINE SLICE COMPLETE (checkpoint `d1468bb`, CI run
+37434239946 — SUCCESS). Four BEFORE-WIRING requirements open. Stage B3: decision prerequisites complete; NOT STARTED and
+NOT AUTHORIZED. No live wiring; no real credential or provider behavior proven. No other Stage B slice authorized.**
