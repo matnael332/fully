@@ -23,6 +23,9 @@ public sealed class HarnessBoundaryTests
     private const string CleanupFile = HarnessDirectory + "Hosting/VerifierCleanupLoop.cs";
     private const string ProgramFile = HarnessDirectory + "HarnessProgram.cs";
     private const string EntryFile = HarnessDirectory + "Program.cs";
+    private const string SecretsDirectory = HarnessDirectory + "Secrets/";
+    private const string VaultStoreFile = SecretsDirectory + "KeyVaultSecretStore.cs";
+    private const string VaultCodecFile = SecretsDirectory + "KeyVaultSecretCodec.cs";
 
     // The raw Snapshot tables by name, their entity sets and their records, exactly as the production guard names them.
     private static readonly Regex RawSnapshot = new(
@@ -330,6 +333,85 @@ public sealed class HarnessBoundaryTests
         Assert.Equal(1, Regex.Count(host, @"await DetachedFlow\.Run\(\(\) => consumerHost\.StartAsync\(cancellationToken\)\);"));
         Assert.Equal(1, Regex.Count(host, @"if \(seams\.RunBackboneLoops\)"));
         Assert.Equal(1, Regex.Count(host, @"transport\.ConsumerSessionIds\.Add\(TransportEnvelope\.SessionIdFor\(options\.Tenant\)\)"));
+    }
+
+    [Fact]
+    public void The_key_vault_adapter_is_offline_unwired_and_can_send_only_get_set_and_delete_to_one_vault()
+    {
+        // Owner decisions S-1 to S-5 (2026-10-05). Placement: exactly three files, and nothing outside them names the
+        // adapter, its codec or its token seam; nothing in the harness constructs it, so it is not wired.
+        Assert.Equal(
+            [SecretsDirectory + "IKeyVaultAccessTokenSource.cs", VaultCodecFile, VaultStoreFile],
+            HarnessSources().Where(path => path.StartsWith(SecretsDirectory, StringComparison.Ordinal)));
+        Assert.DoesNotContain(
+            HarnessSources(),
+            path => !path.StartsWith(SecretsDirectory, StringComparison.Ordinal) && Read(path).Contains("KeyVault", StringComparison.Ordinal));
+        Assert.Empty(Holders(new Regex(@"new\s+KeyVaultSecretStore\s*\(")));
+
+        // Transport: one invoker over the handler it is given; it builds no handler and no client of its own.
+        var store = Read(VaultStoreFile);
+        Assert.Equal([VaultStoreFile], Holders(new Regex(@"\bHttpMessageInvoker\b")));
+        Assert.Equal(1, Regex.Count(store, @"new HttpMessageInvoker\("));
+        Assert.Contains("new HttpMessageInvoker(_transport, disposeHandler: false)", store, StringComparison.Ordinal);
+        Assert.Empty(Holders(new Regex(@"new\s+\w*Handler\s*\(")));
+
+        // Requests: get, set and delete, one place each, to one pinned path shape on the configured vault.
+        Assert.Equal([VaultStoreFile], Holders(new Regex(@"HttpMethod\.")));
+        Assert.Equal(["Delete", "Get", "Put"], Regex.Matches(store, @"HttpMethod\.(\w+)").Select(match => match.Groups[1].Value).Order(StringComparer.Ordinal));
+        AssertNamedNowhere(
+            "deletedsecrets", "/recover", "/backup", "/restore", "purge", "Purge", "maxresults", "/versions", "outContentType",
+            "HttpMethod.Patch", "HttpMethod.Post", "HttpMethod.Head");
+        Assert.Contains("public const string ApiVersion = \"2025-07-01\";", store, StringComparison.Ordinal);
+        Assert.Equal(1, Regex.Count(store, @"""\?api-version="" \+ ApiVersion"));
+        Assert.Equal(1, Regex.Count(store, @"new Uri\("));
+        Assert.Contains("new Uri(_vault, path + ApiVersionQuery)", store, StringComparison.Ordinal);
+        Assert.Equal(1, Regex.Count(store, @"""secrets/"""));
+        Assert.Contains("private static string ItemPath(MondaySecretName name) => \"secrets/\" + name.Value;", store, StringComparison.Ordinal);
+        Assert.Equal(1, Regex.Count(store, @"ItemPath\(name\) \+ ""/"""));
+        Assert.Contains("private const string VaultSuffix = \".vault.azure.net\";", store, StringComparison.Ordinal);
+        Assert.Contains("vault.Scheme != Uri.UriSchemeHttps", store, StringComparison.Ordinal);
+        Assert.Contains("!vault.IsDefaultPort", store, StringComparison.Ordinal);
+
+        // Status mapping and attempts (S-4, S-5): only a Key Vault error body makes a 404 not-found; exactly five
+        // statuses are retried, a conflict is never named; the bounds are the approved constants.
+        Assert.Contains(
+            "HttpStatusCode.NotFound => AttemptResult.Settled(IsKeyVaultError(body) ? Outcome.NotFound : Outcome.Unavailable, null),",
+            store,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            ["BadGateway", "GatewayTimeout", "InternalServerError", "ServiceUnavailable", "TooManyRequests"],
+            Regex.Matches(Regex.Match(store, @"HttpStatusCode\.TooManyRequests[\s\S]*?=> AttemptResult\.Retry").Value, @"HttpStatusCode\.(\w+)")
+                .Select(match => match.Groups[1].Value)
+                .Order(StringComparer.Ordinal));
+        Assert.DoesNotContain("Conflict", store, StringComparison.Ordinal);
+        foreach (var constant in new[]
+                 {
+                     "public const int MaxAttempts = 3;",
+                     "public static readonly TimeSpan AttemptTimeout = TimeSpan.FromSeconds(5);",
+                     "public static readonly TimeSpan GetBudget = TimeSpan.FromSeconds(10);",
+                     "public static readonly TimeSpan WriteBudget = TimeSpan.FromSeconds(15);",
+                     "public static readonly TimeSpan RetryAfterCap = TimeSpan.FromSeconds(2);",
+                     "private static readonly TimeSpan[] DefaultWaits = [TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(800)];",
+                 })
+        {
+            Assert.Contains(constant, store, StringComparison.Ordinal);
+        }
+
+        // Encoding (S-3): one content type, one bound, plain text only under the two owner-placed names.
+        var codec = Read(VaultCodecFile);
+        Assert.Contains("public const string ContentType = \"application/vnd.wce.opaque-bytes+base64url;v=1\";", codec, StringComparison.Ordinal);
+        Assert.Contains("public const int MaxValueBytes = 18_000;", codec, StringComparison.Ordinal);
+        Assert.Contains("return IsOwnerPlaced(name) ? DecodePlain(text) : MondaySecretLookup.Unavailable();", codec, StringComparison.Ordinal);
+        Assert.Contains("name.Equals(MondaySecretName.ClientSecret) || name.Equals(MondaySecretName.SigningSecret)", codec, StringComparison.Ordinal);
+        Assert.Equal(1, Regex.Count(codec, @"DecodePlain\(text\)"));
+
+        // No log, no cache and no state of its own: nothing to leak and nothing to serve stale.
+        foreach (var path in HarnessSources().Where(path => path.StartsWith(SecretsDirectory, StringComparison.Ordinal)))
+        {
+            Assert.DoesNotMatch(new Regex(@"\bILogger\b|\bConsole\.|\bDebug\.|\bTrace\.|Dictionary|MemoryCache|Lazy<|HashSet"), Read(path));
+            // A static field is read-only or a constant: a mutable static field is the only place a value could outlive a call.
+            Assert.DoesNotMatch(new Regex(@"\bstatic\s+(?!readonly\b)[\w<>\[\]?,]+\s+\w+\s*[=;]"), Read(path));
+        }
     }
 
     private static void AssertNamedNowhere(params string[] fragments)

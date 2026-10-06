@@ -3221,3 +3221,133 @@ in the report. CI for the change set is NOT RUN. No standalone run was performed
 
 **Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real execution is NOT AUTHORIZED, Gate 3 closure is NOT
 AUTHORIZED, real acceptance is NOT PROVEN, and every real-execution blocker of D3G-8 stays open.
+
+## 3G — Offline Key Vault secret-store adapter (S-1 to S-5, approved 2026-10-05)
+
+### Owner decisions S-1 to S-5 (2026-10-05)
+
+On 2026-10-05 the product owner approved S-1 to S-5 exactly as defined in the corrected
+`docs/gates/gate-3G-live-enablement-plan.md` (SHA-256 `8a9ade1c5b1e4db227bc790f892268b48b859a16e88bfcdf5d06cebf1da19dc9`)
+and authorized only the smallest offline adapter slice that plan defines. The owner's full text was given in the working
+session of 2026-10-05 and is not stored verbatim in this repository; the list below is the repository's record of it,
+restated closely from that text:
+
+- **S-1 — Direction.** A Key Vault-backed `IMondaySecretStore` is the approved direction for real monday secrets in the
+  Gate 3G DEV/TEST harness. This approval authorizes the OFFLINE adapter and its tests only. No real vault, no Azure
+  resource, no permission grant and no real secret are authorized.
+- **S-2 — Placement and packages.** Implement the adapter under `tests/App.Harness.Monday`. Use injected transport and
+  token-source seams. Do not add a new package. Do not change anything under `src/`. Production placement remains
+  undecided.
+- **S-3 — Value encoding and size.** Adapter-written values use base64url without padding and one exact Fully content
+  type. They must round-trip byte-for-byte. Unmarked plaintext is accepted only for `wce-monday-client-secret` and
+  `wce-monday-signing-secret`. Any unmarked value under another secret name is Unavailable. Any unknown content type is
+  Unavailable. A malformed value carrying the Fully content type is Unavailable and must never fall back to plaintext.
+  The adapter must refuse values above 18,000 bytes before sending any request. The 18,000-byte boundary is explicitly
+  a supported compatibility subset and is NOT claimed to cover every theoretical value the connector can produce.
+- **S-4 — Confirmed deletion semantics.** For the Key Vault adapter, Succeeded from Delete means the vault accepted
+  deletion and the secret no longer exists in the active namespace for ordinary Get access. It does NOT mean the
+  underlying secret material has been irreversibly destroyed. NotFound means no active secret existed under that name
+  when the vault answered. Verifier-cleanup confirmed deletion therefore means removal from ordinary Get access.
+  Retention, purge protection, recover authority, purge authority and post-run cleanup remain future live decisions and
+  are NOT approved here.
+- **S-5 — Failure mapping and retry.** Implement the corrected operation-specific fail-closed policy from the plan.
+  Only a qualifying Key Vault 404 with a well-formed error response may map to NotFound. All unresolved ambiguity,
+  malformed responses, refusals, conflicts, throttling exhaustion, server failures, connection failures and timeouts
+  map to Unavailable unless a later permitted retry settles the outcome. Get, Set and Delete: maximum 3 attempts; retry
+  only the approved retryable classes; 5-second per-attempt timeout; 10-second total Get budget; 15-second total
+  Set/Delete budget. Honor Retry-After only within the approved 2-second cap and remaining operation budget. A retried
+  Set must resend identical bytes to the same name. 409 must not be retried. Caller cancellation propagates and must not
+  be converted into a store status. Do not cache values or absence. A timeout must never be treated as proof that a
+  write did not occur.
+
+A further owner instruction of the same session, on the vault address: host-name casing is not a different origin; a
+trailing-slash difference is not a different origin; an explicit port must still resolve to the same effective origin;
+the test is fixed rather than the adapter tightened when an address is semantically the same origin, and the origin
+boundary is not weakened.
+
+**Owner clarification of S-1 and D3G-1 (approved by the product owner on 2026-10-06), in the owner's words:** "S-1
+permits only the OFFLINE Key Vault adapter that does not hold, use, or obtain any real credential. D3G-1 remains fully
+in force and continues to prohibit every real-credential adapter and every real connection to Azure or Key Vault." This
+clarification does not authorize live execution. Consequently: S-1 authorizes only an offline adapter; the adapter may
+not hold, obtain, use or authenticate with a real credential; D3G-1 stays fully in force, unweakened and
+unreinterpreted; and no real Azure or Key Vault connection is authorized.
+
+Status is unchanged: **Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**; real acceptance NOT PROVEN; real
+execution and Gate closure NOT AUTHORIZED. Webhook provisioning (W-1, W-2) is not approved.
+
+### Offline adapter slice: scope and acceptance (recorded before code)
+
+- **Placement.** New files under `tests/App.Harness.Monday/Secrets/`: the adapter, its value codec and its access-token
+  source seam. Tests under `tests/App.Integration.Tests/Harness/`. New harness-scoped guards in
+  `tests/App.Architecture.Tests/HarnessBoundaryTests.cs`. No change under `src/`, no package, no project reference, no
+  change to an existing guard's assertions.
+- **Not wired.** `HarnessProgram`, `HarnessHost` and `HarnessStandaloneGate` are unchanged: the default executable still
+  composes the refusing secret store and approves no database. No real HTTP handler, no real token source, no Azure,
+  Key Vault, monday, OAuth or identity-provider contact, and no real secret.
+- **Seams.** The adapter takes an injected `HttpMessageHandler` (sent through `HttpMessageInvoker`), an injected access
+  token source, the connector's existing `IMondayDelay` seam for retry waits and a `TimeProvider` for attempt timeouts and
+  budgets. Existing harness guards forbid naming a network handler, a sleep or a stopwatch in harness sources, and
+  they stay unchanged.
+- **Requests.** Only the configured HTTPS vault origin (`https://{name}.vault.azure.net/`), only get
+  (`secrets/{name}/`, the latest version), set (`PUT secrets/{name}`) and delete (`DELETE secrets/{name}`), with the
+  pinned API version `2025-07-01`, never a secret version, list, deleted-secret, recover, backup, restore, purge or
+  update request.
+- **Acceptance.** The 22 test requirements listed in the owner's implementation authorization of 2026-10-05 (given in
+  the working session, not stored verbatim here; the tests that meet them are listed in the offline report); targeted
+  mutation evidence for the new guards; the existing guards; the full local suite; and the canonical-auditor,
+  tenant-security-reviewer and gate-verifier reviews. An evidence package outside the repository. No stage, commit or
+  push.
+
+### Offline adapter slice: implementation record (2026-10-05)
+
+Implemented as recorded above, offline only, uncommitted. Full record and evidence: `docs/gates/gate-3G-offline-report.md`,
+section "Addendum — offline Key Vault adapter slice (S-1 to S-5)".
+
+- New: `tests/App.Harness.Monday/Secrets/` (`KeyVaultSecretStore.cs`, `KeyVaultSecretCodec.cs`,
+  `IKeyVaultAccessTokenSource.cs`); `tests/App.Integration.Tests/Harness/` (`HarnessKeyVaultFakes.cs`,
+  `HarnessKeyVaultSecretStoreTests.cs`, `HarnessKeyVaultConnectorFlowTests.cs`). Changed: one new guard method in
+  `tests/App.Architecture.Tests/HarnessBoundaryTests.cs`; no existing assertion changed. No change under `src/`, no
+  package, not wired into the harness host.
+- The vault address is checked by meaning, not spelling: host-name case, an implied root path and an explicit default
+  port are the same origin, and every request is built from the parsed address.
+- Local results on 2026-10-05, uncommitted tree, against the shared local test database: the harness namespace was 163
+  of 168, with 5 pre-existing relay-dependent harness tests failing because of stale unrelayable outbox rows in that
+  database (see the report).
+- Revalidation on 2026-10-06, same uncommitted tree, against a temporary isolated database on the local server (created
+  for the run, given only the database-scoped grants of `infra/local/postgres/init/10-runtime-role.sh`, migrated from
+  zero by the test fixture, dropped afterwards; no row count or content of the shared database changed): clean build
+  with 0 warnings and 0 errors; both repository verifiers PASS; the five previously failing tests 5/5; full local suite
+  **1,783 of 1,783**, none failed, none skipped (unit 949, architecture 44, security 168, integration 622). Targeted
+  mutation: 44 mutants, 43 caught, and K05 **EQUIVALENT MUTANT — PROVEN** by an exhaustive offline comparison over every
+  final base64url quantum (17,309,696 inputs, 0 disagreements). Reviews (final round): canonical-auditor CONFORMS WITH
+  FOLLOW-UP; tenant-security-reviewer PASS WITH FOLLOW-UP; gate-verifier READY WITH FOLLOW-UP (readiness for owner
+  review of this offline slice only, not a closure). CI NOT RUN.
+- `READY WITH FOLLOW-UP` means ready for owner review and checkpoint of this OFFLINE slice only. It does not mean Gate 3G
+  closure, Gate 3 closure, live readiness, Azure approval or monday approval.
+
+### Offline adapter slice: owner decisions on the evidence (approved by the product owner on 2026-10-06)
+
+The product owner explicitly approved the following. The quoted sentences are the owner's words; the text outside the
+quotes restates the rest of each decision closely:
+
+1. **K05.** "K05 is accepted as an EQUIVALENT MUTANT for the current runtime, .NET 10.0.11. The exhaustive proof showed
+   no behavioral difference across the relevant canonical/non-canonical base64url trailing-bit space. The existing
+   defensive check remains in production/test code as defense in depth." The canonical re-encoding check in
+   `KeyVaultSecretCodec.DecodeMarked` stays.
+2. **Shared-database statistics delta.** "The unexplained shared-database PostgreSQL statistics delta (`tup_updated` +7)
+   is accepted as a NON-BLOCKING EVIDENCE NOTE. This does NOT mean we claim to know its exact cause." The evidence
+   showed no shared application-row count change, no shared content-fingerprint change, and no shared rows deleted. No
+   cause is claimed, and the delta stays recorded transparently in the evidence.
+3. **Temporary isolated database.** "The hand-run temporary isolated database lifecycle is accepted as compliant with
+   D3G-4 for this evidence run." The owner's rationale: the database was temporary and separate; the shared database was
+   not cleaned or altered for the test; grants were scoped to the temporary database; the runtime role itself was not
+   elevated; the temporary database was dropped after the run.
+4. **Stale shared rows.** "The stale rows in the shared local database are NOT to be cleaned as part of Gate 3G. They
+   are not a Gate 3G blocker because the full suite was proven on the accepted isolated database. Any cleanup of those
+   rows is a separate maintenance task requiring its own authorization."
+
+These decisions settle evidence questions for this offline slice and this evidence run only. They authorize no live
+execution, no real credential, no Azure, Key Vault or monday contact, no shared-database cleanup, no commit and no push.
+
+**Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real execution and Gate 3 closure are NOT AUTHORIZED; real
+acceptance is NOT PROVEN.

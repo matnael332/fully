@@ -617,3 +617,194 @@ it is not permission for real execution.
 - **Azure actions: none.**
 - **Standalone database provisioning: none.**
 - **Commit or push: none.**
+
+## Addendum — offline Key Vault adapter slice (S-1 to S-5)
+
+This addendum records a second offline slice, added on 2026-10-05 after the checkpoint above was merged as commit
+`884962f6a3e4f7ca820bd8159e7ac97fa2528cdd`. It is uncommitted. It does not change the status of Gate 3G and is not
+provider evidence: the vault and monday are fakes throughout.
+
+### Authorization
+
+On 2026-10-05 the product owner approved S-1 to S-5 exactly as defined in the corrected
+`docs/gates/gate-3G-live-enablement-plan.md` and authorized only the offline adapter slice that plan defines. The
+decisions are restated closely, not verbatim, in `docs/gates/gate-3-scope.md`, section "3G — Offline Key Vault
+secret-store adapter (S-1 to S-5, approved 2026-10-05)". No real vault, Azure resource, permission grant, identity,
+real secret, webhook provisioning or live run is authorized. An earlier unauthorized local draft of similar files was
+removed on the owner's instruction before this slice began; nothing of it was reused (verification evidence outside
+the repository, in the owner's `FULLY-EVIDENCE` folder: `FULLY-3G-cleanup-verification-20261005T145047Z`).
+
+On 2026-10-06 the owner clarified, in their words: "S-1 permits only the OFFLINE Key Vault adapter that does not hold,
+use, or obtain any real credential. D3G-1 remains fully in force and continues to prohibit every real-credential adapter
+and every real connection to Azure or Key Vault." This does not authorize live execution. The adapter holds, obtains
+and uses no real credential: its token source is a seam with no real implementation, and its tests use a synthetic
+token against a fake vault.
+
+### What was implemented
+
+- `tests/App.Harness.Monday/Secrets/KeyVaultSecretStore.cs`: an `IMondaySecretStore` over the documented Key Vault REST
+  interface. It takes an injected handler (sent through an `HttpMessageInvoker`), an injected access-token source, the
+  connector's existing `IMondayDelay` seam and a `TimeProvider`. It sends only get (`secrets/{name}/`, the latest
+  version), set (`PUT secrets/{name}`) and delete (`DELETE secrets/{name}`) with the pinned API version `2025-07-01`,
+  and only to an address that is a vault origin by meaning: HTTPS, the effective default port, one vault label under
+  `.vault.azure.net`, and no path, query, user information or fragment. Host-name case, an implied root path and an
+  explicit port 443 are the same origin, and every request is built from the parsed address.
+- Status mapping (S-4, S-5): a 200 with a well-formed body is success; only a 404 with a well-formed Key Vault error
+  body is not-found, and only for get and delete; everything else is unavailable. A delete's success means the name
+  left the active namespace and no longer answers an ordinary get; it does not mean the value was destroyed.
+- Attempts (S-5): at most three, retried only for 429, 500, 502, 503, 504, a connection failure or an attempt timeout;
+  five seconds per attempt; ten seconds per get and fifteen per set or delete; Retry-After honored up to two seconds
+  within the budget; 409 never retried; a retried set sends identical bytes; caller cancellation propagates; nothing is
+  cached; a timeout is never taken as proof that a write did not happen.
+- `KeyVaultSecretCodec.cs` (S-3): marked base64url without padding under one exact content type, decoded strictly; a
+  malformed marked value is unavailable and never read as plain text; plain text only under `wce-monday-client-secret`
+  and `wce-monday-signing-secret`; any other content type, the empty one included, is unavailable; values above 18,000
+  bytes are refused before any request.
+- `IKeyVaultAccessTokenSource.cs`: the token seam. No implementation reaches an identity provider.
+- Not wired: no harness host, entry point or standalone gate names the adapter; the default executable still has no
+  usable secret store. No change under `src/`, no package, no project reference.
+
+### Tests and guards
+
+- `HarnessKeyVaultSecretStoreTests` (84 test cases): exact round trip of byte sequences up to 18,000 bytes including
+  invalid UTF-8; plain text only under the two owner-placed names; unknown content types; malformed marked values;
+  refusal above the bound with no request; the status mapping row by row, including a 404 without a Key Vault error
+  body; retry classes, waits, Retry-After and budgets on a stepped clock; identical bytes on a retried set; 409 never
+  retried; ambiguous set and delete settled by a later attempt; unsettled ambiguity with the write present in the vault;
+  caller cancellation before, during and between attempts; no cache; request shapes; refused and equivalent vault
+  addresses; the public surface; two tenants' names in one shared vault, each reaching only its own entry; and sentinels
+  for the token, the value and the vault's answer text, with positive controls.
+- `HarnessKeyVaultConnectorFlowTests` (4 tests, the real local database as the runtime role): authorization, renewal
+  and disconnect; adoption of an abandoned renewal from the vault by a later instance; verifier cleanup with a refused
+  deletion that stays due; and the size of the token material the connector actually writes.
+- The fake vault (`HarnessKeyVaultFakes.cs`) keeps deleted names reserved: a get or delete of a deleted name is
+  not-found and a set under it is 409. The connector flows never rewrote a deleted name.
+- `HarnessBoundaryTests`: one new guard covering placement, non-wiring, the one invoker, the three methods, the path
+  and API version, the origin checks, the status and retry constants, the encoding constants, and no log, cache or
+  mutable static state. No existing assertion was changed, and the existing guards (no network handler, no sleep, no
+  `HttpClient` outside the two existing files) apply to the new files unchanged.
+
+Measured, not assumed: token material written by the connector with both tokens at the maximum length was 16,711 bytes
+when nothing needed escaping, inside the bound, and 57,671 bytes with a refresh token of characters the default JSON
+encoder escapes, above the bound. That authorization failed closed with a storage failure, the pair was revoked, and
+nothing was written to the vault.
+
+### Verification
+
+**First run (2026-10-05), against the shared local test database.** Clean build 0 warnings, 0 errors; both verifiers
+PASS; unit 949/949; architecture 44/44; security 168/168; integration 86/86, 102/102, 180/180 and 86/86; the harness
+namespace 163 of 168, with **5 failed**. The five are existing harness tests that need the outbox relay to reach their
+own tenant (`HarnessCompositionTests`, `HarnessLeakPreventionTests`, two `HarnessBackboneLoopTests`, and one
+`HarnessTenantIsolationTests` case). The existing `PersistenceFoundationTests` write outbox rows of the types
+`receipt.received` and `test.utc`, which the relay cannot relay and, by design, leaves pending; they accumulate in the
+shared local database with every local run. Exactly 100 tenants held such rows, the oldest dated 2026-03-04, and the
+relay's tenant discovery returns at most 100 tenants per pass, oldest first, so no newer tenant was reached. Those rows
+were not removed (D3G-4), and no test, guard or relay limit was changed.
+
+**Revalidation (2026-10-06), against a temporary isolated database.** The database-isolation mechanism is the one the
+repository already uses: the test fixture reads `POSTGRES_DB` from the environment ahead of `.env`
+(`tests/App.Integration.Tests/Database/LocalEnvironment.cs`) and migrates the database it is given from zero
+(`DatabaseFixture`), and the existing fresh-database tests create their own throwaway databases on the same local
+server. A new database, `wce_kv_evidence_20261006t022855`, was created on the local server and given only the
+database-scoped grants of the local init script `infra/local/postgres/init/10-runtime-role.sh` (lines 29 to 36: connect,
+schema usage, default privileges) for the existing runtime role. No `ALTER ROLE` was run; the runtime role stayed
+NOSUPERUSER, NOBYPASSRLS, NOCREATEROLE, NOCREATEDB, with no role membership, and its password and every shared object
+were left untouched. Every run below set `POSTGRES_DB` to it.
+
+- Clean non-incremental build: 0 warnings, 0 errors. `eng/verify-architecture.py` PASS; `eng/verify-local-env.py` PASS.
+- The five previously failing tests, first: **5 of 5 passed**.
+- Full local suite: **1,783 of 1,783 passed, 0 failed, 0 skipped**: unit 949, architecture 44 (the harness guards
+  included), security 168, integration 622 in five namespace batches (86, 102, 180, 86 and 168). The Service Bus emulator
+  tests ran; no environment-dependent exclusion applied. The tenant-isolation classes all passed in it
+  (`TenantIsolationTests` 8, `ConnectionPoolIsolationTests` 3, `TenantIsolationAcceptanceTests` 3,
+  `PersistenceSecurityTests` 11, `HarnessTenantIsolationTests` 8), as did the adapter class (84) and the flow class (4).
+- The code and test files of the slice are byte-identical to the copies packaged on 2026-10-05, before these runs; their
+  later file times come from the mutation driver restoring each file after its mutant.
+- Shared database `workcontinuity`: no row count or content changed. It was fingerprinted read-only before and after
+  the runs and again after the temporary database was dropped, covering exact row counts of every public table, pending
+  outbox rows (198 rows, 151 tenants), a content hash of the outbox, a content hash of the tenants, and the cumulative
+  insert and delete counters. Every value was identical. The one difference was the cumulative `tup_updated` statistics
+  counter (9,208 to 9,215). That counter also counts updates to system catalogs (for example `pg_statistic` and
+  `pg_class`), and the only client seen connected to the shared database during the runs was the local Docker Worker. A
+  five-minute quiet window afterwards, with no test running, showed no further change. The +7 is therefore not
+  attributed precisely; it is recorded here as unexplained. The temporary database was dropped by exact name afterwards;
+  its grants can no longer be re-queried, and the setup command with its output is their record. No shared row was
+  deleted. The owner accepted the +7 on 2026-10-06 as a non-blocking evidence note, without a claimed cause, and
+  accepted this hand-run temporary-database lifecycle as compliant with D3G-4 for this evidence run (owner decisions 2
+  and 3 below).
+- Six frozen documents unchanged; `git diff --check` clean; nothing under `src/` changed; nothing staged.
+- **CI: NOT RUN.**
+
+### Mutation evidence
+
+44 targeted mutants of the new adapter, codec and guard, harness files only, each restored and verified by hash, rerun
+in full on 2026-10-06 against the isolated database after a fresh baseline and control run: **43 CAUGHT, 1 SURVIVED**.
+
+The survivor, K05, removes the explicit canonical-encoding check from `KeyVaultSecretCodec.DecodeMarked`
+(`bytes.Length <= MaxValueBytes && string.Equals(Base64Url.EncodeToString(bytes), text, StringComparison.Ordinal)`
+becomes `bytes.Length <= MaxValueBytes`). The two can differ only on a text that the .NET base64url decoder accepts and
+that does not re-encode to itself. Base64url decodes in independent four-character quanta, and only a final partial
+quantum (two or three characters) has unused bits. An offline proof, run on .NET 10.0.11, the runtime the tests use,
+compared the real compiled codec with a faithful model of the mutant over every final quantum of two, three and four
+characters, alone and after a full prefix quantum, plus malformed and canonical controls: 17,309,696 inputs, of which
+400,896 are non-canonical. The decoder accepted none of the non-canonical texts, and the original and the mutant
+disagreed on **0** inputs. **K05: EQUIVALENT MUTANT — PROVEN**, accepted by the owner on 2026-10-06 for .NET 10.0.11
+(owner decision 1 below). The explicit canonical re-encoding check stays in the code as defense in depth. Every
+non-equivalent mutant is caught. On 2026-10-05, two mutants that first survived (an attempt timeout of six seconds, a
+write budget of sixteen) exposed a test that compared against the adapter's own constants; that test now asserts the
+approved values.
+
+### Reviews
+
+Rerun on 2026-10-06 against the revalidated tree, in two rounds; every round's hand-back is in the evidence package.
+
+- canonical-auditor: **CONFORMS WITH FOLLOW-UP**. Round one found no contradiction with a frozen rule or owner decision,
+  but four record defects: a wrong suite total (1,883 instead of 1,783), "in the owner's words" for the restated S-1 to
+  S-5, "not modified" stronger than the evidence, and this section's placeholder. All four are corrected. Follow-up for
+  the owner: confirm that the hand-run, database-scoped setup of the temporary database falls within the test
+  lifecycle of D3G-4. The owner confirmed it on 2026-10-06 (decision 3).
+- tenant-security-reviewer: **PASS WITH FOLLOW-UP**. Round one returned NEEDS INPUT, because the database setup and the
+  role attributes had been stated, not shown. Round two received the setup command with its output, the role query
+  and the per-class isolation results, and found no tenant-isolation breach. Follow-ups: rerun fresh-database RLS
+  evidence on the tree before a Gate verification; for a future live adapter, an owner decision on vault-side tenant
+  separation (today it rests on tenant-embedded secret names, and the client secret and Signing Secret are app-global
+  by design), together with the S-4 deferrals.
+- gate-verifier: **READY WITH FOLLOW-UP**, for owner review of this offline slice only, not a closure. Both earlier
+  gaps (the 5 failures and K05) are closed by the evidence. Round one asked how the test runs are tied to the tree; the
+  slice's 7 code and test files are byte-identical to the copies packaged before the runs. Follow-ups: CI NOT RUN
+  (behind commit and push); the owner accepts or rejects K05 as equivalent and the +7 note; the shared database's stale
+  rows remain the owner's decision. The owner settled the last three on 2026-10-06 (decisions 1, 2 and 4).
+
+`READY WITH FOLLOW-UP` means ready for owner review and checkpoint of this OFFLINE slice only. It does not mean Gate 3G
+closure, Gate 3 closure, live readiness, Azure approval or monday approval.
+
+### Owner decisions on the evidence (2026-10-06)
+
+Recorded in `docs/gates/gate-3-scope.md`, section "Offline adapter slice: owner decisions on the evidence". In short:
+
+1. K05 is accepted as an EQUIVALENT MUTANT for the current runtime, .NET 10.0.11. The defensive canonical re-encoding
+   check stays as defense in depth.
+2. The shared-database `tup_updated` +7 is accepted as a NON-BLOCKING EVIDENCE NOTE. No cause is claimed. The evidence
+   showed no shared application-row count change, no shared content-fingerprint change and no shared rows deleted.
+3. The hand-run temporary isolated database lifecycle is accepted as compliant with D3G-4 for this evidence run.
+4. The stale rows in the shared local database are not cleaned as part of Gate 3G and do not block this slice. Any
+   cleanup is a separate maintenance task that needs its own authorization.
+
+None of these authorizes live execution, a real credential, provider contact, shared-database cleanup, a commit or a
+push.
+
+### Not done and still open
+
+- No real handler, real token source, vault, identity, role, retention or permanent-removal policy (the future items of
+  S-4), and no live run. Stage B and C prerequisites of the plan stay open, as do U1 to U9 and every real-execution
+  blocker. D3G-1 stays fully in force.
+- The connector's worst-case token material (about 98.7 KB) stays outside the adapter's supported subset by owner
+  decision S-3.
+- The shared local test database still holds the stale unrelayable outbox rows. By owner decision 4 they are not
+  cleaned in Gate 3G and do not block this slice; any cleanup is a separately authorized maintenance task.
+- The slice has no schema change; the isolated database above was migrated from zero by the existing fixture, which
+  also stands as the slice's fresh-database evidence.
+
+Status: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT
+AUTHORIZED. Gate closure: NOT AUTHORIZED. CI for the current changes: NOT RUN. No real monday, Azure, Key Vault, OAuth or
+identity-provider contact. No real secret. Commit or push: none.**
