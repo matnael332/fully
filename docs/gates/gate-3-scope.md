@@ -12,7 +12,7 @@
 | 3E — API reconciliation and authoritative reread | **PASS** — approved by the product owner on 2026-10-02 |
 | 3F — Initial sync, watermark and buffered replay | **PASS** — approved by the product owner on 2026-10-03 |
 | 3B maintenance before 3G — PKCE verifier cleanup | **PASS** — approved by the product owner on 2026-10-03 |
-| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; Stage B decision B-1 APPROVED 2026-10-06 (authoring only), B-2 to B-19 PROPOSED — NOT APPROVED, no Stage B implementation started; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
+| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; Stage B decisions B-1 (authoring only), B-7, B-10 and B-11 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED, Stage B2 NOT STARTED, no Stage B implementation started; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -3379,6 +3379,38 @@ AUTHORING: code for a future real-credential adapter may be written offline, but
 storing, using, or executing with any real credential, and prohibits all real Azure, Key Vault, Entra, monday, OAuth,
 deployment, or live execution." Approving B-1 starts no Stage B slice: each slice still needs the B
 decisions it depends on and its own authorization, and **no Stage B implementation has started.**
+
+**Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate
+closure are NOT AUTHORIZED.
+
+## 3G — Stage B owner decisions B-7, B-10 and B-11 (approved 2026-10-06)
+
+On 2026-10-06, after B-1 was recorded and committed as `b0b7248` (CI run 37416642461 passed), the product owner
+explicitly approved the following decisions exactly as recommended in `docs/gates/gate-3G-live-enablement-plan.md`,
+section "Gate 3G — Stage B Live Readiness Preparation". The list restates the owner's text closely:
+
+- **B-7 — Runtime identity: APPROVED — 2026-10-06.** Use the certificate-credential service principal described in the
+  Stage B plan as the future harness runtime identity. The alternatives remain rejected or not selected: a dedicated
+  interactive Entra user; a client secret; a managed identity from the owner's machine. This approval does NOT create
+  the identity or the certificate.
+- **B-10 — Token source and transport approach: APPROVED — 2026-10-06.** Use a hand-written certificate assertion; no
+  new package; an explicit credential only, never an ambient credential chain; a pinned `SocketsHttpHandler` per
+  destination; enablement only through reviewed code, never arbitrary configuration. `Azure.Identity` /
+  `ClientCertificateCredential` is NOT approved.
+- **B-11 — Guard evolution: APPROVED — 2026-10-06.** An existing blanket guard may be replaced only by an
+  equal-or-stricter pinned allowance in exactly named files. No existing guard is simply deleted; the allowance must be
+  narrower than or equal to the old protection; targeted mutation evidence is required for the changed guard.
+
+State after these decisions:
+
+- Approved Stage B decisions: exactly **B-1** (authoring only), **B-7**, **B-10** and **B-11**.
+- **B-2 to B-6, B-8, B-9 and B-12 to B-19 remain PROPOSED — NOT APPROVED.**
+- The approval set that slice B2 (real transport and token source) depends on, B-1, B-7, B-10 and B-11, is now
+  complete. **Stage B2 is NOT STARTED and NOT AUTHORIZED**: these decisions authorize no slice, and B2 needs the
+  owner's own authorization. No Stage B implementation has started.
+- B-1's boundary and the owner's confirmation of it are unchanged: authoring only; D3G-1 still prohibits obtaining,
+  storing, using or executing with any real credential, and all real Azure, Key Vault, Entra, monday, OAuth,
+  deployment or live execution. S-1 to S-5, D3G-1 to D3G-8 and every earlier Gate 3 decision are unchanged.
 
 **Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate
 closure are NOT AUTHORIZED.

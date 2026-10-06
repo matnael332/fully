@@ -28,7 +28,9 @@ Azure behaves.
   Key Vault adapter slice (S-1 to S-5)", including a full local suite of 1,783 of 1,783 on an isolated database.
 - Stage B planning is complete and recorded in the last section of this file, "Gate 3G — Stage B Live Readiness
   Preparation". **B-1 is APPROVED — 2026-10-06** (authoring only; recorded in `docs/gates/gate-3-scope.md`, section
-  "3G — Stage B owner decision B-1 (approved 2026-10-06)"). **B-2 to B-19 remain PROPOSED — NOT APPROVED.** No Stage B
+  "3G — Stage B owner decision B-1 (approved 2026-10-06)"). **B-7, B-10 and B-11 are APPROVED — 2026-10-06** (recorded
+  in the same file, section "3G — Stage B owner decisions B-7, B-10 and B-11 (approved 2026-10-06)"). **B-2 to B-6, B-8,
+  B-9 and B-12 to B-19 remain PROPOSED — NOT APPROVED.** No Stage B
   implementation has started.
 - W-1 and W-2 remain PROPOSED, NOT APPROVED. U1 to U9 remain unresolved.
 
@@ -598,7 +600,8 @@ closure are NOT AUTHORIZED. This plan recommends; it decides nothing and starts 
 Planning recorded on 2026-10-06 at baseline `446fa5a1b1e77223d3eedfd89569c338dfda12eb` (CI run 37409608267 passed).
 This section is planning only. **At planning time every decision B-1 to B-19 was PROPOSED — NOT APPROVED**, and none
 may be read as an owner decision until the product owner approves it in their own words. Since then only B-1 has been
-approved (2026-10-06, see the update below); **B-2 to B-19 remain PROPOSED — NOT APPROVED.**
+approved (2026-10-06, see the update below), and then B-7, B-10 and B-11 (2026-10-06, see the second update below);
+**B-2 to B-6, B-8, B-9 and B-12 to B-19 remain PROPOSED — NOT APPROVED.**
 
 - **D3G-1 remains fully in force**, as clarified by the owner on 2026-10-06: it prohibits every real-credential adapter
   and every real connection to Azure or Key Vault.
@@ -607,6 +610,10 @@ approved (2026-10-06, see the update below); **B-2 to B-19 remain PROPOSED — N
 - *Update, 2026-10-06:* the product owner approved **B-1** (see its entry below). It permits **authoring only**. D3G-1
   continues to prohibit obtaining, storing or using a real credential, any Azure, Key Vault, Entra or identity-provider,
   or monday contact, OAuth execution, deployment and live execution. **B-2 to B-19 remain PROPOSED — NOT APPROVED.**
+- *Second update, 2026-10-06:* the product owner approved **B-7, B-10 and B-11** exactly as recommended (see their
+  entries below). The approval set that slice B2 depends on (B-1, B-7, B-10, B-11) is now complete. **B2 is NOT
+  STARTED and NOT AUTHORIZED**: these approvals do not authorize or start it. **B-2 to B-6, B-8, B-9 and B-12 to B-19
+  remain PROPOSED — NOT APPROVED.**
 - **No Stage B implementation has started.** No vault, identity, role, assignment, monday app, database, certificate,
   credential or live run exists or is authorized.
 - The planning session contacted no provider: no Azure, Key Vault, Entra, monday, OAuth or identity-provider call, and
@@ -770,7 +777,7 @@ inbound: no webhook, no Signing Secret, no public ingress. Those belong to Stage
 - Alternatives: a dedicated PostgreSQL container and a dedicated emulator instance; each changes `infra/local` and
   needs its own approval.
 
-### Proposed owner decisions B-1 to B-19 (B-1 APPROVED — 2026-10-06; B-2 to B-19 PROPOSED — NOT APPROVED)
+### Proposed owner decisions B-1 to B-19 (B-1, B-7, B-10, B-11 APPROVED — 2026-10-06; all others PROPOSED — NOT APPROVED)
 
 Each entry gives the question, the recommendation, the alternatives, the practical and security effect, why it is
 needed now, what approval would enable, what stays prohibited, and whether an existing decision changes. Each entry
@@ -847,7 +854,13 @@ records the proposal as written at planning time; an approval is recorded in the
   never a value.
 - Closes the remaining S-4 deferral and the orphan concern of Part 1 (scenarios 2, 6 and 7).
 
-**B-7 — Runtime identity. PROPOSED — NOT APPROVED.**
+**B-7 — Runtime identity. APPROVED — 2026-10-06.**
+
+- *Owner approval, 2026-10-06:* approved exactly as recommended. The certificate-credential service principal described
+  in this plan is the future harness runtime identity. The alternatives remain rejected or not selected: a dedicated
+  interactive Entra user, a client secret, and a managed identity from the owner's machine. This approval does not
+  create the identity or the certificate. Record: `docs/gates/gate-3-scope.md`, section "3G — Stage B owner decisions
+  B-7, B-10 and B-11 (approved 2026-10-06)".
 
 - Recommended: the certificate-credential service principal of area B.
 - Alternatives: a dedicated interactive Entra user; a client secret (rejected); a managed identity (not possible from
@@ -869,7 +882,13 @@ records the proposal as written at planning time; an approval is recorded in the
 - Alternative: the Microsoft Graph Bicep extension. Invariant 69 is fully met only with that alternative; the script
   route needs the owner's acceptance.
 
-**B-10 — Token source and transport approach. PROPOSED — NOT APPROVED.**
+**B-10 — Token source and transport approach. APPROVED — 2026-10-06.**
+
+- *Owner approval, 2026-10-06:* approved exactly as recommended: a hand-written certificate assertion; no new package;
+  an explicit credential only, never an ambient credential chain; a pinned `SocketsHttpHandler` per destination;
+  enablement only through reviewed code, never arbitrary configuration. `Azure.Identity` and
+  `ClientCertificateCredential` are not approved. Record: `docs/gates/gate-3-scope.md`, section "3G — Stage B owner
+  decisions B-7, B-10 and B-11 (approved 2026-10-06)".
 
 - Recommended: a hand-written certificate assertion with no package; an explicit credential only, never an ambient
   chain; a pinned `SocketsHttpHandler` per destination; enabled only by a reviewed code change (an approved database
@@ -877,7 +896,12 @@ records the proposal as written at planning time; an approval is recorded in the
 - Alternative: `Azure.Identity` `ClientCertificateCredential` in the harness, which is its own package decision under
   D3G-2 and the dependency rules.
 
-**B-11 — How guards evolve. PROPOSED — NOT APPROVED.**
+**B-11 — How guards evolve. APPROVED — 2026-10-06.**
+
+- *Owner approval, 2026-10-06:* approved exactly as recommended. An existing blanket guard may be replaced only by an
+  equal-or-stricter pinned allowance in exactly named files; no existing guard is simply deleted; the allowance must be
+  narrower than or equal to the old protection; targeted mutation evidence is required for the changed guard. Record:
+  `docs/gates/gate-3-scope.md`, section "3G — Stage B owner decisions B-7, B-10 and B-11 (approved 2026-10-06)".
 
 - Recommended: a blanket ban may be replaced only by an equal-or-stricter pinned allowance in exactly named files, with
   targeted mutation evidence. No existing guard is deleted.
@@ -939,7 +963,8 @@ records the proposal as written at planning time; an approval is recorded in the
   scope.
 - **B2 — Real transport and token source.** Under `tests/App.Harness.Monday/Live/`: the handler factory, destination
   guard and Entra certificate token source, tested only against fake inner handlers, with guards replaced under B-11
-  and mutation evidence. Offline. Approval: B-1, B-7, B-10, B-11. Stop if a package becomes necessary, a change under
+  and mutation evidence. Offline. Approval: B-1, B-7, B-10, B-11 (all four approved on 2026-10-06; B2 itself is NOT
+  STARTED and NOT AUTHORIZED). Stop if a package becomes necessary, a change under
   `src/` would be needed, or a guard would have to be weakened.
 - **B3 — Standalone database and transport preparation.** The membership test in the role check; a reviewed seed
   script; the procedure for fresh RLS and R3B-2 evidence. `HarnessStandaloneGate` stays empty. Offline code; provisioning
@@ -970,8 +995,11 @@ the standalone harness; browser authorization; any monday token, revoke or API c
 
 ### Provider unknowns and their sequencing
 
-1. **Before Stage B implementation:** B-1 (the D3G-1 supersession), B-7, B-10, B-11, B-12, B-13. The production
-   placement of S-2 stays undecided, which does not block the harness.
+1. **Before the Stage B code slices, per slice:** B-1 (the D3G-1 supersession), B-7, B-10 and B-11 are the owner
+   decisions required before Stage B2. B-12 and B-13 are required before Stage B4, not before Stage B2. (The other
+   slices' decisions are listed with each slice above.) Stage B2 remains NOT STARTED and NOT AUTHORIZED until the owner
+   explicitly authorizes the slice itself. The production placement of S-2 stays undecided, which does not block the
+   harness.
 2. **Before the outbound-only live run:** B-2 to B-6, B-8, B-9, B-14 to B-19; the S-4 deferrals (closed by B-3 to B-6);
    the five open questions of the offline report (closed by B-18, B-14, B-12, B-13 and B-14).
 3. **Only before Stage C webhook acceptance:** answers to U1, U2, U8 and U9; W-1 and W-2; an approved provisioning step;
@@ -1021,3 +1049,11 @@ implementation has started.**
 Status after the owner's decision of 2026-10-06: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance:
 NOT PROVEN. Real execution: NOT AUTHORIZED. Gate closure: NOT AUTHORIZED. B-1: APPROVED — 2026-10-06 (authoring only).
 B-2 to B-19: PROPOSED — NOT APPROVED. No Stage B implementation has started.**
+
+*Second update, 2026-10-06:* B-7, B-10 and B-11 are now APPROVED. With B-1, the approval set B2 depends on is complete.
+B2 is NOT STARTED and NOT AUTHORIZED; it needs the owner's own authorization of that slice.
+
+Status after the owner's second decision of 2026-10-06: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real
+acceptance: NOT PROVEN. Real execution: NOT AUTHORIZED. Gate closure: NOT AUTHORIZED. Approved: B-1 (authoring only),
+B-7, B-10, B-11 — 2026-10-06. B-2 to B-6, B-8, B-9 and B-12 to B-19: PROPOSED — NOT APPROVED. Stage B2: NOT STARTED.
+No Stage B implementation has started.**
