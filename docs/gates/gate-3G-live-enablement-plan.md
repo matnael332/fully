@@ -35,7 +35,7 @@ Azure behaves.
   are APPROVED — 2026-10-06** (same file, section "3G — Stage B owner decisions B-14 and B-15 (approved 2026-10-06)").
   **B-2 to B-6, B-8, B-9, B-12, B-13 and B-16 to B-19 remain PROPOSED — NOT APPROVED.**
 - Status update, 2026-10-06: **Stage B3** (standalone database and transport preparation) was authorized by the owner
-  for offline implementation only and is **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**; it is **NOT PASS**. Later the
+  for offline implementation only; it is now **PASS — OFFLINE SLICE COMPLETE** (see the fifth status update below). Later the
   same day the owner approved the B-14 seed clarification (the seed prepares only one fresh tenant and one fresh
   canonical user; the one fresh monday connection is created later by the product's Connect lifecycle in a separately
   approved run) and the owner-run tool structure (`eng/harness-standalone.ps1` with the two SQL payloads): see the B-14
@@ -53,8 +53,13 @@ Azure behaves.
   - *Fourth status update, 2026-10-06:* the owner approved a clarification, documentation only: temporary relations
     remain outside the Stage B3 runtime-role ownership check; the TEMPORARY privilege inherited through PUBLIC is
     accepted as a NON-BLOCKING FOLLOW-UP, and any future revocation of it is a separate privilege-model owner decision
-    outside Stage B3. Stage B3 is still **NOT PASS**; the next owner boundary is its checkpoint authorization. See the
-    ninth update at the end of this file.
+    outside Stage B3. Stage B3 was then still **NOT PASS**, and the next owner boundary was its checkpoint
+    authorization. See the ninth update at the end of this file.
+  - *Fifth status update, 2026-10-06:* **Stage B3: PASS — OFFLINE SLICE COMPLETE** (approved by the owner on 2026-10-06;
+    checkpoint `736db05`, CI run 37509953860 — SUCCESS: 1,945 tests, 1,932 passed, 0 failed, 13 expected Service Bus
+    emulator skips; the 14 owner-excluded role-bootstrap tests executed and passed in CI, none skipped). It is not Gate
+    3G PASS, and it authorizes no wiring, no real execution, no persistent standalone database, no seed run and no other
+    Stage B slice. See the tenth update at the end of this file.
 - Status update, 2026-10-06: **Stage B2** (real transport and token source) was authorized by the owner for offline
   implementation only.
   - **Stage B2: PASS — OFFLINE SLICE COMPLETE** (approved by the owner on 2026-10-06; checkpoint `d1468bb`, CI run
@@ -1054,7 +1059,10 @@ records the proposal as written at planning time; an approval is recorded in the
     the runtime role pass in CI on the exact checkpoint commit.
   - *Fourth update, 2026-10-06:* the owner's clarification keeps temporary relations outside the runtime-role ownership
     check, as implemented (the TEMPORARY privilege through PUBLIC a non-blocking follow-up; revoking it a separate owner
-    decision). No code changed; Stage B3 is not PASS, and its checkpoint authorization is the next owner boundary.
+    decision). No code changed; Stage B3 was then not PASS, and its checkpoint authorization was the next owner boundary.
+  - *Fifth update, 2026-10-06:* **Stage B3: PASS — OFFLINE SLICE COMPLETE** (approved by the owner; checkpoint `736db05`,
+    CI run 37509953860 SUCCESS, the 14 owner-excluded role-bootstrap tests executed and passed in CI). No further work
+    unless separately authorized; the persistent database and the seed run each stay a separate approval.
 - **B4 — Operator and TLS.** The honest operator key; the ephemeral certificate and its fingerprint; the standalone
   wiring of the certificate and the seams. Offline. Approval: B-12, B-13.
 - **B5 — Live-run preparation package.** A run book: preflight (effective permissions, privileges, empty session),
@@ -1244,12 +1252,30 @@ code or test and needs no validation or review rerun; the final evidence package
 `FULLY-3G-stage-B3-final-evidence-20261006T172600Z.zip` remains valid for the unchanged code and tests. It changes no B
 decision of this plan.
 
+Status after the ninth update (superseded below): **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real
+acceptance: NOT PROVEN. Real execution: NOT AUTHORIZED. Gate 3G closure: NOT AUTHORIZED. Approved: B-1 (authoring only),
+B-7, B-10, B-11, B-14 (as clarified on 2026-10-06), B-15 — 2026-10-06; every other B decision: PROPOSED — NOT APPROVED.
+Stage B2: PASS — OFFLINE SLICE COMPLETE (checkpoint `d1468bb`, CI run 37434239946 — SUCCESS). Four BEFORE-WIRING
+requirements open. Stage B3: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY; NOT PASS; the six owner review decisions and the
+temporary-relation clarification approved; the runtime-role hardening implemented and validated locally; ready for
+owner checkpoint review; next owner boundary: the Stage B3 checkpoint authorization; PASS only after the 14 tests that
+alter the runtime role pass in exact-commit CI; the persistent standalone database is not authorized and the seed has
+not been run. No live wiring; no real credential or provider behavior proven. No other Stage B slice authorized.**
+
+*Tenth update, 2026-10-06 (status only):* the owner authorized the Stage B3 checkpoint, which was committed as
+`736db05e912ca9e50c73205124ff8c6b2430d11d` (the 19 reviewed paths) and pushed; exact-commit CI run 37509953860
+succeeded (1,945 tests: 1,932 passed, 0 failed, 13 expected Service Bus emulator skips; the 14 owner-excluded
+role-bootstrap tests executed and passed in CI, none skipped). The owner then approved "Stage B3 — PASS, OFFLINE SLICE
+COMPLETE" (record: `docs/gates/gate-3-scope.md`, section "3G — Stage B3 owner PASS (2026-10-06)"): "This PASS applies
+only to Stage B3 offline preparation." The temporary-relation clarification remains in force. The PASS changes no B
+decision of this plan, authorizes no other Stage B slice, and creates no persistent standalone database: the database
+has not been created, the seed has not been run, and `HarnessStandaloneGate` stays empty unless separately authorized.
+
 Current status: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT
 AUTHORIZED. Gate 3G closure: NOT AUTHORIZED. Approved: B-1 (authoring only), B-7, B-10, B-11, B-14 (as clarified on
 2026-10-06), B-15 — 2026-10-06; every other B decision: PROPOSED — NOT APPROVED. Stage B2: PASS — OFFLINE SLICE COMPLETE
-(checkpoint `d1468bb`, CI run 37434239946 — SUCCESS). Four BEFORE-WIRING requirements open. Stage B3: IN PROGRESS —
-OFFLINE IMPLEMENTATION ONLY; NOT PASS; the six owner review decisions and the temporary-relation clarification approved;
-the runtime-role hardening implemented and validated locally; ready for owner checkpoint review; next owner boundary:
-the Stage B3 checkpoint authorization; PASS only after the 14 tests that alter the runtime role pass in exact-commit CI;
-the persistent standalone database is not authorized and the seed has not been run. No live wiring; no real credential
-or provider behavior proven. No other Stage B slice authorized.**
+(checkpoint `d1468bb`, CI run 37434239946 — SUCCESS). Four BEFORE-WIRING requirements open. Stage B3: PASS — OFFLINE
+SLICE COMPLETE (checkpoint `736db05`, CI run 37509953860 — SUCCESS); the temporary-relation clarification in force, with
+TEMPORARY via PUBLIC the approved non-blocking follow-up; the persistent standalone database not created and the seed
+not run. No live wiring; no real credential or provider behavior proven. No other Stage B slice authorized; next owner
+boundary: selecting and authorizing the next Stage B slice and the owner decisions it requires.**

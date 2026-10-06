@@ -1578,3 +1578,40 @@ tree and its evidence package, and a checkpoint commit and push only by separate
 after that checkpoint's exact-commit CI executes and passes the 14 tests, and only by the owner's decision. **Gate 3G:
 IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT AUTHORIZED. Gate 3G
 closure: NOT AUTHORIZED.**
+
+### Checkpoint, CI and owner PASS (2026-10-06)
+
+- The reviewed final tree, with the temporary-relation clarification, was committed as
+  `736db05e912ca9e50c73205124ff8c6b2430d11d` ("feat: checkpoint Gate 3G Stage B3 offline preparation", parent `3eb24d9`,
+  the 19 reviewed paths) and pushed, each by separate owner authorization. Its code, test and script bytes are those of
+  the final evidence package; its documents differ from the package only by the clarification.
+- **CI run 37509953860 — SUCCESS** on that exact commit (attempt 1): secret scan (no leaks); build, verify and test with
+  1,945 total (1,932 passed, 0 failed, 13 skipped: the expected Service Bus emulator tests in CI, namely the 10 skipped in
+  earlier runs and the 3 emulator tests of `HarnessTransportIsolationTests`); container images.
+- **The 14 tests of decision 6 executed and passed in CI, and none was skipped.** CI's test output names every skipped
+  and every failed test, and none of the 14 is named; the run's total equals the per-name listing of the tree, so none
+  was omitted; and 8 of the 14 left positive traces in the CI PostgreSQL service log: the statements they expect the
+  database to refuse, each written in no other test. The other 6 expect no refusal and so leave no such trace.
+- The product owner then explicitly approved **"Stage B3 — PASS, OFFLINE SLICE COMPLETE"** (2026-10-06): "This PASS
+  applies only to Stage B3 offline preparation." The temporary-relation clarification remains in force.
+
+The PASS does not mean any of the following:
+- Gate 3G PASS or Gate 3 PASS;
+- real acceptance proven;
+- real execution or live wiring authorized;
+- Azure, Entra, Key Vault or monday execution authorized;
+- the persistent standalone database created or authorized, or the seed run.
+
+Status:
+- **Stage B3: PASS — OFFLINE SLICE COMPLETE** (checkpoint `736db05e912ca9e50c73205124ff8c6b2430d11d`, CI run 37509953860
+  — SUCCESS). It needs no further work unless separately authorized.
+- The persistent standalone database has not been created; the seed has not been run; `HarnessStandaloneGate` is empty.
+- **The four Stage B2 BEFORE-WIRING requirements: OPEN.** The TEMPORARY privilege inherited through PUBLIC: the approved
+  NON-BLOCKING FOLLOW-UP. Multi-tenant acceptance for Gate 3G: OPEN.
+- **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Gate 3: IN PROGRESS. Real acceptance: NOT PROVEN. Real
+  execution: NOT AUTHORIZED. Gate 3G and Gate 3 closure: NOT AUTHORIZED.**
+- The approved B decisions remain B-1 (authoring only), B-7, B-10, B-11, B-14 (as clarified) and B-15; every other B
+  decision is PROPOSED — NOT APPROVED. No other Stage B slice is authorized; the next owner boundary is selecting and
+  authorizing the next Stage B slice and the owner decisions it requires.
+- No real credential or certificate was used; there was no Azure, Entra, Key Vault, monday or OAuth contact and no
+  deployment.

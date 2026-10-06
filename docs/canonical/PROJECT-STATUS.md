@@ -207,7 +207,7 @@ Gate passes. P0 is a planning prerequisite to Core Gate 3, not a technical depen
 planned and NOT STARTED.
 
 ### Gate 3 — monday Connector
-Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B PASS (approved 2026-09-30); 3C PASS (approved 2026-09-30); 3D PASS (approved 2026-10-01); 3E PASS (approved 2026-10-02); 3F PASS (approved 2026-10-03); 3B maintenance (PKCE verifier cleanup) PASS (approved 2026-10-03); 3G IN PROGRESS — OFFLINE IMPLEMENTATION ONLY (authorized 2026-10-05; offline harness and offline Key Vault adapter integrated at `446fa5a`, CI run 37409608267 PASS; Stage B planning complete and committed at `34e1705`, CI run 37414993310 PASS; B-1 (authoring only), B-7, B-10, B-11, B-14 and B-15 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED; Stage B3 AUTHORIZED 2026-10-06 and IN PROGRESS — OFFLINE IMPLEMENTATION ONLY, NOT PASS (B-14 seed clarification, owner-run tool structure, one temporary isolated validation database, the six owner review decisions and the temporary-relation clarification approved 2026-10-06; runtime-role hardening implemented; validated locally, uncommitted, ready for owner checkpoint review; next owner boundary: the Stage B3 checkpoint authorization; PASS requires the 14 tests that alter the runtime role to pass in exact-commit CI); Stage B2 PASS — OFFLINE SLICE COMPLETE (approved 2026-10-06; checkpoint `d1468bb`, CI run 37434239946 SUCCESS); four BEFORE-WIRING requirements open; no live wiring; real acceptance NOT PROVEN; real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED); later Gates not started**
+Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B PASS (approved 2026-09-30); 3C PASS (approved 2026-09-30); 3D PASS (approved 2026-10-01); 3E PASS (approved 2026-10-02); 3F PASS (approved 2026-10-03); 3B maintenance (PKCE verifier cleanup) PASS (approved 2026-10-03); 3G IN PROGRESS — OFFLINE IMPLEMENTATION ONLY (authorized 2026-10-05; offline harness and offline Key Vault adapter integrated at `446fa5a`, CI run 37409608267 PASS; Stage B planning complete and committed at `34e1705`, CI run 37414993310 PASS; B-1 (authoring only), B-7, B-10, B-11, B-14 and B-15 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED; Stage B3 PASS — OFFLINE SLICE COMPLETE (approved 2026-10-06; checkpoint `736db05`, CI run 37509953860 SUCCESS: 1,945 tests, 1,932 passed, 0 failed, 13 expected Service Bus emulator skips, the 14 owner-excluded role-bootstrap tests executed and passed in CI; B-14 seed clarification, owner-run tool structure, one temporary isolated validation database, the six owner review decisions and the temporary-relation clarification approved 2026-10-06; persistent standalone database NOT created; seed NOT RUN); Stage B2 PASS — OFFLINE SLICE COMPLETE (approved 2026-10-06; checkpoint `d1468bb`, CI run 37434239946 SUCCESS); four BEFORE-WIRING requirements open; no live wiring; real acceptance NOT PROVEN; real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED); later Gates not started**
 
 Gate 3 builds real monday authentication, webhooks, source mapping, API reconciliation and initial sync on top of
 the Gate 2 Event Backbone, reading and ingesting only. Scope, the verified monday platform baseline, sub-gates 3A to
@@ -313,8 +313,9 @@ B-15").
   run and no provider execution.
 
 Exactly six B decisions are approved (B-1, B-7, B-10, B-11, B-14, B-15); **B-2 to B-6, B-8, B-9, B-12, B-13 and B-16 to
-B-19 remain PROPOSED — NOT APPROVED**. **Stage B3** (standalone database and transport preparation) is **AUTHORIZED —
-2026-10-06** and **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**; it is **NOT PASS**.
+B-19 remain PROPOSED — NOT APPROVED**. **Stage B3** (standalone database and transport preparation) was **AUTHORIZED —
+2026-10-06** for offline implementation only and is now **PASS — OFFLINE SLICE COMPLETE** (approved by the owner on
+2026-10-06; see the last item below).
 - Its offline scope is limited to the recursive role-membership check, a reviewed seed script, the procedure for fresh
   RLS and R3B-2 evidence, and the shared-emulator isolation checks and procedure.
 - `HarnessStandaloneGate` stays empty.
@@ -349,7 +350,19 @@ B-19 remain PROPOSED — NOT APPROVED**. **Stage B3** (standalone database and t
   Stage B3 (`docs/gates/gate-3-scope.md`, section "3G — Stage B3 owner clarification: temporary relations (approved
   2026-10-06)"). Documentation only: no code or test changed and no validation or review was rerun; the final evidence
   package `FULLY-3G-stage-B3-final-evidence-20261006T172600Z.zip` remains valid for the unchanged code and tests.
-  Stage B3 is still **NOT PASS**, and the next owner boundary is its checkpoint authorization.
+  Stage B3 was then still **NOT PASS**, and the next owner boundary was its checkpoint authorization.
+- *PASS, 2026-10-06:* the owner authorized the checkpoint, which was committed as
+  `736db05e912ca9e50c73205124ff8c6b2430d11d` (the 19 reviewed paths) and pushed, each by separate authorization. **CI
+  run 37509953860 — SUCCESS** on that exact commit (attempt 1, all three jobs): 1,945 total, 1,932 passed, 0 failed, 13
+  skipped (the expected Service Bus emulator tests in CI); the 14 owner-excluded role-bootstrap tests executed and
+  passed in CI, and none was skipped. The owner then approved **"Stage B3 — PASS, OFFLINE SLICE COMPLETE"**
+  (2026-10-06), for Stage B3 offline preparation only (`docs/gates/gate-3-scope.md`, section "3G — Stage B3 owner PASS
+  (2026-10-06)"). **Stage B3: PASS — OFFLINE SLICE COMPLETE**; it needs no further work unless separately authorized.
+  The PASS is not Gate 3G or Gate 3 PASS, and it authorizes no real execution, no live wiring, no persistent standalone
+  database and no seed run: the persistent database has not been created, the seed has not been run, and
+  `HarnessStandaloneGate` stays empty. The temporary-relation clarification remains in force, with the TEMPORARY
+  privilege inherited through PUBLIC as the approved non-blocking follow-up; the four BEFORE-WIRING requirements stay
+  open.
 
 No other Stage B slice is authorized or started.
 
@@ -523,18 +536,18 @@ progress: 3A to 3F are PASS (3F, initial sync, watermark and buffered replay, ap
 offline harness and the offline Key Vault adapter are integrated at `446fa5a` (CI run 37409608267 PASS), and the Stage
 B planning is committed at `34e1705` (CI run 37414993310 PASS) and the B-1 record at `b0b7248` (CI run 37416642461
 PASS), the B2 decision set at `56f61a0` (CI run 37419000306 PASS), the Stage B2 checkpoint at `d1468bb` and its PASS
-record at `2aa9575` (CI run 37437521793 PASS). B-1 (authoring only), B-7, B-10, B-11, B-14 and B-15 are APPROVED —
-2026-10-06; every other B decision is PROPOSED — NOT APPROVED. **Stage B2 is PASS — OFFLINE SLICE COMPLETE**
-(checkpoint `d1468bb`, CI run 37434239946 SUCCESS) and needs no further work unless separately authorized; the four
-BEFORE-WIRING requirements stay open. **The next owner boundary is the Stage B3 checkpoint authorization**; the
-owner's selection and authorization of the next Stage B slice and the owner decisions it requires is separate. Stage B3
-is AUTHORIZED (2026-10-06) and IN PROGRESS — OFFLINE IMPLEMENTATION ONLY, not PASS, with the B-14 seed clarification,
-the owner-run tool structure, one temporary isolated validation database, the six owner review decisions and the
-temporary-relation clarification approved (2026-10-06); its offline implementation, with the runtime-role hardening,
-is validated locally and awaits the owner's checkpoint review and the separate authorization of its checkpoint commit
-and push; it may PASS only after the exact-commit CI of that checkpoint executes and passes the 14 tests that alter the
-runtime role; creating the persistent standalone database stays a separate owner approval; no other Stage B slice is
-currently authorized.
+record at `2aa9575` (CI run 37437521793 PASS), the Stage B3 decision set at `3eb24d9` (CI run 37442070826 SUCCESS) and
+the Stage B3 checkpoint at `736db05` (CI run 37509953860 SUCCESS). B-1 (authoring only), B-7, B-10, B-11, B-14 and B-15
+are APPROVED — 2026-10-06; every other B decision is PROPOSED — NOT APPROVED. **Stage B2 is PASS — OFFLINE SLICE
+COMPLETE** (checkpoint `d1468bb`, CI run 37434239946 SUCCESS) and needs no further work unless separately authorized;
+the four BEFORE-WIRING requirements stay open. **Stage B3 is PASS — OFFLINE SLICE COMPLETE** (approved by the owner on
+2026-10-06; checkpoint `736db05`, CI run 37509953860 SUCCESS: 1,945 tests, 1,932 passed, 0 failed, 13 expected Service
+Bus emulator skips; the 14 owner-excluded role-bootstrap tests executed and passed in CI, none skipped) and needs no
+further work unless separately authorized; the temporary-relation clarification stays in force, with the TEMPORARY
+privilege inherited through PUBLIC as the approved non-blocking follow-up; the persistent standalone database has not
+been created and the seed has not been run, and creating that database stays a separate owner approval. **The next
+owner boundary is the owner's selection and authorization of the next Stage B slice and the owner decisions it
+requires**; no other Stage B slice is currently authorized.
 Do
 not run anything against real monday, do not close Gate 3, and do not start any later Gate or
 any Premium Gate P1 to P11, without the product owner's explicit authorization, do not start the bootstrap or
