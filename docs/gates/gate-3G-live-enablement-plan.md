@@ -27,7 +27,9 @@ Azure behaves.
   (`tests/App.Harness.Monday/Secrets/`); its evidence is in `docs/gates/gate-3G-offline-report.md`, "Addendum — offline
   Key Vault adapter slice (S-1 to S-5)", including a full local suite of 1,783 of 1,783 on an isolated database.
 - Stage B planning is complete and recorded in the last section of this file, "Gate 3G — Stage B Live Readiness
-  Preparation". Its decisions B-1 to B-19 are **PROPOSED — NOT APPROVED**. No Stage B implementation has started.
+  Preparation". **B-1 is APPROVED — 2026-10-06** (authoring only; recorded in `docs/gates/gate-3-scope.md`, section
+  "3G — Stage B owner decision B-1 (approved 2026-10-06)"). **B-2 to B-19 remain PROPOSED — NOT APPROVED.** No Stage B
+  implementation has started.
 - W-1 and W-2 remain PROPOSED, NOT APPROVED. U1 to U9 remain unresolved.
 
 ## Status and baseline (as of 2026-10-05, historical)
@@ -594,13 +596,17 @@ closure are NOT AUTHORIZED. This plan recommends; it decides nothing and starts 
 ## Gate 3G — Stage B Live Readiness Preparation
 
 Planning recorded on 2026-10-06 at baseline `446fa5a1b1e77223d3eedfd89569c338dfda12eb` (CI run 37409608267 passed).
-This section is planning only. **Every decision B-1 to B-19 is PROPOSED — NOT APPROVED.** None is an owner decision,
-and none may be read as one until the product owner approves it in their own words.
+This section is planning only. **At planning time every decision B-1 to B-19 was PROPOSED — NOT APPROVED**, and none
+may be read as an owner decision until the product owner approves it in their own words. Since then only B-1 has been
+approved (2026-10-06, see the update below); **B-2 to B-19 remain PROPOSED — NOT APPROVED.**
 
 - **D3G-1 remains fully in force**, as clarified by the owner on 2026-10-06: it prohibits every real-credential adapter
   and every real connection to Azure or Key Vault.
 - B-1 would require a future, explicit owner decision **before any code capable of using a real credential is
   authored**. Without it, no such code is written.
+- *Update, 2026-10-06:* the product owner approved **B-1** (see its entry below). It permits **authoring only**. D3G-1
+  continues to prohibit obtaining, storing or using a real credential, any Azure, Key Vault, Entra or identity-provider,
+  or monday contact, OAuth execution, deployment and live execution. **B-2 to B-19 remain PROPOSED — NOT APPROVED.**
 - **No Stage B implementation has started.** No vault, identity, role, assignment, monday app, database, certificate,
   credential or live run exists or is authorized.
 - The planning session contacted no provider: no Azure, Key Vault, Entra, monday, OAuth or identity-provider call, and
@@ -764,12 +770,24 @@ inbound: no webhook, no Signing Secret, no public ingress. Those belong to Stage
 - Alternatives: a dedicated PostgreSQL container and a dedicated emulator instance; each changes `infra/local` and
   needs its own approval.
 
-### Proposed owner decisions B-1 to B-19 (each PROPOSED — NOT APPROVED)
+### Proposed owner decisions B-1 to B-19 (B-1 APPROVED — 2026-10-06; B-2 to B-19 PROPOSED — NOT APPROVED)
 
 Each entry gives the question, the recommendation, the alternatives, the practical and security effect, why it is
-needed now, what approval would enable, what stays prohibited, and whether an existing decision changes.
+needed now, what approval would enable, what stays prohibited, and whether an existing decision changes. Each entry
+records the proposal as written at planning time; an approval is recorded in the entry's heading and in
+`docs/gates/gate-3-scope.md`.
 
-**B-1 — Stage B preparation boundary. PROPOSED — NOT APPROVED.**
+**B-1 — Stage B preparation boundary. APPROVED — 2026-10-06.**
+
+- *Owner approval, 2026-10-06:* the product owner approved B-1 exactly as proposed below. Approved meaning, in the
+  owner's words: "Offline Stage B slices may author code and IaC that are capable of using a real credential in the
+  future, including the real handler and token source, provided that none of that code is executed against a real
+  endpoint or with a real credential. This is a narrow, explicit supersession of D3G-1 for AUTHORING ONLY." D3G-1
+  continues to prohibit obtaining, storing or using a real credential; Azure, Key Vault and Entra or identity-provider
+  contact; monday contact; OAuth execution; deployment; and live execution. No other B decision is approved. The
+  authoritative record is `docs/gates/gate-3-scope.md`, section "3G — Stage B owner decision B-1 (approved
+  2026-10-06)". Approving B-1 starts no slice: B1 and B2 each still need their other decisions and their own
+  authorization.
 
 - Question: may offline Stage B slices author code capable of using a real credential (the real handler and token
   source) and IaC, without executing any of it?
@@ -992,6 +1010,14 @@ tenant-security-reviewer and gate-verifier agents were not run on this plan.
 **B-1**, the bounded Stage B carve-out from D3G-1. B1 and B2 depend on B-1. If it is approved, B-7, B-10 and B-11
 together would allow B2 to start. Without it, only B4 and the code part of B3 can begin.
 
+*Update, 2026-10-06:* B-1 is now APPROVED (authoring only). B1 and B2 still need their other decisions (B1: B-2 to
+B-4, B-8, B-9; B2: B-7, B-10, B-11), all PROPOSED — NOT APPROVED, and each slice still needs its own authorization.
+B3 (B-14, B-15) and B4 (B-12, B-13) likewise wait for their decisions.
+
 Status at the end of Stage B planning: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT
 PROVEN. Real execution: NOT AUTHORIZED. Gate closure: NOT AUTHORIZED. B-1 to B-19: PROPOSED — NOT APPROVED. No Stage B
 implementation has started.**
+
+Status after the owner's decision of 2026-10-06: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance:
+NOT PROVEN. Real execution: NOT AUTHORIZED. Gate closure: NOT AUTHORIZED. B-1: APPROVED — 2026-10-06 (authoring only).
+B-2 to B-19: PROPOSED — NOT APPROVED. No Stage B implementation has started.**

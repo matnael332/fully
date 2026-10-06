@@ -12,7 +12,7 @@
 | 3E — API reconciliation and authoritative reread | **PASS** — approved by the product owner on 2026-10-02 |
 | 3F — Initial sync, watermark and buffered replay | **PASS** — approved by the product owner on 2026-10-03 |
 | 3B maintenance before 3G — PKCE verifier cleanup | **PASS** — approved by the product owner on 2026-10-03 |
-| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
+| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; Stage B decision B-1 APPROVED 2026-10-06 (authoring only), B-2 to B-19 PROPOSED — NOT APPROVED, no Stage B implementation started; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -3351,3 +3351,34 @@ execution, no real credential, no Azure, Key Vault or monday contact, no shared-
 
 **Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real execution and Gate 3 closure are NOT AUTHORIZED; real
 acceptance is NOT PROVEN.
+
+## 3G — Stage B owner decision B-1 (approved 2026-10-06)
+
+Stage B (live readiness preparation) was planned on 2026-10-06 in `docs/gates/gate-3G-live-enablement-plan.md`, section
+"Gate 3G — Stage B Live Readiness Preparation", committed as `34e1705` (CI run 37414993310 passed). That plan proposes
+decisions B-1 to B-19.
+
+**B-1 — Stage B preparation boundary: APPROVED — 2026-10-06.** The product owner approved B-1 exactly as proposed in
+that plan. The quoted sentences are the owner's words; the list restates the rest of the decision closely:
+
+- Approved meaning: "Offline Stage B slices may author code and IaC that are capable of using a real credential in the
+  future, including the real handler and token source, provided that none of that code is executed against a real
+  endpoint or with a real credential."
+- "This is a narrow, explicit supersession of D3G-1 for AUTHORING ONLY."
+- D3G-1 continues to prohibit: obtaining a real credential; storing a real credential; using a real credential; Azure
+  contact; Key Vault contact; Entra or identity-provider contact; monday contact; OAuth execution; deployment; and live
+  execution.
+- "No other B decision is approved." **B-2 to B-19 remain PROPOSED — NOT APPROVED.**
+
+Consequences recorded here, not added to the decision: authoring capability is allowed; real execution is not. B-1
+supersedes D3G-1 only for authoring, and only as stated. S-1 to S-5 and every earlier Gate 3 decision are unchanged.
+The text of the owner's clarification of S-1 and D3G-1 of 2026-10-06 is not edited.
+
+**Owner confirmation (2026-10-06), in the owner's words:** "B-1 supersedes the earlier S-1 clarification only for
+AUTHORING: code for a future real-credential adapter may be written offline, but D3G-1 still prohibits obtaining,
+storing, using, or executing with any real credential, and prohibits all real Azure, Key Vault, Entra, monday, OAuth,
+deployment, or live execution." Approving B-1 starts no Stage B slice: each slice still needs the B
+decisions it depends on and its own authorization, and **no Stage B implementation has started.**
+
+**Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate
+closure are NOT AUTHORIZED.
