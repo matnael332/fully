@@ -26,6 +26,10 @@ public sealed class HarnessBoundaryTests
     private const string SecretsDirectory = HarnessDirectory + "Secrets/";
     private const string VaultStoreFile = SecretsDirectory + "KeyVaultSecretStore.cs";
     private const string VaultCodecFile = SecretsDirectory + "KeyVaultSecretCodec.cs";
+    private const string LiveDirectory = HarnessDirectory + "Live/";
+    private const string LiveTransportFile = LiveDirectory + "LiveTransport.cs";
+    private const string TokenSourceFile = LiveDirectory + "EntraCertificateTokenSource.cs";
+    private const string AssertionFile = LiveDirectory + "EntraClientAssertion.cs";
 
     // The raw Snapshot tables by name, their entity sets and their records, exactly as the production guard names them.
     private static readonly Regex RawSnapshot = new(
@@ -106,9 +110,14 @@ public sealed class HarnessBoundaryTests
     {
         // No network handler, client factory, socket, resolver or browser launch is named anywhere in the harness.
         AssertNamedNowhere(
-            "SocketsHttpHandler", "HttpClientHandler", "WinHttpHandler", "MondayHttp", "IHttpClientFactory", "AddHttpClient",
+            "HttpClientHandler", "WinHttpHandler", "MondayHttp", "IHttpClientFactory", "AddHttpClient",
             "HttpWebRequest", "WebRequest.Create", "TcpClient", "ClientWebSocket", "Dns.", "monday.com", "Process.Start",
             "ProcessStartInfo", "UseShellExecute", "DefaultProxy", "new HttpClient()", "new HttpClient {");
+
+        // B-11 (2026-10-06): the one network handler the harness may name is Stage B2's pinned one, in exactly one file,
+        // built in exactly one place; everywhere else it stays forbidden. Its settings are pinned by the Stage B2 guard.
+        Assert.Equal([LiveTransportFile], Holders(new Regex(@"\bSocketsHttpHandler\b")));
+        Assert.Equal(1, Regex.Count(Read(LiveTransportFile), @"new\s+SocketsHttpHandler\b"));
 
         // The one place a client is built: on the guarded path, never on a handler of the platform's choosing.
         Assert.Equal([TransportFile], Holders(new Regex(@"new\s+HttpClient\s*\(")));
@@ -296,8 +305,15 @@ public sealed class HarnessBoundaryTests
     public void Only_the_verifier_cleanup_is_scheduled_at_five_minutes_by_a_constant_and_everything_else_is_an_operator_action()
     {
         // The interval: one constant, in one place, read from nothing.
-        Assert.Equal([CleanupFile], Holders(new Regex(@"TimeSpan\.FromMinutes\(5\)")));
+        // B-11 (2026-10-06): five minutes otherwise appears only as two pinned Stage B2 constants, the assertion's lifetime
+        // and the token refresh margin, once each; neither schedules anything.
+        Assert.Equal([CleanupFile, TokenSourceFile, AssertionFile], Holders(new Regex(@"TimeSpan\.FromMinutes\(5\)")));
+        Assert.Equal(1, Regex.Count(Read(CleanupFile), @"TimeSpan\.FromMinutes\(5\)"));
         Assert.Contains("public static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);", Read(CleanupFile), StringComparison.Ordinal);
+        Assert.Equal(1, Regex.Count(Read(AssertionFile), @"TimeSpan\.FromMinutes\(5\)"));
+        Assert.Contains("internal static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);", Read(AssertionFile), StringComparison.Ordinal);
+        Assert.Equal(1, Regex.Count(Read(TokenSourceFile), @"TimeSpan\.FromMinutes\(5\)"));
+        Assert.Contains("public static readonly TimeSpan RefreshMargin = TimeSpan.FromMinutes(5);", Read(TokenSourceFile), StringComparison.Ordinal);
         Assert.Contains("new PeriodicTimer(Interval, _time)", Read(CleanupFile), StringComparison.Ordinal);
         foreach (var source in new[] { "IConfiguration", "HarnessOptions", "HarnessSeams", "configuration" })
         {
@@ -343,24 +359,41 @@ public sealed class HarnessBoundaryTests
         Assert.Equal(
             [SecretsDirectory + "IKeyVaultAccessTokenSource.cs", VaultCodecFile, VaultStoreFile],
             HarnessSources().Where(path => path.StartsWith(SecretsDirectory, StringComparison.Ordinal)));
-        Assert.DoesNotContain(
-            HarnessSources(),
-            path => !path.StartsWith(SecretsDirectory, StringComparison.Ordinal) && Read(path).Contains("KeyVault", StringComparison.Ordinal));
+        // B-11 (2026-10-06): outside the adapter's own directory, only the two named Stage B2 files may name Key Vault (the
+        // token source implements the adapter's token seam; the vault destination guard checks the adapter's requests).
+        Assert.Equal(
+            [TokenSourceFile, LiveTransportFile],
+            HarnessSources().Where(path => !path.StartsWith(SecretsDirectory, StringComparison.Ordinal) && Read(path).Contains("KeyVault", StringComparison.Ordinal)));
         Assert.Empty(Holders(new Regex(@"new\s+KeyVaultSecretStore\s*\(")));
 
         // Transport: one invoker over the handler it is given; it builds no handler and no client of its own.
+        // B-11 (2026-10-06): the Stage B2 token source is the only other invoker, built the same way over its given handler.
         var store = Read(VaultStoreFile);
-        Assert.Equal([VaultStoreFile], Holders(new Regex(@"\bHttpMessageInvoker\b")));
-        Assert.Equal(1, Regex.Count(store, @"new HttpMessageInvoker\("));
-        Assert.Contains("new HttpMessageInvoker(_transport, disposeHandler: false)", store, StringComparison.Ordinal);
-        Assert.Empty(Holders(new Regex(@"new\s+\w*Handler\s*\(")));
+        Assert.Equal([TokenSourceFile, VaultStoreFile], Holders(new Regex(@"\bHttpMessageInvoker\b")));
+        foreach (var invoking in new[] { VaultStoreFile, TokenSourceFile })
+        {
+            Assert.Equal(1, Regex.Count(Read(invoking), @"new HttpMessageInvoker\("));
+            Assert.Contains("new HttpMessageInvoker(_transport, disposeHandler: false)", Read(invoking), StringComparison.Ordinal);
+        }
+
+        // B-11 (2026-10-06): no handler is constructed anywhere, in either constructor form, except the one pinned network
+        // handler of Stage B2, once, in its one file.
+        Assert.Equal([LiveTransportFile], Holders(new Regex(@"new\s+\w*Handler\b")));
+        Assert.Equal(1, Regex.Count(Read(LiveTransportFile), @"new\s+\w*Handler\b"));
 
         // Requests: get, set and delete, one place each, to one pinned path shape on the configured vault.
-        Assert.Equal([VaultStoreFile], Holders(new Regex(@"HttpMethod\.")));
+        // B-11 (2026-10-06): an HTTP method is otherwise named only by the Stage B2 token source (its one POST) and the
+        // Stage B2 destination guards (the methods each admits); the adapter's own set is unchanged.
+        Assert.Equal([TokenSourceFile, LiveTransportFile, VaultStoreFile], Holders(new Regex(@"HttpMethod\.")));
         Assert.Equal(["Delete", "Get", "Put"], Regex.Matches(store, @"HttpMethod\.(\w+)").Select(match => match.Groups[1].Value).Order(StringComparer.Ordinal));
+        Assert.Equal(["Post"], Regex.Matches(Read(TokenSourceFile), @"HttpMethod\.(\w+)").Select(match => match.Groups[1].Value));
+        Assert.Equal(
+            ["Delete", "Get", "Post", "Post", "Put"],
+            Regex.Matches(Read(LiveTransportFile), @"HttpMethod\.(\w+)").Select(match => match.Groups[1].Value).Order(StringComparer.Ordinal));
+        Assert.Equal([TokenSourceFile, LiveTransportFile], Holders(new Regex(@"HttpMethod\.Post\b")));
         AssertNamedNowhere(
             "deletedsecrets", "/recover", "/backup", "/restore", "purge", "Purge", "maxresults", "/versions", "outContentType",
-            "HttpMethod.Patch", "HttpMethod.Post", "HttpMethod.Head");
+            "HttpMethod.Patch", "HttpMethod.Head");
         Assert.Contains("public const string ApiVersion = \"2025-07-01\";", store, StringComparison.Ordinal);
         Assert.Equal(1, Regex.Count(store, @"""\?api-version="" \+ ApiVersion"));
         Assert.Equal(1, Regex.Count(store, @"new Uri\("));
@@ -412,6 +445,113 @@ public sealed class HarnessBoundaryTests
             // A static field is read-only or a constant: a mutable static field is the only place a value could outlive a call.
             Assert.DoesNotMatch(new Regex(@"\bstatic\s+(?!readonly\b)[\w<>\[\]?,]+\s+\w+\s*[=;]"), Read(path));
         }
+    }
+
+    [Fact]
+    public void Stage_b2_transport_and_token_source_are_pinned_explicit_and_unwired()
+    {
+        // Owner decisions B-1, B-7, B-10 and B-11 (2026-10-06). Placement: exactly three files under Live/.
+        Assert.Equal(
+            [TokenSourceFile, AssertionFile, LiveTransportFile],
+            HarnessSources().Where(path => path.StartsWith(LiveDirectory, StringComparison.Ordinal)));
+
+        // Not wired: nothing outside Live/ names any Stage B2 type or namespace, so no host, entry point, option, gate or
+        // console can reach it; nothing anywhere constructs the token source or asks for a live transport.
+        var stageB2 = new Regex(
+            @"Harness\.Monday\.Live\b|\bLiveTransport\b|\bEntraCertificateTokenSource\b|\bEntraClientAssertion\b|\bEntraTokenDestination\b|\bKeyVaultDestination\b|\bMondayDestination\b|\bDestinationGuard\b",
+            RegexOptions.CultureInvariant);
+        Assert.DoesNotContain(HarnessSources(), path => !path.StartsWith(LiveDirectory, StringComparison.Ordinal) && stageB2.IsMatch(Read(path)));
+        Assert.Empty(Holders(new Regex(@"new\s+EntraCertificateTokenSource\s*\(")));
+        Assert.Empty(Holders(new Regex(@"LiveTransport\.For\w+\(")));
+        Assert.Contains("private static readonly string[] ApprovedDatabases = [];", Read(OptionsFile), StringComparison.Ordinal);
+        Assert.Contains("new HarnessSeams { RunBackboneLoops = true }", Read(ProgramFile), StringComparison.Ordinal);
+
+        // No ambient or alternative credential anywhere in the harness: only the explicit certificate credential.
+        AssertNamedNowhere(
+            "DefaultAzureCredential", "Azure.Identity", "Azure.Core", "TokenCredential", "ClientCertificateCredential", "ClientSecretCredential",
+            "ManagedIdentity", "AzureCliCredential", "AzurePowerShell", "AzureDeveloperCli", "EnvironmentCredential", "VisualStudioCredential",
+            "InteractiveBrowser", "DeviceCode", "WorkloadIdentity", "Microsoft.Identity", "Msal", "ConfidentialClientApplication",
+            "PublicClientApplication", "client_secret", "UseDefaultCredentials", "DefaultCredentials", "CredentialCache", "AZURE_",
+            "IDENTITY_ENDPOINT", "MSI_ENDPOINT", "169.254.169.254");
+
+        // Nothing in Live/ reads configuration, the environment or the machine's certificate stores, or logs, caches or holds
+        // mutable static state.
+        foreach (var path in new[] { TokenSourceFile, AssertionFile, LiveTransportFile })
+        {
+            var text = Read(path);
+            Assert.DoesNotMatch(new Regex(@"IConfiguration|configuration\[|GetSection\(|HarnessOptions|HarnessSeams|Environment\.|X509Store|X509CertificateLoader|\.pfx|\.pem"), text);
+            Assert.DoesNotMatch(new Regex(@"\bILogger\b|\bConsole\.|\bDebug\.|\bTrace\.|Dictionary|MemoryCache|Lazy<|HashSet|File\.|Directory\."), text);
+            Assert.DoesNotMatch(new Regex(@"\bstatic\s+(?!readonly\b)[\w<>\[\]?,]+\s+\w+\s*[=;]"), text);
+        }
+
+        // The pinned handler: exactly these settings, no certificate-validation override and no connection hook.
+        var transport = Read(LiveTransportFile);
+        foreach (var setting in new[]
+                 {
+                     "AllowAutoRedirect = false,", "UseCookies = false,", "UseProxy = false,", "Proxy = null,", "Credentials = null,",
+                     "PreAuthenticate = false,", "ConnectTimeout = ConnectTimeout,", "AutomaticDecompression = DecompressionMethods.None,",
+                     "MaxResponseHeadersLength = MaxResponseHeadersKilobytes,", "ActivityHeadersPropagator = null,",
+                     "public static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);",
+                 })
+        {
+            Assert.Equal(1, Regex.Count(transport, Regex.Escape(setting)));
+        }
+
+        AssertNamedNowhere(
+            "ServerCertificateCustomValidationCallback", "RemoteCertificateValidationCallback", "DangerousAcceptAnyServerCertificateValidator",
+            "SslOptions", "ConnectCallback", "PlaintextStreamFilter", "CheckCertificateRevocationList", "SslProtocols", "AllowAutoRedirect = true",
+            "UseCookies = true", "UseProxy = true", "PreAuthenticate = true", "CookieContainer", "WebProxy");
+
+        // Each destination has its own guard over its own pinned handler, and every guard admits by exact shape.
+        Assert.Contains("public static HttpMessageHandler ForEntraToken(Guid tenant) => new EntraTokenDestination(tenant, CreatePinnedHandler());", transport, StringComparison.Ordinal);
+        Assert.Contains("public static HttpMessageHandler ForKeyVault(Uri vault) => new KeyVaultDestination(vault, CreatePinnedHandler());", transport, StringComparison.Ordinal);
+        Assert.Contains("public static HttpMessageHandler ForMonday() => new MondayDestination(CreatePinnedHandler());", transport, StringComparison.Ordinal);
+        Assert.Equal(3, Regex.Count(transport, @"CreatePinnedHandler\(\)\)"));
+        Assert.Equal(1, Regex.Count(transport, @"if \(!Admits\(request\)\)"));
+        Assert.Contains("&& address.Scheme == Uri.UriSchemeHttps", transport, StringComparison.Ordinal);
+        Assert.Contains("&& address.IsDefaultPort", transport, StringComparison.Ordinal);
+        Assert.Contains("&& request.Headers.Authorization is null", transport, StringComparison.Ordinal);
+        Assert.Contains("request.Headers.Authorization is not { Scheme: \"Bearer\", Parameter.Length: > 0 }", transport, StringComparison.Ordinal);
+        Assert.Contains("if (!KeyVaultSecretStore.IsVaultOrigin(vault))", transport, StringComparison.Ordinal);
+
+        // The token source: one explicit credential, one endpoint, one scope, one grant; the documented form, no secret.
+        var source = Read(TokenSourceFile);
+        foreach (var pinned in new[]
+                 {
+                     "public const string AuthorityHost = \"https://login.microsoftonline.com/\";",
+                     "public const string Scope = \"https://vault.azure.net/.default\";",
+                     "public const string GrantType = \"client_credentials\";",
+                     "public const string AssertionType = \"urn:ietf:params:oauth:client-assertion-type:jwt-bearer\";",
+                     "public static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);",
+                     "public static Uri TokenEndpointFor(Guid tenant) => new(AuthorityHost + tenant.ToString(\"D\") + \"/oauth2/v2.0/token\", UriKind.Absolute);",
+                     "using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint)",
+                     "if (!EntraClientAssertion.IsSuitable(certificate))",
+                 })
+        {
+            Assert.Equal(1, Regex.Count(source, Regex.Escape(pinned)));
+        }
+
+        Assert.Equal(
+            ["client_assertion", "client_assertion_type", "client_id", "grant_type", "scope"],
+            Regex.Matches(source, @"new\(""(\w+)"",").Select(match => match.Groups[1].Value).Order(StringComparer.Ordinal));
+        Assert.Equal(1, Regex.Count(source, @"\bnew Uri\(|\bnew\(AuthorityHost"));
+
+        // The assertion: the documented PS256 form with the SHA-256 thumbprint; no other algorithm, padding or thumbprint.
+        var assertion = Read(AssertionFile);
+        foreach (var pinned in new[]
+                 {
+                     "internal const string Algorithm = \"PS256\";",
+                     "writer.WriteString(\"x5t#S256\", Base64Url.EncodeToString(SHA256.HashData(certificate.RawData)));",
+                     "key.SignData(System.Text.Encoding.ASCII.GetBytes(signed), HashAlgorithmName.SHA256, RSASignaturePadding.Pss)",
+                     "internal const int MinimumKeySize = 2048;",
+                     "return key is not null && key.KeySize >= MinimumKeySize;",
+                     "if (client == Guid.Empty || id == Guid.Empty || !IsSuitable(certificate) || !IsValidAt(certificate, now))",
+                 })
+        {
+            Assert.Equal(1, Regex.Count(assertion, Regex.Escape(pinned)));
+        }
+
+        Assert.DoesNotMatch(new Regex(@"RS256|Pkcs1|SHA1|HMAC|""x5t""|""none""|ECDsa|GetECDsa"), assertion);
     }
 
     private static void AssertNamedNowhere(params string[] fragments)

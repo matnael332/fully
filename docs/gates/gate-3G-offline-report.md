@@ -808,3 +808,312 @@ push.
 Status: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT
 AUTHORIZED. Gate closure: NOT AUTHORIZED. CI for the current changes: NOT RUN. No real monday, Azure, Key Vault, OAuth or
 identity-provider contact. No real secret. Commit or push: none.**
+
+## Addendum — Stage B2 real transport and token source
+
+This addendum records a third offline slice, implemented on 2026-10-06 on the uncommitted tree at
+`56f61a02902f2d3f610a5e09686e560427a4fda4`. It does not change the status of Gate 3G and is not provider evidence:
+Entra, the vault and monday are fakes throughout, and every certificate is generated in memory by a test.
+
+### Authorization
+
+On 2026-10-06 the product owner authorized Stage B2 of `docs/gates/gate-3G-live-enablement-plan.md` ("Gate 3G — Stage B
+Live Readiness Preparation") for offline implementation only, under the approved decisions B-1 (authoring only), B-7
+(certificate-credential service principal), B-10 (hand-written certificate assertion, no package, explicit credential,
+pinned transport per destination) and B-11 (guards evolve only into equal-or-stricter pinned allowances, with mutation
+evidence). No other B decision is approved. The record, written before any code, is `docs/gates/gate-3-scope.md`,
+section "3G — Stage B2 real transport and token source (authorized 2026-10-06, offline only)". Before the full suite the
+owner also approved, in this session, one temporary isolated database on the local server for the run, on the same
+lifecycle as the one accepted on 2026-10-06. The owner was asked whether a temporary database
+`wce_b2_evidence_<UTC timestamp>` could be created with only the database-scoped grants of
+`infra/local/postgres/init/10-runtime-role.sh` lines 29 to 36, no `ALTER ROLE`, no change to the shared database, migrated
+from zero by the fixture and dropped by exact name afterwards, and answered, in the owner's words: "Approve temp DB
+(Recommended)". The verbatim authorization and that answer are kept in the evidence package outside the repository.
+
+The Microsoft protocol contract was taken from public documentation read on 2026-10-06 ("Microsoft identity platform
+certificate credentials" and "OAuth 2.0 client credentials flow"); no account, tenant or endpoint was contacted.
+
+### Exact scope
+
+New files, all under `tests/App.Harness.Monday/Live/`:
+
+- `LiveTransport.cs`.
+  - `CreatePinnedHandler()`, the only place the harness builds a network handler: a `SocketsHttpHandler` with
+    `AllowAutoRedirect = false`, `UseCookies = false`, `UseProxy = false`, `Proxy = null`, `Credentials = null`,
+    `PreAuthenticate = false`, `ConnectTimeout` 5 seconds, no automatic decompression, 64 KB of response headers at
+    most, and `ActivityHeadersPropagator = null` (no trace header reaches an external host). Certificate validation is
+    the platform's: no callback, no `SslOptions`, no connection hook.
+  - `ForEntraToken(tenant)`, `ForKeyVault(vault)` and `ForMonday()`: each returns a destination guard over a fresh pinned
+    handler of its own, so no connection or credential is shared between destinations, or between two transports of
+    the same destination.
+  - Destination guards. A guard passes a request to its handler only when it is exactly what the destination accepts,
+    and otherwise refuses it before the handler sees it, as a connection failure that sent nothing and names no address
+    or value. Every guard requires HTTPS on the default port 443, no user information, no fragment and no `Cookie`
+    header.
+    - Entra: only a POST to `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token` of the one configured tenant,
+      with no query, a form body and no `Authorization` header (so no vault bearer can be sent to it).
+    - Key Vault: only the adapter's own requests on the one configured vault (which must pass
+      `KeyVaultSecretStore.IsVaultOrigin`): GET `/secrets/{name}/`, PUT `/secrets/{name}` with a JSON body, DELETE
+      `/secrets/{name}`, each with exactly `?api-version=2025-07-01` and a non-empty Bearer credential. A form POST, the
+      shape of a token request carrying the client assertion, never passes.
+    - monday: only POSTs to the connector's three fixed endpoints (`MondayEndpoints.Token`, `Revoke`, `Api`), with no
+      query.
+- `EntraClientAssertion.cs`: the certificate assertion. Header `alg` PS256, `typ` JWT, `x5t#S256` (base64url SHA-256 of
+  the certificate's DER encoding); claims `aud` (the tenant's v2.0 token endpoint), `iss` and `sub` (the client id), a
+  fresh GUID `jti`, `nbf` and `iat` at the issue time, and `exp` five minutes later; an RSA signature with PSS padding
+  over SHA-256. Only an RSA certificate with its private key, of at least 2,048 bits, inside its validity period, signs;
+  anything else gives no assertion.
+- `EntraCertificateTokenSource.cs`: an `IKeyVaultAccessTokenSource`.
+  - Explicit credential only: a tenant id, a client id and a certificate, all given by the caller. No client secret, no
+    environment, no configuration, no certificate store, no managed identity, no developer-tool or other credential
+    chain, no `Azure.Identity`.
+  - The request: one POST to that tenant's token endpoint with exactly `client_id`, `scope` =
+    `https://vault.azure.net/.default`, `client_assertion_type` =
+    `urn:ietf:params:oauth:client-assertion-type:jwt-bearer`, `client_assertion` and `grant_type` = `client_credentials`,
+    bounded to 10 seconds.
+  - The answer, fail-closed: a 200 with an `application/json` body of at most 64 KiB; exactly one `token_type` that is
+    Bearer (any case); exactly one `access_token` of 1 to 16,384 visible ASCII characters (the adapter's own bound);
+    exactly one numeric integer `expires_in` above 300 seconds and at most a day. Anything else, a refused, failed or
+    timed-out request, or a certificate that cannot sign now gives no token (null), which the adapter answers as
+    unavailable.
+  - Caller cancellation propagates as cancellation and is never turned into "no token".
+  - The token is kept in memory in the instance only, until five minutes before its expiry counted from before the
+    request was sent; nothing is persisted, and a failure is never kept. One request runs at a time.
+  - Nothing logs; `ToString` names the type only; no failure quotes a token, the assertion or an answer.
+
+Not wired: nothing outside `Live/` names a Stage B2 type, nothing in the harness constructs the token source or calls a
+`LiveTransport.For…` method, `HarnessStandaloneGate` still approves no database, and `HarnessProgram`, `HarnessHost`,
+`HarnessOptions` and the entry point are unchanged. The default executable cannot reach a network.
+
+### Guards (B-11)
+
+Three existing guard methods of `tests/App.Architecture.Tests/HarnessBoundaryTests.cs` replaced a blanket ban by a pinned
+allowance; no assertion was deleted and each rule is equal or stricter everywhere else:
+
+- `SocketsHttpHandler`: formerly named nowhere; now held by exactly `Live/LiveTransport.cs` and constructed there exactly
+  once. Every other network handler, client factory, socket, resolver and browser launch is still named nowhere.
+- Handler construction: formerly `new …Handler(` nowhere; now the stricter pattern `new …Handler` (which also catches
+  object-initializer construction) appears only in `Live/LiveTransport.cs`, once.
+- `HttpMessageInvoker`: formerly the adapter only; now the adapter and the token source, each exactly one
+  `new HttpMessageInvoker(_transport, disposeHandler: false)`.
+- `HttpMethod`: the adapter still names exactly Delete, Get and Put; the token source names exactly one Post; the
+  destination guards name exactly the methods they admit. `HttpMethod.Post` appears only in those two Stage B2 files;
+  Patch and Head stay named nowhere.
+- The name Key Vault outside `Secrets/`: formerly nowhere; now exactly the token source and the transport file.
+- `TimeSpan.FromMinutes(5)`: formerly the cleanup interval only; now also the assertion lifetime and the refresh margin,
+  once each, as pinned constants. The cleanup interval assertions are unchanged.
+
+One new guard, `Stage_b2_transport_and_token_source_are_pinned_explicit_and_unwired`, pins: exactly three files under
+`Live/`; no Stage B2 name outside `Live/`; no construction of the token source and no `LiveTransport.For…` call
+anywhere; the empty approved-database list; no ambient or alternative credential anywhere in the harness
+(`DefaultAzureCredential`, `Azure.Identity`, `TokenCredential`, `ClientCertificateCredential`, `ManagedIdentity`,
+`client_secret`, `AZURE_`, the instance metadata address and others); no configuration, environment, certificate-store,
+file, log, cache or mutable static state in `Live/`; every pinned handler setting and no certificate-validation override;
+each destination's own guard over its own pinned handler; the token source's endpoint, scope, grant, assertion type,
+bounds and form; and the assertion's PS256 form, SHA-256 thumbprint, PSS padding and key-size floor, with no RS256,
+PKCS#1, SHA-1, HMAC, legacy `x5t` or ECDSA.
+
+Before the guards were evolved, the old guards failed against the new files (three failures, recorded in the evidence),
+which shows they were not vacuous for this change.
+
+### Tests
+
+78 new tests: 77 integration tests and 1 architecture guard.
+
+- `HarnessEntraTokenSourceTests` (52 cases): the assertion's exact header and claims; its bounded lifetime; its PSS
+  signature verified with the generated public key, with negative controls (another key, PKCS#1 padding, a changed
+  claim); unique ids; unsuitable certificates (public only, ECDSA, 1,024-bit RSA) and empty identifiers refused;
+  certificates outside their validity period sign nothing and send nothing; the exact token request and the binding of
+  the sent assertion to the tenant and client; another tenant and client; 21 malformed answers; a well-formed answer
+  with extra fields; any status but 200 (including redirects); a non-JSON media type; oversized answers, declared and
+  streamed, with a positive control; the access-token bound; the kept token until the five-minute margin and the fresh
+  assertion afterwards; failures never kept; nothing kept beyond an instance; one request for concurrent callers;
+  caller cancellation before and during the request; the 10-second request bound ending a stalled request as no token;
+  connection and other faults as no token; no rendering or public exposure of a token, assertion or answer, with a
+  positive control; and compatibility with the existing `KeyVaultSecretStore` over both destination guards (set, get and
+  delete with one token request, every vault request carrying the issued bearer), and the adapter unavailable with no
+  vault request when no token is issued.
+- `HarnessLiveTransportTests` (25 cases): the pinned handler's every setting; one guard and one fresh handler per
+  destination and per call; guards rendering no value; the Entra guard passing exactly the token request and refusing
+  11 other addresses and a bearer, a cookie, another method, another body or none; the vault guard passing the adapter's
+  three requests and refusing 29 others (among them the token request's shape, other methods, other API versions and
+  queries, other paths, deleted-secret and recover paths, other hosts, schemes, ports, user information, fragments,
+  cookies and non-bearer credentials) and refusing a non-vault origin; the monday guard passing only the three
+  endpoints; and a redirect handed back unfollowed, with its target refused.
+- Every request in these tests goes to an in-memory handler; the pinned handler is only constructed and inspected. No
+  test resolves a name or opens a socket.
+
+### Verification
+
+All local, on the uncommitted tree.
+
+- Clean non-incremental build of the solution: 0 warnings, 0 errors (before and after the mutation campaign).
+- `eng/verify-architecture.py` PASS; `eng/verify-local-env.py` PASS.
+- Unit 949/949; architecture 45/45; security 168/168; the database-free harness classes 161/161 (the 84 adapter tests and
+  the 77 new ones).
+- **Full local suite: 1,861 of 1,861, none failed, none skipped** (unit 949, architecture 45, security 168, integration
+  699, the Service Bus emulator tests included), run on a temporary isolated database, `wce_b2_evidence_20261006t065258`,
+  created for the run on the local server with only the database-scoped grants of
+  `infra/local/postgres/init/10-runtime-role.sh` (connect, schema usage, default privileges), no `ALTER ROLE` (the runtime
+  role stayed NOSUPERUSER, NOBYPASSRLS, NOCREATEROLE, NOCREATEDB, with no membership), migrated from zero by the test
+  fixture, and dropped by exact name afterwards. 1,861 is the earlier 1,783 plus the 78 new tests. The tenant-isolation
+  classes passed in it (`TenantIsolationTests` 8, `ConnectionPoolIsolationTests` 3, `TenantIsolationAcceptanceTests` 3,
+  `HarnessTenantIsolationTests` 8), as did the adapter class (84) and the adapter flow class (4).
+- Shared database: a read-only fingerprint (exact row counts of every public table, content hashes of the outbox and the
+  tenants, and the cumulative insert, delete and update counters) was identical before and after the run. Nothing in it
+  was cleaned or changed.
+- Secret scan with the CI-pinned gitleaks 8.30.1: the history (50 commits) and every changed path: no leaks. A direct
+  search of the new files found no key, certificate, token or password material; the only credential-shaped strings are
+  the synthetic `user:pass` of two refusal tests.
+- `git diff --check` clean; the six frozen documents unchanged; nothing under `src/` changed.
+- **CI: NOT RUN.**
+
+### Mutation evidence
+
+78 targeted mutants of the three Stage B2 files and of the harness files the evolved guards protect, each restored and
+verified by SHA-256; no test and nothing under `src/` was mutated. A control run on the unmutated tree came first: the 77
+new integration tests and the 10 harness guards passed. **77 CAUGHT, 0 SURVIVED, 1 INVALID.**
+
+- Pinned transport (8 of 8 caught): redirects, cookies, proxy, ambient credentials, pre-authentication, a 30-second
+  connect bound, trace propagation, and a handler shared between transports.
+- Destination guards (20 of 20 caught, plus 1 invalid): a guard admitting everything (D01 did not compile as `if (false)`;
+  its compiling form D01b was caught); HTTP; any port; user information; fragments; cookies; Entra any address, a
+  bearer, any body, any method (D10, first caught by the static guard only; a test was added for a form body sent with
+  another method and the rerun D10r was caught by it as well); vault any host, any query, no bearer, any write method, any
+  read path, any origin; monday any method and any address; an empty tenant. D02 (the scheme check removed) is caught by
+  the static guard only: behaviorally the default-port and port-443 checks already exclude HTTP, so the scheme check is
+  defense in depth.
+- Assertion (13 of 13 caught): RS256, PKCS#1 padding, a SHA-1 thumbprint, an unpinned audience, a wrong issuer or
+  subject, a non-unique id, a 60-minute lifetime, a backdated `nbf`, a 1,024-bit key, the validity period ignored, a
+  not-yet-valid certificate accepted, any certificate suitable.
+- Token source (22 of 22 caught): wrong scope or grant, a missing assertion type, a client secret sent, a one-minute
+  margin, a token kept forever or never, the token type, short or unbounded lifetimes, unchecked token characters, any
+  status or media type, a 1 MiB body bound, caller cancellation swallowed, a 100-second request bound, duplicate fields,
+  faults escaping as exceptions (declared failure: the exception escapes), no single flight, an unsuitable certificate at
+  construction, a 64 KiB token bound, and a rendering that names the tenant.
+- Static guards (14 of 14 caught): Stage B2 named outside `Live/`, an ambient credential named, a second network handler,
+  a certificate-validation override, an approved database, an environment read, Key Vault named in a third file, POST in
+  the adapter, five minutes in a fourth file, a third invoker, a certificate store, mutable static state, a second
+  handler construction, and the legacy thumbprint.
+
+The driver, the mutant plan, the control run and every per-mutant report are in the evidence package outside the
+repository.
+
+### Reviews
+
+The three read-only review agents reviewed the change set as an offline slice only. Each is advisory, none approves or
+closes anything, and each could read the tree but run nothing.
+
+- **canonical-auditor: CONFORMS WITH FOLLOW-UP.** No contradiction with a frozen rule or an approved owner decision. It
+  found the change within B-1 (authoring only), B-10 and B-11. It found no weakening in the guard evolution: each blanket
+  ban became an exact-holder pin, and the handler pattern is broader than before. It also found nothing wired, no
+  overstatement and nothing of an unapproved B decision. Its follow-ups:
+  - the B2 authorization and the temporary-database approval were restated, not quoted. Both are now quoted in the
+    owner's words (scope record and this addendum), with the verbatim text in the evidence package;
+  - the 3G status row of `docs/gates/gate-3-scope.md` still said "Stage B2 NOT STARTED". It now records B2 as authorized
+    and in progress, offline only;
+  - review results were to be recorded here (this section);
+  - `INIT.md` and `docs/canonical/PROJECT-STATUS.md` said B2 was not started. By the owner's instruction they were left
+    until after owner review, and were aligned in the checkpoint documentation step of 2026-10-06.
+- **tenant-security-reviewer: PASS WITH FOLLOW-UP.** No tenant-isolation breach and no credential crossing: the Entra
+  guard refuses a bearer and the vault guard refuses the token request's form POST. Redirects are not followed, nothing
+  is shared between destinations, and nothing is rendered or logged. Its follow-ups:
+  - the same two record points as above;
+  - hardening before any wiring decision: the Entra guard checks the typed `Authorization` header, so it should also
+    refuse a malformed value added without validation, by name; and the guards could allowlist custom headers. No
+    credential crossing exists today, because a credential-shaped value is always well formed. Recorded as follow-ups,
+    not changed in this slice, so the tested code stays the code the evidence covers;
+  - before any host composes this slice: decide telemetry handling for vault URL paths, which carry secret names that
+    embed the Fully tenant id, and the source of the Fully tenant context (the R3B-1 harness chain);
+  - raw evidence instead of statements, now in the evidence package.
+- **gate-verifier: NOT READY — EVIDENCE GAP** in its first round, for the claim "ready for owner review" (not a closure
+  verdict). It found no frozen-document change, no `src/` change, no wiring and no security or architecture defect. The
+  gaps it named:
+  - the main totals had been supplied as statements without commands, outputs and a tie to the tree;
+  - the mutation per-mutant detecting tests and restoration hashes had not been supplied;
+  - the other two reviews were not yet recorded;
+  - the status row and the unquoted authorization (both since corrected).
+
+  The raw evidence, tied to this tree by a source-hash list, was then assembled in the evidence package.
+- **gate-verifier, second round: READY WITH FOLLOW-UP**, for owner review of this offline slice only. This is not PASS,
+  not a closure and not live readiness. Against the raw outputs it mapped every acceptance item to evidence:
+  - the owner's quoted authorization;
+  - the per-test results (1,861, no failure, no skip);
+  - the temporary database's lifecycle and the identical shared-database fingerprint;
+  - every mutant's detecting tests and restore check, with the mutated `Live/` files byte-identical to the tree;
+  - the verifiers, the secret scan and the frozen documents.
+
+  Its follow-ups, all handled before packaging:
+  - the package's file for the owner's temporary-database answer was empty. It now holds the answer verbatim;
+  - this round's result was to be recorded here (this entry);
+  - the manifest, ZIP and ZIP hash were to be produced (done at packaging);
+  - test-file hashes would tighten the mutation tie. These were added: the test files' last writes precede the last
+    mutation control run.
+
+  It also listed the reviewers' hardening and wiring items as owed before any wiring decision, not before this review.
+
+  The round-two evidence gaps are resolved in the final evidence package,
+  `FULLY-3G-stage-B2-offline-evidence-20261006T071054Z.zip`:
+  - the owner's temporary-database approval is present verbatim;
+  - the test-file hashes are present;
+  - the manifest is complete, with all 401 entries re-verified from inside the archive;
+  - the ZIP's integrity test passed;
+  - the ZIP's SHA-256 is recorded:
+    `8556600255054e29677445cbce04c29516ed8c469e3807335753d0733f5eb534`.
+
+### Owner review (2026-10-06)
+
+The product owner reviewed the evidence package above (SHA-256
+`8556600255054e29677445cbce04c29516ed8c469e3807335753d0733f5eb534`) and **accepted the Stage B2 implementation as a
+CHECKPOINT CANDIDATE**. In the owner's words: "This is NOT yet Stage B2 PASS or closure." and "Final PASS requires the
+separately authorized implementation commit/push and green CI for that exact commit."
+
+The owner accepted the evidence:
+- the full local suite of 1,861 of 1,861, with 0 failed and 0 skipped;
+- the temporary isolated database lifecycle;
+- the unchanged shared-database fingerprint;
+- the mutation campaign: 77 CAUGHT, 0 SURVIVED, and 1 INVALID-BUILD (D01), superseded by the compiling D01b, which was
+  CAUGHT;
+- both repository verifiers PASS;
+- the frozen documents unchanged;
+- the secret scan;
+- the three reviews: canonical-auditor CONFORMS WITH FOLLOW-UP, tenant-security-reviewer PASS WITH FOLLOW-UP, and
+  gate-verifier round 2 READY WITH FOLLOW-UP.
+
+**Accepted BEFORE-WIRING requirements.** They do not block this offline checkpoint, and they are mandatory before any
+future wiring or real execution. None is resolved, and none is implemented in this slice:
+
+1. Harden Authorization rejection by raw header name, not only the typed Authorization property.
+2. Define and enforce destination-specific header allowlists.
+3. Resolve telemetry handling for Key Vault URL paths, so that tenant-embedded secret names cannot leak through HTTP
+   telemetry.
+4. Resolve the trusted Fully tenant context used when this slice is wired.
+
+### Known limitations and follow-ups
+
+- **Nothing here is provider evidence.** No Entra, Key Vault or monday behavior is proven. To be learned only in an
+  approved live run: whether Entra accepts this assertion (PS256, the five-minute lifetime, clock skew); the real token
+  answer (`expires_in` as a number, `token_type` casing, token length and alphabet); whether `getSecret/action` alone
+  suffices for a get; the vault's real error bodies; and monday's behavior through the pinned handler.
+- The pinned handler was never exercised against a network, by design; its settings are verified by inspection and its
+  redirect refusal by the guard's behavior with an in-memory handler.
+- The token source refuses a token whose life is 300 seconds or less, and an `expires_in` given as a string; both are
+  fail-closed choices of this slice, to be confirmed against real answers.
+- No certificate is loaded from anywhere: a future run must supply the certificate through a separately approved,
+  reviewed mechanism (the certificate store stays forbidden by guard today).
+- The approval set for B1, B3, B4 and B5 (B-2 to B-6, B-8, B-9, B-12 to B-19) is not approved; nothing of those slices
+  exists.
+- The static guards are lexical: they pin source text and counts, with positive controls, and do not prove the absence
+  of a semantic bypass such as reflection.
+
+Status:
+- **Stage B2 implementation: COMPLETE OFFLINE.**
+- **Owner review: ACCEPTED FOR CHECKPOINT.**
+- **Stage B2 PASS: NOT YET. Stage B2 closure: NOT YET.**
+- **CI for the implementation candidate: NOT RUN.**
+- **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT AUTHORIZED. Gate
+  3G closure: NOT AUTHORIZED.**
+- B-1, B-7, B-10 and B-11 are the only approved B decisions; every other B decision is PROPOSED — NOT APPROVED.
+- No live wiring exists, and no real credential or provider behavior has been proven.
+- No real credential or certificate was used; there was no Azure, Entra, Key Vault, monday or OAuth contact and no
+  deployment. Commit or push: none.

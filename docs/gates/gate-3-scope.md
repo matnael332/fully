@@ -12,7 +12,7 @@
 | 3E — API reconciliation and authoritative reread | **PASS** — approved by the product owner on 2026-10-02 |
 | 3F — Initial sync, watermark and buffered replay | **PASS** — approved by the product owner on 2026-10-03 |
 | 3B maintenance before 3G — PKCE verifier cleanup | **PASS** — approved by the product owner on 2026-10-03 |
-| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; Stage B decisions B-1 (authoring only), B-7, B-10 and B-11 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED, Stage B2 NOT STARTED, no Stage B implementation started; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
+| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; Stage B decisions B-1 (authoring only), B-7, B-10 and B-11 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED; Stage B2 (real transport and token source) implementation COMPLETE OFFLINE, owner review ACCEPTED FOR CHECKPOINT (2026-10-06), Stage B2 PASS and closure NOT YET, CI for the implementation candidate NOT RUN, four BEFORE-WIRING requirements open, no live wiring, every other Stage B slice not started; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -3413,4 +3413,115 @@ State after these decisions:
   deployment or live execution. S-1 to S-5, D3G-1 to D3G-8 and every earlier Gate 3 decision are unchanged.
 
 **Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate
+closure are NOT AUTHORIZED.
+
+## 3G — Stage B2 real transport and token source (authorized 2026-10-06, offline only)
+
+### Authorization (recorded before code)
+
+On 2026-10-06, after the B2 decision set was recorded and pushed as `56f61a0` (CI run 37419000306 passed), the product
+owner explicitly authorized **Stage B2 — Real Transport and Token Source** as defined in
+`docs/gates/gate-3G-live-enablement-plan.md`, section "Gate 3G — Stage B Live Readiness Preparation". In the owner's
+words: "The product owner explicitly AUTHORIZES Stage B2: Stage B2 — Real Transport and Token Source. This authorization
+is OFFLINE IMPLEMENTATION ONLY." and "No other B decision is approved." The owner's full text was given in the working
+session and is kept verbatim in the slice's evidence package outside the repository; the list below restates the rest of
+it closely:
+
+- **Stage B2 implementation is OFFLINE ONLY.** Code capable of using a real credential may be authored (B-1), under
+  `tests/App.Harness.Monday/Live/`, and exercised only by offline tests with fake in-memory handlers and generated,
+  ephemeral test certificates.
+- **Its approved decision set is B-1, B-7, B-10 and B-11.** No other B decision is approved: B-2 to B-6, B-8, B-9 and
+  B-12 to B-19 remain PROPOSED — NOT APPROVED.
+- **No real credential and no provider execution are authorized:** no real certificate, no Azure, Key Vault, Entra or
+  identity-provider contact, no monday contact, no OAuth execution, no deployment, no live execution. D3G-1 stays in
+  force except for the authoring supersession of B-1.
+- **Not wired:** nothing in `HarnessProgram`, the default executable, `HarnessStandaloneGate`, any configuration or any
+  environment variable reaches the new components; no database name is approved.
+- Guards change only under B-11: equal-or-stricter pinned allowances in exactly named files, never a deletion, with
+  targeted mutation evidence.
+- Stop conditions: a change under `src/`; a new package; `Azure.Identity` or `DefaultAzureCredential`; a real credential
+  or certificate; any provider, DNS or network access by the new tests; a general weakening of a guard;
+  configuration-controlled enablement; a change to `HarnessStandaloneGate`; any deployment or cloud resource.
+
+Protocol contract used, from Microsoft's public documentation read on 2026-10-06 (no account, tenant or endpoint
+contacted): "Microsoft identity platform certificate credentials" (header `alg` PS256, `typ` JWT, `x5t#S256` the
+base64url SHA-256 thumbprint of the certificate's DER encoding; claims `aud` =
+`https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token`, `iss` = `sub` = the client id, a GUID `jti`, `nbf`,
+`iat`, and `exp` at most 5 to 10 minutes after `nbf`; PSS padding) and "OAuth 2.0 client credentials flow" (form
+`client_id`, `scope`, `client_assertion_type` = `urn:ietf:params:oauth:client-assertion-type:jwt-bearer`,
+`client_assertion`, `grant_type` = `client_credentials`; a response of `token_type`, `expires_in` in seconds and
+`access_token`).
+
+Status: **Stage B2: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**, not PASS and not closed. **Gate 3G stays IN PROGRESS —
+OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate closure are NOT AUTHORIZED.
+
+### Implementation record (2026-10-06, offline, uncommitted)
+
+Implemented as authorized above, offline only, on the uncommitted tree at `56f61a0`. Full record and evidence:
+`docs/gates/gate-3G-offline-report.md`, section "Addendum — Stage B2 real transport and token source".
+
+- New, under `tests/App.Harness.Monday/Live/`: `LiveTransport.cs` (the pinned `SocketsHttpHandler`, built in one place, and
+  three destination guards: the Entra token request of one tenant, the Key Vault adapter's get, set and delete on one
+  vault, and the connector's three fixed monday endpoints), `EntraClientAssertion.cs` (the documented PS256 certificate
+  assertion) and `EntraCertificateTokenSource.cs` (an `IKeyVaultAccessTokenSource` over the client-credentials grant, with
+  an explicit tenant, client and certificate only, the Key Vault scope only, a fail-closed answer reader and an in-memory
+  token kept until five minutes before expiry).
+- Not wired: nothing outside `Live/` names a Stage B2 type, nothing constructs the token source or a live transport,
+  `HarnessStandaloneGate` still approves no database, and the default executable is unchanged.
+- Guards under B-11: three existing harness guard methods replaced blanket bans by pinned allowances naming the Stage B2 files
+  (`SocketsHttpHandler`, handler construction, `HttpMessageInvoker`, `HttpMethod`, the name Key Vault, and the
+  five-minute constant), each equal or stricter elsewhere; one new guard pins the Stage B2 files, their settings, their
+  form and their non-wiring, and forbids every ambient or alternative credential. No guard was deleted.
+- No change under `src/`, no package, no project reference, no configuration key; no real credential, certificate,
+  network, DNS or provider contact. Tests use fake in-memory handlers and certificates generated in memory per test.
+- Local results: clean build 0 warnings, 0 errors; both verifiers PASS; 78 new tests (77 integration, 1 architecture);
+  full local suite on an owner-approved temporary isolated database **1,861 of 1,861** (unit 949, architecture 45, security
+  168, integration 699), the shared database's fingerprint unchanged; targeted mutation 78 mutants: 77 CAUGHT, 0
+  SURVIVED, 1 INVALID (a non-compiling form, superseded by its compiling form, CAUGHT); pinned gitleaks 8.30.1: no leaks.
+  CI NOT RUN.
+
+Status at the time of this record: **Stage B2: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**, ready for owner review only
+after the reviews recorded in the report; not PASS and not closed. The reviews were then recorded in the report:
+canonical-auditor CONFORMS WITH FOLLOW-UP, tenant-security-reviewer PASS WITH FOLLOW-UP, and gate-verifier round 2 READY
+WITH FOLLOW-UP.
+
+### Owner review (2026-10-06): accepted as a checkpoint candidate
+
+The product owner reviewed the evidence package `FULLY-3G-stage-B2-offline-evidence-20261006T071054Z.zip` (SHA-256
+`8556600255054e29677445cbce04c29516ed8c469e3807335753d0733f5eb534`) and accepted the Stage B2 implementation as a
+**CHECKPOINT CANDIDATE**. In the owner's words: "This is NOT yet Stage B2 PASS or closure." and "Final PASS requires the
+separately authorized implementation commit/push and green CI for that exact commit."
+
+The owner accepted the evidence:
+- the full local suite of 1,861 of 1,861, with 0 failed and 0 skipped;
+- the temporary isolated database lifecycle;
+- the unchanged shared-database fingerprint;
+- the mutation campaign: 77 CAUGHT, 0 SURVIVED, and 1 INVALID-BUILD (D01), superseded by the compiling D01b, which was
+  CAUGHT;
+- both repository verifiers PASS;
+- the frozen documents unchanged;
+- the secret scan;
+- the three reviews.
+
+**BEFORE-WIRING requirements (accepted by the owner on 2026-10-06; open, not resolved).** They do not block the Stage B2
+offline checkpoint, and they are mandatory before any future wiring or real execution:
+
+1. Harden Authorization rejection by raw header name, not only the typed Authorization property.
+2. Define and enforce destination-specific header allowlists.
+3. Resolve telemetry handling for Key Vault URL paths, so that tenant-embedded secret names cannot leak through HTTP
+   telemetry.
+4. Resolve the trusted Fully tenant context used when this slice is wired.
+
+Current status:
+- **Stage B2 implementation: COMPLETE OFFLINE.**
+- **Owner review: ACCEPTED FOR CHECKPOINT.**
+- **Stage B2 PASS: NOT YET. Stage B2 closure: NOT YET.**
+- **CI for the implementation candidate: NOT RUN.**
+- B-1, B-7, B-10 and B-11 remain the only approved B decisions; every other B decision remains PROPOSED — NOT APPROVED.
+- No live wiring exists, and no real credential or provider behavior has been proven.
+
+Next: the Stage B2 offline implementation checkpoint is created only after a separate owner commit authorization; it is
+then pushed and its CI verified under separate owner authorization.
+
+**Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate 3G
 closure are NOT AUTHORIZED.

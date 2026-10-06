@@ -30,8 +30,15 @@ Azure behaves.
   Preparation". **B-1 is APPROVED — 2026-10-06** (authoring only; recorded in `docs/gates/gate-3-scope.md`, section
   "3G — Stage B owner decision B-1 (approved 2026-10-06)"). **B-7, B-10 and B-11 are APPROVED — 2026-10-06** (recorded
   in the same file, section "3G — Stage B owner decisions B-7, B-10 and B-11 (approved 2026-10-06)"). **B-2 to B-6, B-8,
-  B-9 and B-12 to B-19 remain PROPOSED — NOT APPROVED.** No Stage B
-  implementation has started.
+  B-9 and B-12 to B-19 remain PROPOSED — NOT APPROVED.**
+- Status update, 2026-10-06: **Stage B2** (real transport and token source) was authorized by the owner for offline
+  implementation only.
+  - Its implementation is **COMPLETE OFFLINE** (uncommitted), and the owner's review **ACCEPTED it FOR CHECKPOINT**.
+  - **Stage B2 PASS and closure: NOT YET. CI for the implementation candidate: NOT RUN.**
+  - No live wiring exists, and no real credential or provider behavior has been proven.
+  - Four BEFORE-WIRING requirements stay open; they are recorded in `docs/gates/gate-3-scope.md` (B2 section, "Owner
+    review (2026-10-06)").
+  - No other Stage B slice has started.
 - W-1 and W-2 remain PROPOSED, NOT APPROVED. U1 to U9 remain unresolved.
 
 ## Status and baseline (as of 2026-10-05, historical)
@@ -614,7 +621,8 @@ approved (2026-10-06, see the update below), and then B-7, B-10 and B-11 (2026-1
   entries below). The approval set that slice B2 depends on (B-1, B-7, B-10, B-11) is now complete. **B2 is NOT
   STARTED and NOT AUTHORIZED**: these approvals do not authorize or start it. **B-2 to B-6, B-8, B-9 and B-12 to B-19
   remain PROPOSED — NOT APPROVED.**
-- **No Stage B implementation has started.** No vault, identity, role, assignment, monday app, database, certificate,
+- **At planning time no Stage B implementation had started** (Stage B2 has since been implemented offline; see the status
+  updates in this section and at the top of the file). No vault, identity, role, assignment, monday app, database, certificate,
   credential or live run exists or is authorized.
 - The planning session contacted no provider: no Azure, Key Vault, Entra, monday, OAuth or identity-provider call, and
   no network request.
@@ -1057,3 +1065,16 @@ Status after the owner's second decision of 2026-10-06: **Gate 3G: IN PROGRESS �
 acceptance: NOT PROVEN. Real execution: NOT AUTHORIZED. Gate closure: NOT AUTHORIZED. Approved: B-1 (authoring only),
 B-7, B-10, B-11 — 2026-10-06. B-2 to B-6, B-8, B-9 and B-12 to B-19: PROPOSED — NOT APPROVED. Stage B2: NOT STARTED.
 No Stage B implementation has started.**
+
+*Third update, 2026-10-06 (status only):* the owner authorized Stage B2 for offline implementation only.
+- Its implementation is complete offline (uncommitted), and the owner's review accepted it for checkpoint.
+- The four BEFORE-WIRING requirements (Authorization rejection by raw header name; destination-specific header
+  allowlists; telemetry handling for Key Vault URL paths; the trusted Fully tenant context when wired) are open and
+  mandatory before any future wiring or real execution.
+- Record: `docs/gates/gate-3-scope.md` and `docs/gates/gate-3G-offline-report.md`.
+
+Current status: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT
+AUTHORIZED. Gate 3G closure: NOT AUTHORIZED. Approved: B-1 (authoring only), B-7, B-10, B-11 — 2026-10-06; every other B
+decision: PROPOSED — NOT APPROVED. Stage B2 implementation: COMPLETE OFFLINE; owner review: ACCEPTED FOR CHECKPOINT;
+Stage B2 PASS: NOT YET; Stage B2 closure: NOT YET; CI for the implementation candidate: NOT RUN. No live wiring; no real
+credential or provider behavior proven.**

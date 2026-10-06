@@ -207,7 +207,7 @@ Gate passes. P0 is a planning prerequisite to Core Gate 3, not a technical depen
 planned and NOT STARTED.
 
 ### Gate 3 — monday Connector
-Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B PASS (approved 2026-09-30); 3C PASS (approved 2026-09-30); 3D PASS (approved 2026-10-01); 3E PASS (approved 2026-10-02); 3F PASS (approved 2026-10-03); 3B maintenance (PKCE verifier cleanup) PASS (approved 2026-10-03); 3G IN PROGRESS — OFFLINE IMPLEMENTATION ONLY (authorized 2026-10-05; offline harness and offline Key Vault adapter integrated at `446fa5a`, CI run 37409608267 PASS; Stage B planning complete and committed at `34e1705`, CI run 37414993310 PASS; B-1 (authoring only), B-7, B-10 and B-11 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED; Stage B2 NOT STARTED; no Stage B implementation started; real acceptance NOT PROVEN; real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED); later Gates not started**
+Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B PASS (approved 2026-09-30); 3C PASS (approved 2026-09-30); 3D PASS (approved 2026-10-01); 3E PASS (approved 2026-10-02); 3F PASS (approved 2026-10-03); 3B maintenance (PKCE verifier cleanup) PASS (approved 2026-10-03); 3G IN PROGRESS — OFFLINE IMPLEMENTATION ONLY (authorized 2026-10-05; offline harness and offline Key Vault adapter integrated at `446fa5a`, CI run 37409608267 PASS; Stage B planning complete and committed at `34e1705`, CI run 37414993310 PASS; B-1 (authoring only), B-7, B-10 and B-11 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED; Stage B2 implementation COMPLETE OFFLINE (uncommitted), owner review ACCEPTED FOR CHECKPOINT, Stage B2 PASS and closure NOT YET, CI for the implementation candidate NOT RUN; no live wiring; real acceptance NOT PROVEN; real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED); later Gates not started**
 
 Gate 3 builds real monday authentication, webhooks, source mapping, API reconciliation and initial sync on top of
 the Gate 2 Event Backbone, reading and ingesting only. Scope, the verified monday platform baseline, sub-gates 3A to
@@ -267,8 +267,32 @@ hand-written certificate assertion with no new package, an explicit credential o
 destination and enablement only through reviewed code, with `Azure.Identity` / `ClientCertificateCredential` not
 approved (B-10); and guards replaced only by equal-or-stricter pinned allowances in exactly named files, never simply
 deleted, with targeted mutation evidence (B-11). Exactly four B decisions are approved (B-1, B-7, B-10, B-11); **B-2 to
-B-6, B-8, B-9 and B-12 to B-19 remain PROPOSED — NOT APPROVED**. The approval set of slice B2 is complete, but **Stage
-B2 is NOT STARTED and NOT AUTHORIZED**, and **no Stage B implementation has started**. Real execution is NOT AUTHORIZED, Gate 3 closure is NOT AUTHORIZED and real acceptance is NOT PROVEN.
+B-6, B-8, B-9 and B-12 to B-19 remain PROPOSED — NOT APPROVED**. That decision set was recorded and pushed as `56f61a0`
+(CI run 37419000306 PASS).
+
+**Stage B2 (real transport and token source).** The owner authorized Stage B2 on 2026-10-06 for offline implementation
+only, and its implementation is **COMPLETE OFFLINE** (uncommitted): `tests/App.Harness.Monday/Live/` (a pinned
+`SocketsHttpHandler` with one destination guard each for Entra, Key Vault and monday; the PS256 certificate assertion;
+the Entra certificate token source), with its tests and the evolved and new harness guards.
+
+On review of the evidence package `FULLY-3G-stage-B2-offline-evidence-20261006T071054Z.zip` (SHA-256
+`8556600255054e29677445cbce04c29516ed8c469e3807335753d0733f5eb534`), the owner **ACCEPTED it FOR CHECKPOINT**. That
+package covers 1,861 of 1,861 tests on a temporary isolated database; mutation 77 CAUGHT, 0 SURVIVED, 1 INVALID-BUILD
+superseded; and the reviews CONFORMS WITH FOLLOW-UP, PASS WITH FOLLOW-UP and READY WITH FOLLOW-UP. Records:
+`docs/gates/gate-3-scope.md` and `docs/gates/gate-3G-offline-report.md`.
+
+- **Stage B2 PASS: NOT YET. Stage B2 closure: NOT YET. CI for the implementation candidate: NOT RUN.** Final PASS needs
+  the separately authorized implementation commit and push and green CI for that exact commit.
+- **No live wiring exists**, and no real credential or provider behavior has been proven.
+- Four **BEFORE-WIRING** requirements, accepted by the owner, stay open and are mandatory before any future wiring or
+  real execution:
+  - Authorization rejection by raw header name;
+  - destination-specific header allowlists;
+  - telemetry handling for Key Vault URL paths;
+  - the trusted Fully tenant context when wired.
+- Every other Stage B slice is not started.
+
+Real execution is NOT AUTHORIZED, Gate 3 closure is NOT AUTHORIZED and real acceptance is NOT PROVEN.
 
 ## Verified evidence for Gate 1A / 1B
 
@@ -437,11 +461,13 @@ progress: 3A to 3F are PASS (3F, initial sync, watermark and buffered replay, ap
 (3B maintenance PASS, 2026-10-03), and the 3G host must run the verifier cleanup at start-up and every 5 minutes. The
 offline harness and the offline Key Vault adapter are integrated at `446fa5a` (CI run 37409608267 PASS), and the Stage
 B planning is committed at `34e1705` (CI run 37414993310 PASS) and the B-1 record at `b0b7248` (CI run 37416642461
-PASS). B-1 (authoring only), B-7, B-10 and B-11 are APPROVED — 2026-10-06; the approval set of slice B2 is complete,
-but B2 is NOT STARTED and NOT AUTHORIZED. **The next phase is an explicit owner authorization of a slice**, and the
-remaining Stage B decisions the other slices need (`docs/gates/gate-3G-live-enablement-plan.md`, "Gate 3G — Stage B
-Live Readiness Preparation"); B-2 to B-6, B-8, B-9 and B-12 to B-19 are PROPOSED — NOT APPROVED, and no Stage B
-implementation begins before the owner decides. Do
+PASS), and the B2 decision set at `56f61a0` (CI run 37419000306 PASS). B-1 (authoring only), B-7, B-10 and B-11 are
+APPROVED — 2026-10-06; every other B decision is PROPOSED — NOT APPROVED. The Stage B2 implementation is COMPLETE
+OFFLINE (uncommitted) and ACCEPTED FOR CHECKPOINT by the owner; Stage B2 PASS and closure are NOT YET and CI for the
+implementation candidate is NOT RUN. **The next action: create the Stage B2 offline implementation checkpoint only after
+separate owner commit authorization; then push and verify CI under separate owner authorization.** The four
+BEFORE-WIRING requirements stay open, and no other Stage B slice begins without its decisions and its own authorization.
+Do
 not run anything against real monday, do not close Gate 3, and do not start any later Gate or
 any Premium Gate P1 to P11, without the product owner's explicit authorization, do not start the bootstrap or
 migration jobs (each has exactly one execution), and do not deploy,
