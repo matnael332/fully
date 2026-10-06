@@ -10,10 +10,10 @@ Azure behaves.
 
 - **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN. Real execution is NOT
   AUTHORIZED. Gate closure is NOT AUTHORIZED.
-- Current checkpoint: `main` == `origin/main` == `446fa5a1b1e77223d3eedfd89569c338dfda12eb` ("feat: checkpoint Gate 3G
-  offline Key Vault adapter"). CI run 37409608267 passed with all three jobs successful (secret scan; build, verify and
-  test; container images, Release build, no push). The offline harness and the offline Key Vault adapter are both
-  integrated on `main`.
+- Current checkpoint: `main` == `origin/main` == `d1468bb6a6bde130ec24dc72c0571255d1391f8c` ("feat: checkpoint Gate 3G
+  Stage B2 offline transport"); CI run 37434239946 succeeded with all three jobs (secret scan; build, verify and test,
+  1,861 tests; container images, Release build, no push). The offline harness, the offline Key Vault adapter (`446fa5a`,
+  CI run 37409608267) and the Stage B2 transport and token source are integrated on `main`.
 - S-1 to S-5 were approved by the product owner on 2026-10-05 exactly as defined in this plan, in the version with
   SHA-256
   `8a9ade1c5b1e4db227bc790f892268b48b859a16e88bfcdf5d06cebf1da19dc9` (the blob of this file at commit `446fa5a`). The
@@ -33,12 +33,12 @@ Azure behaves.
   B-9 and B-12 to B-19 remain PROPOSED — NOT APPROVED.**
 - Status update, 2026-10-06: **Stage B2** (real transport and token source) was authorized by the owner for offline
   implementation only.
-  - Its implementation is **COMPLETE OFFLINE** (uncommitted), and the owner's review **ACCEPTED it FOR CHECKPOINT**.
-  - **Stage B2 PASS and closure: NOT YET. CI for the implementation candidate: NOT RUN.**
+  - **Stage B2: PASS — OFFLINE SLICE COMPLETE** (approved by the owner on 2026-10-06; checkpoint `d1468bb`, CI run
+    37434239946 — SUCCESS). It is not Gate 3G PASS, and it authorizes no wiring and no real execution.
   - No live wiring exists, and no real credential or provider behavior has been proven.
   - Four BEFORE-WIRING requirements stay open; they are recorded in `docs/gates/gate-3-scope.md` (B2 section, "Owner
-    review (2026-10-06)").
-  - No other Stage B slice has started.
+    PASS (2026-10-06)").
+  - No other Stage B slice is authorized or started.
 - W-1 and W-2 remain PROPOSED, NOT APPROVED. U1 to U9 remain unresolved.
 
 ## Status and baseline (as of 2026-10-05, historical)
@@ -1073,8 +1073,16 @@ No Stage B implementation has started.**
   mandatory before any future wiring or real execution.
 - Record: `docs/gates/gate-3-scope.md` and `docs/gates/gate-3G-offline-report.md`.
 
+Status after the third update (superseded below): Stage B2 implementation complete offline and accepted for checkpoint;
+PASS and closure not yet; CI not run.
+
+*Fourth update, 2026-10-06 (status only):* the checkpoint was committed as `d1468bb6a6bde130ec24dc72c0571255d1391f8c` and
+pushed. CI run 37434239946 succeeded (1,861 total; 1,851 passed, 0 failed, 10 skipped Service Bus emulator tests). The
+owner then approved "Stage B2 — Real Transport and Token Source = PASS" for the offline slice only. The four
+BEFORE-WIRING requirements remain open.
+
 Current status: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT
 AUTHORIZED. Gate 3G closure: NOT AUTHORIZED. Approved: B-1 (authoring only), B-7, B-10, B-11 — 2026-10-06; every other B
-decision: PROPOSED — NOT APPROVED. Stage B2 implementation: COMPLETE OFFLINE; owner review: ACCEPTED FOR CHECKPOINT;
-Stage B2 PASS: NOT YET; Stage B2 closure: NOT YET; CI for the implementation candidate: NOT RUN. No live wiring; no real
-credential or provider behavior proven.**
+decision: PROPOSED — NOT APPROVED. Stage B2: PASS — OFFLINE SLICE COMPLETE (checkpoint `d1468bb`, CI run 37434239946 —
+SUCCESS). Four BEFORE-WIRING requirements open. No live wiring; no real credential or provider behavior proven. No
+other Stage B slice authorized.**

@@ -1106,14 +1106,31 @@ future wiring or real execution. None is resolved, and none is implemented in th
 - The static guards are lexical: they pin source text and counts, with positive controls, and do not prove the absence
   of a semantic bypass such as reflection.
 
+### Checkpoint, CI and owner PASS (2026-10-06)
+
+- The reviewed implementation was committed as `d1468bb6a6bde130ec24dc72c0571255d1391f8c` ("feat: checkpoint Gate 3G
+  Stage B2 offline transport", parent `56f61a0`, the 12 reviewed paths) and pushed, each by separate owner
+  authorization.
+- **CI run 37434239946 — SUCCESS** on that commit: secret scan (no leaks), build/verify/test with 1,861 total (1,851
+  passed, 0 failed, 10 skipped: the expected Service Bus emulator tests in CI), and container images.
+- The product owner then explicitly approved **"Stage B2 — Real Transport and Token Source = PASS"** (2026-10-06), for
+  the offline Stage B2 slice only.
+
+The PASS does not mean any of the following:
+- Gate 3G PASS or Gate 3 PASS;
+- real acceptance proven;
+- real execution or live wiring authorized;
+- Azure, Entra, Key Vault or monday execution authorized.
+
+The four BEFORE-WIRING requirements above remain OPEN.
+
 Status:
-- **Stage B2 implementation: COMPLETE OFFLINE.**
-- **Owner review: ACCEPTED FOR CHECKPOINT.**
-- **Stage B2 PASS: NOT YET. Stage B2 closure: NOT YET.**
-- **CI for the implementation candidate: NOT RUN.**
+- **Stage B2: PASS — OFFLINE SLICE COMPLETE** (checkpoint `d1468bb6a6bde130ec24dc72c0571255d1391f8c`, CI run 37434239946
+  — SUCCESS).
+- **The four BEFORE-WIRING requirements: OPEN.**
 - **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT AUTHORIZED. Gate
   3G closure: NOT AUTHORIZED.**
 - B-1, B-7, B-10 and B-11 are the only approved B decisions; every other B decision is PROPOSED — NOT APPROVED.
 - No live wiring exists, and no real credential or provider behavior has been proven.
 - No real credential or certificate was used; there was no Azure, Entra, Key Vault, monday or OAuth contact and no
-  deployment. Commit or push: none.
+  deployment.

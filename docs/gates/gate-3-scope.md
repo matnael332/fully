@@ -12,7 +12,7 @@
 | 3E — API reconciliation and authoritative reread | **PASS** — approved by the product owner on 2026-10-02 |
 | 3F — Initial sync, watermark and buffered replay | **PASS** — approved by the product owner on 2026-10-03 |
 | 3B maintenance before 3G — PKCE verifier cleanup | **PASS** — approved by the product owner on 2026-10-03 |
-| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; Stage B decisions B-1 (authoring only), B-7, B-10 and B-11 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED; Stage B2 (real transport and token source) implementation COMPLETE OFFLINE, owner review ACCEPTED FOR CHECKPOINT (2026-10-06), Stage B2 PASS and closure NOT YET, CI for the implementation candidate NOT RUN, four BEFORE-WIRING requirements open, no live wiring, every other Stage B slice not started; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
+| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; Stage B decisions B-1 (authoring only), B-7, B-10 and B-11 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED; Stage B2 (real transport and token source) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-06; checkpoint `d1468bb`, CI run 37434239946 SUCCESS), four BEFORE-WIRING requirements open, no live wiring, every other Stage B slice not authorized or started; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -3512,16 +3512,46 @@ offline checkpoint, and they are mandatory before any future wiring or real exec
    telemetry.
 4. Resolve the trusted Fully tenant context used when this slice is wired.
 
-Current status:
-- **Stage B2 implementation: COMPLETE OFFLINE.**
-- **Owner review: ACCEPTED FOR CHECKPOINT.**
-- **Stage B2 PASS: NOT YET. Stage B2 closure: NOT YET.**
-- **CI for the implementation candidate: NOT RUN.**
-- B-1, B-7, B-10 and B-11 remain the only approved B decisions; every other B decision remains PROPOSED — NOT APPROVED.
-- No live wiring exists, and no real credential or provider behavior has been proven.
+Status at that review (superseded by the owner's PASS below):
+- Stage B2 implementation: COMPLETE OFFLINE.
+- Owner review: ACCEPTED FOR CHECKPOINT.
+- Stage B2 PASS and closure: not yet.
+- CI for the implementation candidate: not run.
 
-Next: the Stage B2 offline implementation checkpoint is created only after a separate owner commit authorization; it is
-then pushed and its CI verified under separate owner authorization.
+The checkpoint was then committed as `d1468bb6a6bde130ec24dc72c0571255d1391f8c` ("feat: checkpoint Gate 3G Stage B2
+offline transport", parent `56f61a0`, the 12 reviewed paths) and pushed by separate owner authorizations. CI run
+37434239946 succeeded on that commit: secret scan, build/verify/test and container images, with 1,861 tests (1,851
+passed, 0 failed, 10 skipped, the Service Bus emulator tests that CI skips by design).
+
+### Owner PASS (2026-10-06)
+
+The product owner explicitly approved: **"Stage B2 — Real Transport and Token Source = PASS"**, dated 2026-10-06. The
+approval applies to the offline Stage B2 slice only.
+
+The owner's accepted basis:
+- the checkpoint commit `d1468bb6a6bde130ec24dc72c0571255d1391f8c`;
+- CI run 37434239946 — SUCCESS: 1,861 total, 1,851 passed, 0 failed, 10 skipped, the 10 being the expected Service Bus
+  emulator tests in CI;
+- the evidence package `FULLY-3G-stage-B2-offline-evidence-20261006T071054Z.zip` (SHA-256
+  `8556600255054e29677445cbce04c29516ed8c469e3807335753d0733f5eb534`).
+
+**Stage B2: PASS — OFFLINE SLICE COMPLETE.** The implementation and the offline evidence are accepted.
+
+It does **not** mean any of the following:
+- Gate 3G PASS or Gate 3 PASS;
+- real acceptance proven;
+- real execution or live wiring authorized;
+- Azure, Entra, Key Vault or monday execution authorized.
+
+**The four BEFORE-WIRING requirements remain OPEN** and are mandatory before any future wiring or real execution:
+1. harden Authorization rejection by raw header name;
+2. define and enforce destination-specific header allowlists;
+3. resolve Key Vault path telemetry handling, so that tenant-embedded secret names cannot leak through HTTP telemetry;
+4. resolve the trusted Fully tenant context used when this slice is wired.
+
+The approved B decisions remain exactly B-1, B-7, B-10 and B-11. B-2 to B-6, B-8, B-9 and B-12 to B-19 remain PROPOSED —
+NOT APPROVED. No other Stage B slice (B0, B1, B3, B4, B5) is authorized or started, and Stage B2 needs no further work
+unless separately authorized.
 
 **Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate 3G
 closure are NOT AUTHORIZED.

@@ -4,9 +4,9 @@ Last updated: 2026-10-06 (Gate 1 and Gate 2 PASS / CLOSED; Premium Gate P0 PASS 
 Connector, IN PROGRESS: 3A to 3F and the PKCE verifier cleanup PASS, 3G IN PROGRESS — OFFLINE IMPLEMENTATION ONLY with
 the offline harness and the offline Key Vault adapter integrated at `446fa5a`; Stage B planning complete and committed
 at `34e1705`; B-1 (authoring only), B-7, B-10 and B-11 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT
-APPROVED; Stage B2 implementation COMPLETE OFFLINE (uncommitted), owner review ACCEPTED FOR CHECKPOINT, Stage B2 PASS and
-closure NOT YET, CI for the implementation candidate NOT RUN; no live wiring; real acceptance NOT PROVEN, real execution
-NOT AUTHORIZED, Gate 3G closure NOT AUTHORIZED).
+APPROVED; Stage B2 PASS — OFFLINE SLICE COMPLETE (checkpoint `d1468bb`, CI run 37434239946 SUCCESS); four
+BEFORE-WIRING requirements open; no live wiring; no other Stage B slice authorized; real acceptance NOT PROVEN, real
+execution NOT AUTHORIZED, Gate 3G closure NOT AUTHORIZED).
 Read this first when resuming.
 
 ## Current state (2026-10-06)
@@ -18,13 +18,12 @@ Read this first when resuming.
   `884962f`, PR #1) and the offline Key Vault adapter (`tests/App.Harness.Monday/Secrets/`, owner decisions S-1 to S-5
   approved 2026-10-05 for the offline adapter only, plus the owner's clarification of 2026-10-06 that D3G-1 stays fully
   in force) are both integrated on `main`.
-- **Current checkpoint:** `main` == `origin/main` == `56f61a02902f2d3f610a5e09686e560427a4fda4` ("docs: record Gate 3G
-  Stage B2 decision set", documentation only). **CI run 37419000306: PASS**, all three jobs successful (secret scan;
-  build, verify and test, 1,783 tests with 1,773 passed, 0 failed, 10 skipped; container images, Release build, no push).
-  The Stage B2 offline implementation is uncommitted on top of it. Its parents `b0b7248` (B-1 record, CI run 37416642461
-  PASS) and `34e1705` ("docs: checkpoint Gate 3G Stage B planning", CI run 37414993310 PASS) are documentation only too;
-  `446fa5a` ("feat: checkpoint Gate 3G offline Key Vault adapter") is the last code checkpoint, **CI run 37409608267:
-  PASS**, all three jobs successful.
+- **Current checkpoint:** `main` == `origin/main` == `d1468bb6a6bde130ec24dc72c0571255d1391f8c` ("feat: checkpoint Gate
+  3G Stage B2 offline transport", the 12 reviewed Stage B2 paths). **CI run 37434239946: SUCCESS**, all three jobs
+  successful (secret scan, no leaks; build, verify and test, 1,861 tests with 1,851 passed, 0 failed, 10 skipped Service
+  Bus emulator tests; container images, Release build, no push). Its parent `56f61a0` (B2 decision set, CI run
+  37419000306) and `b0b7248` (B-1 record) and `34e1705` (Stage B planning) are documentation only; `446fa5a` ("feat:
+  checkpoint Gate 3G offline Key Vault adapter", CI run 37409608267) is the previous code checkpoint.
 - **Local isolated evidence:** 1,783 of 1,783 tests passed (unit 949, architecture 44, security 168, integration 622) on
   a temporary isolated database, 2026-10-06; the owner's evidence decisions of 2026-10-06 (K05 equivalent, the
   `tup_updated` +7 note, the temporary-database lifecycle, the stale shared rows) are recorded in
@@ -46,31 +45,31 @@ Read this first when resuming.
   deleted, with targeted mutation evidence.
 - **Exactly four B decisions are approved: B-1, B-7, B-10, B-11. B-2 to B-6, B-8, B-9 and B-12 to B-19 remain
   PROPOSED — NOT APPROVED.**
-- **Stage B2 (real transport and token source), authorized by the owner on 2026-10-06, offline only:**
-  - **implementation: COMPLETE OFFLINE**, uncommitted on top of `56f61a0`: `tests/App.Harness.Monday/Live/` (pinned
-    `SocketsHttpHandler` and destination guards, the PS256 certificate assertion, the Entra certificate token source),
-    its tests, and the evolved and new harness guards;
-  - **owner review: ACCEPTED FOR CHECKPOINT** (2026-10-06), on the evidence package
-    `Desktop/FULLY-EVIDENCE/FULLY-3G-stage-B2-offline-evidence-20261006T071054Z.zip` (SHA-256
-    `8556600255054e29677445cbce04c29516ed8c469e3807335753d0733f5eb534`): 1,861 of 1,861 locally on a temporary isolated
-    database, mutation 77 CAUGHT / 0 SURVIVED / 1 INVALID-BUILD superseded, reviews CONFORMS / PASS / READY WITH
-    FOLLOW-UP;
-  - **Stage B2 PASS: NOT YET. Stage B2 closure: NOT YET. CI for the implementation candidate: NOT RUN.** Final PASS
-    needs the separately authorized implementation commit and push and green CI for that exact commit;
-  - **no live wiring exists**, and no real credential or provider behavior has been proven.
-  - Records: `docs/gates/gate-3-scope.md` (B2 section, "Owner review (2026-10-06)") and
+- **Stage B2 (real transport and token source): PASS — OFFLINE SLICE COMPLETE.** Approved by the product owner on
+  2026-10-06 ("Stage B2 — Real Transport and Token Source = PASS"), for the offline slice only.
+  - Checkpoint: `d1468bb6a6bde130ec24dc72c0571255d1391f8c`, CI run 37434239946 — SUCCESS.
+  - Evidence package: `Desktop/FULLY-EVIDENCE/FULLY-3G-stage-B2-offline-evidence-20261006T071054Z.zip` (SHA-256
+    `8556600255054e29677445cbce04c29516ed8c469e3807335753d0733f5eb534`).
+  - What it delivered: `tests/App.Harness.Monday/Live/` (a pinned `SocketsHttpHandler` with destination guards, the PS256
+    certificate assertion and the Entra certificate token source), its tests, and the evolved and new harness guards.
+  - **B2 requires no further work unless separately authorized.**
+  - The PASS is not Gate 3G or Gate 3 PASS. It proves no real acceptance, and it authorizes no real execution, no live
+    wiring, and no Azure, Entra, Key Vault or monday execution. No live wiring exists, and no real credential or
+    provider behavior has been proven.
+  - Records: `docs/gates/gate-3-scope.md` (B2 section, "Owner PASS (2026-10-06)") and
     `docs/gates/gate-3G-offline-report.md` ("Addendum — Stage B2 real transport and token source").
-- **BEFORE-WIRING requirements (accepted 2026-10-06; open, not resolved).** They do not block the offline checkpoint and
-  are mandatory before any future wiring or real execution:
+- **BEFORE-WIRING requirements (accepted 2026-10-06; OPEN, not resolved).** They are mandatory before any future wiring
+  or real execution:
   1. harden Authorization rejection by raw header name, not only the typed Authorization property;
   2. define and enforce destination-specific header allowlists;
   3. resolve telemetry handling for Key Vault URL paths, so that tenant-embedded secret names cannot leak through HTTP
      telemetry;
   4. resolve the trusted Fully tenant context used when this slice is wired.
-- Every other Stage B slice (B0, B1, B3, B4, B5) is not started and not authorized.
+- **No other Stage B slice is currently authorized**; B0, B1, B3, B4 and B5 are not started.
 - **Real acceptance: NOT PROVEN. Real execution: NOT AUTHORIZED. Gate 3G closure: NOT AUTHORIZED.**
-- **Exact next action:** Create the Stage B2 offline implementation checkpoint only after separate owner commit
-  authorization; then push and verify CI under separate owner authorization.
+- **Next owner boundary:** selecting and authorizing the next Stage B slice, together with the owner decisions that slice
+  requires (B1: B-2 to B-4, B-8, B-9; B3: B-14, B-15; B4: B-12, B-13; B5: B-6, B-17 to B-19; all PROPOSED — NOT
+  APPROVED today). Nothing of Stage B continues before that.
 
 ## Where the project is
 
@@ -85,12 +84,13 @@ Read this first when resuming.
 | 1G Foundation Hardening | **PASS** — commits `9651ed3` (implementation), `fc9bb3e` (CI fix), `450c13d` (Dev readiness probe on), plus this closure commit (Commit C) |
 | **Gate 1 — Foundation** | **PASS** |
 | Gate 2 — Event Backbone | **PASS — closed 2026-09-29.** 2A (event contract, validation, authority table) **PASS**, commit `7ba941a`. 2B (durable ingress) **PASS**, commit `120183b`, CI run 36411854002 green (359 tests: 356 passed, 0 failed, 3 Service Bus emulator tests skipped by design). 2C (outbox relay, publisher, consumer, dead-letter handling) **PASS**, commit `189f173`, CI run 36425641730 green (444 tests: 437 passed, 0 failed, 7 Service Bus emulator tests skipped by design, all of which passed locally). 2D (processing pipeline and event ledger) **PASS**, commit `f97d22d`, CI run 36439994562 green (493 tests: 486 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2D test ran and passed in CI). 2E (Snapshot projection) **PASS**, commit `e165852`, CI run 36449846577 green (524 tests: 517 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2E test ran and passed in CI). 2F (retention and metrics) **PASS**, commit `259be35`, CI run 36542058355 green (584 tests: 577 passed, 0 failed, 7 Service Bus emulator tests skipped by design; every 2F test ran and passed in CI). 2G (acceptance suite, crash recovery, tenant isolation and the Gate report) **PASS**, commit `59f74e1`, CI run 36552321567 green (613 tests: 604 passed, 0 failed, 9 Service Bus emulator tests skipped by design; every other 2G test ran and passed in CI; 613/613 locally). Acceptance satisfied: duplicate, delayed and out-of-order events do not corrupt the Snapshot and no event is silently lost. Report, risks and deferred items: `docs/gates/gate-2-report.md`. Azure Dev has **none** of the 2B, 2C, 2D, 2E or 2F migrations or schema. Scope and owner decisions: `docs/gates/gate-2-scope.md` |
-| Gate 3 — monday Connector | **IN PROGRESS — authorized 2026-09-29.** 3A (connector contract and monday client foundation) **PASS** — approved 2026-09-30, committed as `d06ed66` (773 tests locally, 32/32 mutants caught). 3B (OAuth 2.1 connection lifecycle) **PASS** — approved 2026-09-30 with owner decisions D3B-1 to D3B-3 and review decisions R3B-1 and R3B-2, committed as the Gate 3B commit (986 tests locally, 91/91 mutation and vacuity checks). 3C (webhook intake) **PASS** — approved 2026-09-30 with owner decision D3C-1 (intake only) and the owner-review decisions, committed as the Gate 3C commit (1,167 tests locally, 45/45 mutation checks caught). 3D (source mapping and normalization) **PASS** — approved 2026-10-01 with owner decisions D3D-1 to D3D-8 and the accepted `SourceValueConfirmation` Core extension, committed as the Gate 3D commit (1,291 tests locally, 24/24 mutation checks caught). 3E (API reconciliation and authoritative reread) **PASS** — approved by the product owner on 2026-10-02 (D3E-1 to D3E-11; transient and access failures never held; `AuthorityChanged` for a read overtaken by a reauthorization; 1,420 tests locally; mutation checks 38/38, 32/32 and 13/13), committed after the separate 3B maintenance commit `273faa6`; 3F (initial sync, watermark and buffered replay) **PASS** — approved by the product owner on 2026-10-03 (D3F-1 to D3F-15; a configured connection held from its first enabled scope; versioned scope sets; a current work view of enabled, baselined scopes only; 1,589 tests locally; mutation checks 43/43, 23/23, 15/16 with one equivalent, and 5/5); 3G (real monday end-to-end acceptance) **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** — authorized by the product owner on 2026-10-05 (D3G-1 to D3G-8: a non-production offline harness at `tests/App.Harness.Monday` and its tests, against deterministic fakes only; real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN); the PKCE verifier cleanup (3B maintenance) is **PASS** — approved 2026-10-03, and the 3G host runs it at start-up and every 5 minutes. On 2026-10-05 the owner approved S-1 to S-5 for an offline Key Vault adapter only; the offline harness and that adapter are integrated on `main` at `446fa5a` (CI run 37409608267 PASS; 1,783 of 1,783 locally on an isolated database). Stage B planning is complete (2026-10-06, committed at `34e1705`, CI run 37414993310 PASS); B-1 (authoring only), B-7, B-10 and B-11 are APPROVED 2026-10-06, B-2 to B-6, B-8, B-9 and B-12 to B-19 are PROPOSED — NOT APPROVED, Stage B2 implementation is COMPLETE OFFLINE (uncommitted) and ACCEPTED FOR CHECKPOINT by the owner on 2026-10-06, with Stage B2 PASS and closure NOT YET and CI NOT RUN; no other Stage B slice has started (`docs/gates/gate-3G-live-enablement-plan.md`, `docs/gates/gate-3G-offline-report.md`). Scope and Definition of Done: `docs/gates/gate-3-scope.md` |
+| Gate 3 — monday Connector | **IN PROGRESS — authorized 2026-09-29.** 3A (connector contract and monday client foundation) **PASS** — approved 2026-09-30, committed as `d06ed66` (773 tests locally, 32/32 mutants caught). 3B (OAuth 2.1 connection lifecycle) **PASS** — approved 2026-09-30 with owner decisions D3B-1 to D3B-3 and review decisions R3B-1 and R3B-2, committed as the Gate 3B commit (986 tests locally, 91/91 mutation and vacuity checks). 3C (webhook intake) **PASS** — approved 2026-09-30 with owner decision D3C-1 (intake only) and the owner-review decisions, committed as the Gate 3C commit (1,167 tests locally, 45/45 mutation checks caught). 3D (source mapping and normalization) **PASS** — approved 2026-10-01 with owner decisions D3D-1 to D3D-8 and the accepted `SourceValueConfirmation` Core extension, committed as the Gate 3D commit (1,291 tests locally, 24/24 mutation checks caught). 3E (API reconciliation and authoritative reread) **PASS** — approved by the product owner on 2026-10-02 (D3E-1 to D3E-11; transient and access failures never held; `AuthorityChanged` for a read overtaken by a reauthorization; 1,420 tests locally; mutation checks 38/38, 32/32 and 13/13), committed after the separate 3B maintenance commit `273faa6`; 3F (initial sync, watermark and buffered replay) **PASS** — approved by the product owner on 2026-10-03 (D3F-1 to D3F-15; a configured connection held from its first enabled scope; versioned scope sets; a current work view of enabled, baselined scopes only; 1,589 tests locally; mutation checks 43/43, 23/23, 15/16 with one equivalent, and 5/5); 3G (real monday end-to-end acceptance) **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** — authorized by the product owner on 2026-10-05 (D3G-1 to D3G-8: a non-production offline harness at `tests/App.Harness.Monday` and its tests, against deterministic fakes only; real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN); the PKCE verifier cleanup (3B maintenance) is **PASS** — approved 2026-10-03, and the 3G host runs it at start-up and every 5 minutes. On 2026-10-05 the owner approved S-1 to S-5 for an offline Key Vault adapter only; the offline harness and that adapter are integrated on `main` at `446fa5a` (CI run 37409608267 PASS; 1,783 of 1,783 locally on an isolated database). Stage B planning is complete (2026-10-06, committed at `34e1705`, CI run 37414993310 PASS); B-1 (authoring only), B-7, B-10 and B-11 are APPROVED 2026-10-06, B-2 to B-6, B-8, B-9 and B-12 to B-19 are PROPOSED — NOT APPROVED, Stage B2 (real transport and token source) is PASS — OFFLINE SLICE COMPLETE (owner approval 2026-10-06; checkpoint `d1468bb`, CI run 37434239946 SUCCESS), with four BEFORE-WIRING requirements open and no live wiring; no other Stage B slice is authorized (`docs/gates/gate-3G-live-enablement-plan.md`, `docs/gates/gate-3G-offline-report.md`). Scope and Definition of Done: `docs/gates/gate-3-scope.md` |
 | Premium P0 — Architecture Freeze | **PASS — ARCHITECTURE FROZEN, closed 2026-09-29.** D1–D4 and C1 approved; invariant 35 COMPATIBLE; audit rerun with no unresolved contradiction. Closure commit `999d2f9` (documentation only), CI run 36619836845 green. `docs/premium/`, `docs/gates/gate-P0-report.md` |
 | Premium P1–P11 | Planned; NOT STARTED; not authorized |
 
-**Current repository pointer (2026-10-06):** `main` == `origin/main` == `56f61a0` (the Stage B2 decision-set record, CI
-run 37419000306 PASS), with the Stage B2 offline implementation uncommitted on top of it; whose parent is `b0b7248` (the
+**Current repository pointer (2026-10-06):** `main` == `origin/main` == `d1468bb` (the Stage B2 offline checkpoint, CI run
+37434239946 SUCCESS), whose parent is `56f61a0` (the Stage B2 decision-set record, CI run 37419000306 PASS), whose parent
+is `b0b7248` (the
 B-1 decision record, CI run 37416642461 PASS), whose parent is `34e1705` (the Stage B planning documentation checkpoint, CI run 37414993310 PASS),
 whose parent is `446fa5a` (the offline Key Vault adapter checkpoint, CI run
 37409608267 PASS), whose parent is `884962f`, the merge of PR #1 (the offline harness checkpoint,
@@ -181,8 +181,9 @@ proposed, and committed and pushed as `34e1705` (CI run 37414993310 PASS). The s
 approved B-7, B-10 and B-11, which complete the approval set of slice B2. B-2 to B-6, B-8, B-9 and B-12 to B-19 remain
 PROPOSED — NOT APPROVED. That set was recorded and pushed as `56f61a0` (CI run 37419000306 PASS). The owner then
 authorized Stage B2 for offline implementation only; it was implemented offline (uncommitted), verified on an
-owner-approved temporary database (1,861 of 1,861), reviewed, and ACCEPTED FOR CHECKPOINT by the owner the same day.
-Stage B2 PASS and closure are NOT YET, CI for the implementation candidate is NOT RUN, no live wiring exists, and the four
+owner-approved temporary database (1,861 of 1,861), reviewed, and ACCEPTED FOR CHECKPOINT by the owner the same day. It
+was committed as `d1468bb` and pushed, CI run 37434239946 succeeded (1,861: 1,851 passed, 0 failed, 10 Service Bus
+emulator skips), and the owner approved **Stage B2: PASS — OFFLINE SLICE COMPLETE**. No live wiring exists, and the four
 BEFORE-WIRING requirements stay open.
 
 ## Rules that must not be broken (from CLAUDE.md and the canonical docs)
@@ -284,14 +285,13 @@ Full evidence: `docs/gates/gate-1G-report.md`.
    integrated at `446fa5a` (CI run 37409608267 PASS); the Stage B planning is committed at `34e1705` (CI run
    37414993310 PASS). **B-1 (authoring only), B-7, B-10 and B-11 are APPROVED — 2026-10-06**
    (`docs/gates/gate-3-scope.md`, "3G — Stage B owner decision B-1" and "3G — Stage B owner decisions B-7, B-10 and
-   B-11"). **Stage B2** (real transport and token source) was authorized on 2026-10-06 for offline implementation only;
-   its implementation is **COMPLETE OFFLINE** (uncommitted), and the owner's review **ACCEPTED it FOR CHECKPOINT**
-   (2026-10-06). **Stage B2 PASS and closure: NOT YET; CI for the implementation candidate: NOT RUN.** No live wiring
-   exists, and four BEFORE-WIRING requirements stay open (Authorization rejection by raw header name;
-   destination-specific header allowlists; telemetry handling for Key Vault URL paths; the trusted Fully tenant context
-   when wired). **Exact next action: Create the Stage B2 offline implementation checkpoint only after separate owner
-   commit authorization; then push and verify CI under separate owner authorization.** B-2 to B-6, B-8, B-9 and B-12 to
-   B-19 are PROPOSED — NOT APPROVED, and no other Stage B slice has started. The pre-existing PKCE verifier cleanup gap is resolved by a 3B maintenance fix, PASS (approved
+   B-11"). **Stage B2** (real transport and token source) is **PASS — OFFLINE SLICE COMPLETE** (approved by the owner
+   on 2026-10-06; checkpoint `d1468bb`, CI run 37434239946 SUCCESS) and needs no further work unless separately
+   authorized. No live wiring exists, and four BEFORE-WIRING requirements stay open (Authorization rejection by raw
+   header name; destination-specific header allowlists; telemetry handling for Key Vault URL paths; the trusted Fully
+   tenant context when wired). **The next owner boundary is selecting and authorizing the next Stage B slice and the
+   owner decisions it requires**; no other Stage B slice is currently authorized, and B-2 to B-6, B-8, B-9 and B-12 to
+   B-19 are PROPOSED — NOT APPROVED. The pre-existing PKCE verifier cleanup gap is resolved by a 3B maintenance fix, PASS (approved
    2026-10-03); as a 3G precondition, the 3G harness or host runs `CleanUpVerifiersAsync` once at start-up and every 5
    minutes while active, only under a trusted tenant context.
    The 3D decisions stay in force: D3D-1 to D3D-5; D3D-6 (the ledger keeps the provider-neutral
@@ -361,9 +361,9 @@ database holds no data. Tags are immutable and additive.
   only those two containers: `docker compose --env-file .env -f infra/local/docker-compose.yml up -d
   --force-recreate --no-deps mssql servicebus-emulator`. Never `docker … prune`.
 - `dotnet test` under Microsoft.Testing.Platform: `dotnet test --project <csproj> -c Debug` or the
-  solution path; never pass `--nologo`. Unit (949), Security (168) and Architecture (44 at `446fa5a`, 45 with the Stage B2 tree) run without Docker;
-  the full suite (1,783 at `446fa5a`, with Integration 622; 1,861 with the uncommitted Stage B2 tree, Integration 699,
-  Architecture 45) needs `./eng/dev.ps1 up`; the Service Bus emulator tests
+  solution path; never pass `--nologo`. Unit (949), Security (168) and Architecture (45 at `d1468bb`; 44 at `446fa5a`) run without Docker;
+  the full suite (1,861 at `d1468bb`, with Integration 699; 1,783 at `446fa5a`, Integration 622)
+  needs `./eng/dev.ps1 up`; the Service Bus emulator tests
   skip when `.env` has no `ACCEPT_EULA=Y`, as in CI. The shared local database holds stale, unrelayable outbox rows
   that make five relay-dependent harness tests fail there; full-suite evidence is taken on a temporary isolated
   database by setting `POSTGRES_DB` (see the offline report's addendum). Cleaning those rows is a separate task that
