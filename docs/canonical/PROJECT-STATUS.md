@@ -207,7 +207,7 @@ Gate passes. P0 is a planning prerequisite to Core Gate 3, not a technical depen
 planned and NOT STARTED.
 
 ### Gate 3 — monday Connector
-Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B PASS (approved 2026-09-30); 3C PASS (approved 2026-09-30); 3D PASS (approved 2026-10-01); 3E PASS (approved 2026-10-02); 3F PASS (approved 2026-10-03); 3B maintenance (PKCE verifier cleanup) PASS (approved 2026-10-03); 3G IN PROGRESS — OFFLINE IMPLEMENTATION ONLY (authorized 2026-10-05; real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED); later Gates not started**
+Status: **IN PROGRESS — authorized 2026-09-29; 3A PASS (approved 2026-09-30); 3B PASS (approved 2026-09-30); 3C PASS (approved 2026-09-30); 3D PASS (approved 2026-10-01); 3E PASS (approved 2026-10-02); 3F PASS (approved 2026-10-03); 3B maintenance (PKCE verifier cleanup) PASS (approved 2026-10-03); 3G IN PROGRESS — OFFLINE IMPLEMENTATION ONLY (authorized 2026-10-05; offline harness and offline Key Vault adapter integrated at `446fa5a`, CI run 37409608267 PASS; Stage B planning complete, B-1 to B-19 PROPOSED — NOT APPROVED; real acceptance NOT PROVEN; real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED); later Gates not started**
 
 Gate 3 builds real monday authentication, webhooks, source mapping, API reconciliation and initial sync on top of
 the Gate 2 Event Backbone, reading and ingesting only. Scope, the verified monday platform baseline, sub-gates 3A to
@@ -242,9 +242,20 @@ path.
 
 On 2026-10-05 the product owner authorized 3G for an offline implementation only (**IN PROGRESS — OFFLINE
 IMPLEMENTATION ONLY**, owner decisions D3G-1 to D3G-8 in `docs/gates/gate-3-scope.md`): a non-production offline
-harness at `tests/App.Harness.Monday`, with its guards and tests, built and verified locally only, on an uncommitted
-tree with CI NOT RUN, with deterministic fakes for all provider traffic and credentials over the local database and
-Service Bus emulator. Real execution is NOT AUTHORIZED, Gate 3 closure is NOT AUTHORIZED and real acceptance is NOT PROVEN.
+harness at `tests/App.Harness.Monday`, with its guards and tests, with deterministic fakes for all provider traffic and
+credentials over the local database and Service Bus emulator. It was first verified locally on an uncommitted tree
+(2026-10-05) and then integrated on `main` by PR #1 (`884962f`, main CI run 37307089471 green). On 2026-10-05 the owner
+approved S-1 to S-5 (`docs/gates/gate-3G-live-enablement-plan.md`) for an offline Key Vault adapter only, and on
+2026-10-06 clarified that S-1 permits only an adapter that holds, uses and obtains no real credential and that D3G-1
+stays fully in force. That adapter (`tests/App.Harness.Monday/Secrets/`, not wired into the harness) was verified on a
+temporary isolated database (1,783 of 1,783 tests; 44 targeted mutants, 43 caught and K05 accepted by the owner as an
+equivalent mutant) and integrated as the current checkpoint: `main` == `origin/main` == `446fa5a`, **CI run 37409608267
+PASS** with all three jobs successful. Evidence: `docs/gates/gate-3G-offline-report.md` and its addendum.
+
+**Stage B (live readiness preparation): planning complete (2026-10-06)**, recorded in
+`docs/gates/gate-3G-live-enablement-plan.md`, section "Gate 3G — Stage B Live Readiness Preparation". Its decisions
+**B-1 to B-19 are PROPOSED — NOT APPROVED**, and **no Stage B implementation has started**. D3G-1 remains fully in
+force. Real execution is NOT AUTHORIZED, Gate 3 closure is NOT AUTHORIZED and real acceptance is NOT PROVEN.
 
 ## Verified evidence for Gate 1A / 1B
 
@@ -410,7 +421,11 @@ evidence: `docs/gates/gate-2-report.md`). Premium Gate P0 (Architecture Freeze) 
 frozen (closed 2026-09-29; `docs/premium/`, `docs/gates/gate-P0-report.md`). Gate 3 (monday Connector) is in
 progress: 3A to 3F are PASS (3F, initial sync, watermark and buffered replay, approved 2026-10-03;
 `docs/gates/gate-3-scope.md`), and 3G is IN PROGRESS — OFFLINE IMPLEMENTATION ONLY (authorized 2026-10-05); the pre-existing PKCE verifier cleanup gap is resolved
-(3B maintenance PASS, 2026-10-03), and the 3G host must run the verifier cleanup at start-up and every 5 minutes. Do
+(3B maintenance PASS, 2026-10-03), and the 3G host must run the verifier cleanup at start-up and every 5 minutes. The
+offline harness and the offline Key Vault adapter are integrated at `446fa5a` (CI run 37409608267 PASS). **The next
+phase is the Stage B owner decisions, beginning with B-1** (`docs/gates/gate-3G-live-enablement-plan.md`, "Gate 3G —
+Stage B Live Readiness Preparation"); B-1 to B-19 are PROPOSED — NOT APPROVED, and no Stage B implementation begins
+before the owner decides. Do
 not run anything against real monday, do not close Gate 3, and do not start any later Gate or
 any Premium Gate P1 to P11, without the product owner's explicit authorization, do not start the bootstrap or
 migration jobs (each has exactly one execution), and do not deploy,
