@@ -39,15 +39,16 @@ namespace WorkContinuity.Harness.Monday.Composition;
 /// What a composition may be given in place of the harness's fail-closed defaults.
 /// </summary>
 /// <remarks>
-/// The standalone entry point supplies none of these, so it has no secret storage, no provider transport and no
-/// operator certificate, and cannot run an authorization or reach a provider (owner decision D3G-3). Only the harness's
-/// tests supply them: in-memory secret storage holding synthetic values, a deterministic fake of the provider's
-/// endpoints, a movable clock and timer, an in-memory broker, and a certificate created in memory for the loopback
-/// listener. Nothing here is read from configuration, so no setting can turn a default into a live dependency.
+/// The standalone entry point supplies one of these only, the operator listener's certificate it creates for its run
+/// (owner decision B-13), so it has no secret storage and no provider transport, and cannot run an authorization or
+/// reach a provider (owner decision D3G-3). Only the harness's tests supply the others: in-memory secret storage holding
+/// synthetic values, a deterministic fake of the provider's endpoints, a movable clock and timer, an in-memory broker,
+/// and a certificate created in memory for the loopback listener. Nothing here is read from configuration, so no setting
+/// can turn a default into a live dependency.
 /// </remarks>
 public sealed class HarnessSeams
 {
-    /// <summary>Gets the seams of the standalone entry point: none.</summary>
+    /// <summary>Gets no seam at all: not even a certificate, so the harness does not start.</summary>
     public static HarnessSeams None { get; } = new();
 
     /// <summary>Gets the secret storage; the refusing store when null.</summary>

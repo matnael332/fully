@@ -60,6 +60,12 @@ public enum HarnessRefusal
 
     /// <summary>The configured tenant's own session on the local emulator could not be taken and checked (owner decision B-15).</summary>
     TransportSessionUnavailable = 16,
+
+    /// <summary>A standalone run's redirect address does not name the fixed operator callback port (owner decision B-13).</summary>
+    RedirectNotTheFixedCallbackPort = 17,
+
+    /// <summary>The operator did not give the per-run DEV/TEST attestation (owner decision B-12).</summary>
+    OperatorNotAttested = 18,
 }
 
 /// <summary>
@@ -113,6 +119,13 @@ public sealed class HarnessOptions
 
     /// <summary>The path of the operator callback, which the redirect address must name.</summary>
     public const string CallbackPath = "/operator/callback";
+
+    /// <summary>
+    /// The one operator callback port a standalone run may use (owner decision B-13): fixed, on loopback, and not a
+    /// default. It sits below the system's dynamic port range, so it is never handed out as an ephemeral port, and no
+    /// other repository component uses it. The harness's tests compose in process on ports of their own.
+    /// </summary>
+    public const int OperatorCallbackPort = 47443;
 
     private HarnessOptions(
         TenantId tenant,

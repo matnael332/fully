@@ -1615,3 +1615,134 @@ Status:
   authorizing the next Stage B slice and the owner decisions it requires.
 - No real credential or certificate was used; there was no Azure, Entra, Key Vault, monday or OAuth contact and no
   deployment.
+
+## Addendum — Stage B4 operator identity and loopback TLS
+
+Recorded on 2026-10-06 on top of `519d440` (the Stage B3 PASS record). **Status: IN PROGRESS — OFFLINE IMPLEMENTATION
+ONLY; implemented and validated locally; uncommitted; CI NOT RUN; NOT PASS.** No real credential or certificate of any
+provider was used; there was no Azure, Entra, Key Vault, monday or OAuth contact, no browser authorization and no
+deployment; no certificate store or trust setting was changed.
+
+### Authorization
+
+The product owner approved B-12 and B-13 "exactly as proposed in the current Gate 3G plan", authorized "Stage B4 offline
+implementation" in "the narrowed B4 scope", and delegated the choice of the fixed callback port. Record:
+`docs/gates/gate-3-scope.md`, section "3G — Stage B owner decisions B-12 and B-13 and Stage B4 authorization (approved
+2026-10-06)". B-12 answers open question 3 above ("The operator's identity provider key") and B-13 open question 4 ("The
+loopback HTTPS redirect address and TLS on the operator listener").
+
+### Exact scope
+
+Changed:
+- `tests/App.Harness.Monday/Trust/TrustedFlow.cs`: the operator's identity provider `wce-dev-harness` in place of
+  `LocalDemo` (B-12).
+- `tests/App.Harness.Monday/Trust/OperatorAttestation.cs` (new): the per-run DEV/TEST statement and the exact answer
+  `attest` (B-12).
+- `tests/App.Harness.Monday/Operator/OperatorTlsCertificate.cs` (new): the ephemeral loopback certificate and its SHA-256
+  fingerprint (B-13).
+- `tests/App.Harness.Monday/Configuration/HarnessOptions.cs`: the fixed callback port `OperatorCallbackPort = 47443` and
+  two closed refusals, `RedirectNotTheFixedCallbackPort` and `OperatorNotAttested`.
+- `tests/App.Harness.Monday/HarnessProgram.cs`: the fixed-port check before the database gate; past the gate, the
+  certificate, its fingerprint, the attestation and the certificate as the one seam; a new exit code `NotAttested` (5).
+- `tests/App.Harness.Monday/Composition/HarnessHost.cs`: documentation of the seams only.
+- `tests/App.Architecture.Tests/HarnessBoundaryTests.cs`: two guards evolved and one added under B-11.
+- `tests/App.Integration.Tests/Harness/HarnessFailClosedTests.cs`: the standalone-entry test now also proves the fixed
+  port is required before the gate and that no line is read from the operator before it.
+- `tests/App.Integration.Tests/Harness/HarnessOperatorIdentityTlsTests.cs` (new): three classes, 16 tests.
+- Status and record documents: `CLAUDE.md`, `INIT.md`, `docs/canonical/PROJECT-STATUS.md`, `docs/gates/gate-3-scope.md`,
+  `docs/gates/gate-3G-live-enablement-plan.md` and this addendum.
+
+Not changed: anything under `src/`; any package or project reference; `HarnessStandaloneGate` (empty); the Stage B2
+`Live/` files (still unwired: nothing outside `Live/` names them); the seed, evidence and wrapper tools under `eng/`;
+every Dockerfile, workflow and infrastructure file; the six frozen documents.
+
+The port, B-12 and B-13 as implemented, the platform note on the Windows key container and the guard changes are recorded
+in `docs/gates/gate-3-scope.md`, section "3G — Stage B4 implementation record (2026-10-06, offline, uncommitted)".
+
+### Tests
+
+16 new integration tests in three classes, none needing a provider:
+- `HarnessOperatorIdentityTests` (12): the operator is `wce-dev-harness`, not `local-demo` or `entra-id`, for the
+  configured canonical user; only the exact line `attest` is the attestation (ten cases); the statement says DEV/TEST
+  only, names the honest provider and names no tenant or user.
+- `HarnessOperatorCertificateTests` (3): each run gets a new self-signed SHA-256 RSA 2048 certificate whose only name is
+  `IP:127.0.0.1` (checked in the encoded extension), valid from just before now for at most one day, not an authority,
+  for server authentication only; the fingerprint is the colon-separated SHA-256 browsers show; creating and disposing
+  it changes no certificate store of the current user or the machine, and the unchanged machine trust does not build its
+  chain (no revocation check, no download).
+- `HarnessOperatorTlsHostTests` (1): the existing host, given the certificate, serves its operator listener over TLS;
+  a client for `127.0.0.1` is presented exactly that certificate, the only policy error is the untrusted root (the name
+  matches the IP literal), and an unknown route is answered 404 by the listener itself.
+
+The standalone entry point cannot be run past its database gate in any test, because the gate is empty. Its order is
+therefore pinned by the architecture guard (fixed port, database gate, certificate, fingerprint, attestation, host), its
+refusals before the gate are tested end to end, and each piece it composes is tested on its own and, for the
+certificate, in the real host.
+
+### Verification
+
+All local, 2026-10-06, on the uncommitted tree; no temporary database was created and no role was altered.
+
+- Solution build: 0 warnings, 0 errors. Unit 949/949; security 225/225; architecture 47/47.
+- Directly affected integration classes: 66/66 (the 16 new tests, `HarnessFailClosedTests`, `HarnessOptionsTests`).
+- Harness integration namespace on the shared suite database: 287 tests, 282 passed. Full integration suite without the
+  14 owner-excluded role-altering tests (excluded by exact name; each name checked to exist exactly once): 727 executed,
+  722 passed. In both, the same 5 failed only by the shared database's documented relay starvation (the Stage B3 final
+  delta lists them); their messages are the 100-pass relay waits. B4 touches no relay, ingress or transport code.
+- `eng/verify-architecture.py` PASS; `eng/verify-local-env.py` PASS; the six frozen documents unchanged; pinned gitleaks
+  8.30.1 (binary verified against the release checksums, whose Linux entry is the one CI pins): no leaks in the history
+  or in any changed path; `git diff --check` clean; nothing staged.
+
+Not run: a clean full local suite. It needs a fresh isolated database, a separate owner approval, because the shared
+suite database is starved; and the 14 role-altering tests run only in CI or in a separately isolated PostgreSQL
+environment (Stage B3 decision 6). CI has not run on this tree.
+
+### Mutation evidence
+
+- **Guards (source mutants, architecture tests): 36 of 36 CAUGHT**, unmutated control PASS, every file restored byte for
+  byte. They cover the seam allowance (another seam, a second file, a second assignment, no certificate), the
+  certificate allowance (a store opened, a persisted or exportable key, creation or loading in another file, a second
+  load or creation, a file load, a development certificate), B-12 (the demo provider, the demo key, a provider in
+  another file, a second identity, a case-insensitive or weaker attestation), B-13 (two days, a day of backdating, a
+  host name, another address, an authority, the PKCS#12 copy kept, another purpose, console output, mutable state), the
+  port (another value, not required, required elsewhere) and the order (certificate before the gate, attestation or
+  fingerprint after the host, creation elsewhere, reassignment).
+- **Behavior (rebuilt mutants, integration tests): 12 of 12 CAUGHT**, unmutated control rebuilt and passing: a host name
+  added, two days, an authority, a key kept in process memory only (the real host's TLS handshake fails, so the host
+  test is not vacuous), another loopback address (the name no longer matches `127.0.0.1`), a fingerprint without
+  separators, a 1,024-bit key, the demo provider, a case-insensitive attestation, the fixed port not required, a line
+  read before the gate, and the certificate created and shown before the gate.
+
+### Known limitations and follow-ups (outside B4)
+
+- **The Windows key container.** The platform's TLS server needs the certificate's private key in a per-user key
+  container, so a key file exists while the certificate is in use and is deleted when it is disposed; a process killed
+  before disposal can leave it behind. It is never a trusted certificate. Recorded for the owner; not a trust-store
+  change. *Owner decision, 2026-10-07:* accepted as satisfying B-13, with the orphan-file residual (a hard crash or
+  power loss) recorded; no trust-store change is allowed (`docs/gates/gate-3-scope.md`, section "3G — Stage B4 owner
+  decisions on the B-13 key container and clean verification (approved 2026-10-07)").
+- **What only a live run can show** (B-13, area H [C]): that monday accepts the HTTPS IP-literal redirect with port
+  `47443`; that the browser keeps the `__Host-` binding cookie after its warning is accepted; that the cross-site
+  callback carries the binding.
+- **Unchanged and still open:** the four Stage B2 BEFORE-WIRING requirements; the TEMPORARY privilege through PUBLIC
+  (the approved non-blocking follow-up); multi-tenant acceptance for Gate 3G; the shared suite database's relay
+  starvation; open questions 1, 2, 5 and 6 above. B4 addresses none of them, by the owner's scope.
+
+### Reviews
+
+The three review agents (canonical-auditor, tenant-security-reviewer, gate-verifier) are run on the final tree,
+including this addendum; their verdicts are reported to the owner with it and are not part of the reviewed text.
+
+### Status
+
+- **Stage B4: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**, implemented and validated locally, uncommitted, CI NOT RUN,
+  **NOT PASS**. On 2026-10-07 the owner accepted the B-13 key-container deviation (above) and chose exact-commit CI
+  after the checkpoint as the clean verification: no temporary database for B4; CI runs the full suite on a fresh
+  environment, including the 14 role-altering tests. Stage B4 can PASS only after a successful exact-commit CI run on its
+  checkpoint, by the owner's decision. The next owner boundary is the authorization of its checkpoint commit.
+- Approved B decisions: B-1 (authoring only), B-7, B-10, B-11, B-12, B-13, B-14 (as clarified) and B-15; every other B
+  decision is PROPOSED — NOT APPROVED. No other Stage B slice is authorized.
+- `HarnessStandaloneGate` is empty; the persistent standalone database has not been created and the seed has not been
+  run; no Stage B2 seam is wired.
+- **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Gate 3: IN PROGRESS. Real acceptance: NOT PROVEN. Real
+  execution: NOT AUTHORIZED. Gate 3G and Gate 3 closure: NOT AUTHORIZED.**

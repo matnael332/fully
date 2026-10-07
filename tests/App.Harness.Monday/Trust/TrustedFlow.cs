@@ -9,12 +9,23 @@ namespace WorkContinuity.Harness.Monday.Trust;
 /// The trusted chain the harness supplies (R3B-1): the configured tenant and the canonical user who owns the delegation.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Both come from <see cref="HarnessOptions"/>, which reads them once from server-side configuration. Nothing else in
 /// the harness can construct this type, so no request, console argument or provider value can become the tenant or the
 /// user.
+/// </para>
+/// <para>
+/// The operator's identity provider is the harness's own, named for what it is (owner decision B-12): an owner-operated
+/// DEV/TEST harness whose console, loopback listener and browser binding stand for the owner acting as the configured
+/// canonical user. It is never the production trust model, which Gate 7's Entra sign-in provides, and it is not the
+/// local demo provider, because a real delegation is not a demonstration account.
+/// </para>
 /// </remarks>
 public sealed class HarnessTrust
 {
+    /// <summary>The key of the harness's own DEV/TEST identity provider (owner decision B-12). An identifier, not a credential.</summary>
+    public const string OperatorProviderKey = "wce-dev-harness";
+
     /// <summary>The subject of the operator's local identity. An identifier, not a credential.</summary>
     public const string OperatorSubject = "wce-harness-operator";
 
@@ -23,7 +34,7 @@ public sealed class HarnessTrust
         Tenant = options.Tenant;
         Operator = Principal.Authenticated(
             options.CanonicalUser,
-            new ExternalIdentity(IdentityProviderId.LocalDemo, OperatorSubject));
+            new ExternalIdentity(IdentityProviderId.From(OperatorProviderKey), OperatorSubject));
     }
 
     /// <summary>Gets the trusted tenant.</summary>

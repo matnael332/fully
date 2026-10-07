@@ -31,6 +31,9 @@ public sealed class HarnessBoundaryTests
     private const string TokenSourceFile = LiveDirectory + "EntraCertificateTokenSource.cs";
     private const string AssertionFile = LiveDirectory + "EntraClientAssertion.cs";
     private const string PreflightFile = HarnessDirectory + "Composition/TransportSessionPreflight.cs";
+    private const string TlsCertificateFile = HarnessDirectory + "Operator/OperatorTlsCertificate.cs";
+    private const string AttestationFile = HarnessDirectory + "Trust/OperatorAttestation.cs";
+    private const string FlowFile = HarnessDirectory + "Trust/TrustedFlow.cs";
 
     // The raw Snapshot tables by name, their entity sets and their records, exactly as the production guard names them.
     private static readonly Regex RawSnapshot = new(
@@ -135,8 +138,12 @@ public sealed class HarnessBoundaryTests
 
         // A seam is only ever read by the harness. No harness code supplies one, and the standalone entry point passes
         // exactly the one flag that runs the loops.
-        Assert.Empty(Holders(new Regex(@"\b(ProviderTransport|SecretStore|OperatorCertificate|TransportPublisher|TimeProvider|LogSink|Delay|Clock)\s*=[^=>]")));
-        Assert.Contains("new HarnessSeams { RunBackboneLoops = true }", Read(ProgramFile), StringComparison.Ordinal);
+        // B-11 (2026-10-06): under B-13 the standalone entry point also passes the operator certificate it created for
+        // its run, in exactly one assignment, in that one file; no other seam is assigned anywhere.
+        Assert.Empty(Holders(new Regex(@"\b(ProviderTransport|SecretStore|TransportPublisher|TimeProvider|LogSink|Delay|Clock)\s*=[^=>]")));
+        Assert.Equal([ProgramFile], Holders(new Regex(@"\bOperatorCertificate\s*=[^=>]")));
+        Assert.Equal(1, Regex.Count(Read(ProgramFile), @"\bOperatorCertificate\s*=[^=>]"));
+        Assert.Contains("new HarnessSeams { RunBackboneLoops = true, OperatorCertificate = certificate }", Read(ProgramFile), StringComparison.Ordinal);
         Assert.Equal(1, Regex.Count(string.Concat(HarnessSources().Select(Read)), @"new HarnessSeams\b"));
 
         // Configuration: the keys are read at one boundary, they are exactly these, and none of them is a switch.
@@ -298,7 +305,16 @@ public sealed class HarnessBoundaryTests
         Assert.Equal(1, Regex.Count(Read(HostFile), @"listen => listen\.UseHttps\(certificate\)"));
 
         // No certificate is taken from the machine: the only one is the seam's.
-        AssertNamedNowhere("X509Store", "StoreName.", "StoreLocation.", "dev-certs", "UseHttps()", "X509CertificateLoader", "CreateSelfSigned");
+        // B-11 (2026-10-06): under B-13 the one certificate the harness creates is the standalone run's ephemeral operator
+        // certificate, in exactly one file, created once and reloaded once from memory with the default key storage. No
+        // store, file, key storage flag or development certificate is named anywhere.
+        AssertNamedNowhere(
+            "X509Store", "StoreName.", "StoreLocation.", "dev-certs", "UseHttps()", "X509KeyStorageFlags", "PersistKeySet", "MachineKeySet",
+            "Exportable", ".pfx", ".pem", "LoadCertificateFromFile", "LoadPkcs12FromFile");
+        Assert.Equal([TlsCertificateFile], Holders(new Regex(@"X509CertificateLoader|CreateSelfSigned")));
+        Assert.Equal(1, Regex.Count(Read(TlsCertificateFile), @"X509CertificateLoader\."));
+        Assert.Equal(1, Regex.Count(Read(TlsCertificateFile), @"CreateSelfSigned\("));
+        Assert.Contains("return X509CertificateLoader.LoadPkcs12(pkcs12, password: null);", Read(TlsCertificateFile), StringComparison.Ordinal);
 
         // No exporter, no request log, no framework log provider, and no host that reads ambient configuration.
         AssertNamedNowhere(
@@ -493,7 +509,7 @@ public sealed class HarnessBoundaryTests
         Assert.Empty(Holders(new Regex(@"new\s+EntraCertificateTokenSource\s*\(")));
         Assert.Empty(Holders(new Regex(@"LiveTransport\.For\w+\(")));
         Assert.Contains("private static readonly string[] ApprovedDatabases = [];", Read(OptionsFile), StringComparison.Ordinal);
-        Assert.Contains("new HarnessSeams { RunBackboneLoops = true }", Read(ProgramFile), StringComparison.Ordinal);
+        Assert.Contains("new HarnessSeams { RunBackboneLoops = true, OperatorCertificate = certificate }", Read(ProgramFile), StringComparison.Ordinal);
 
         // No ambient or alternative credential anywhere in the harness: only the explicit certificate credential.
         AssertNamedNowhere(
@@ -620,6 +636,83 @@ public sealed class HarnessBoundaryTests
         Assert.DoesNotMatch(
             new Regex(@"ServiceBusReceiver\b|ServiceBusSender\b|ServiceBusProcessor\b|AcceptSessionAsync|PeekMessage"),
             string.Concat(HarnessSources().Where(path => path != PreflightFile).Select(Read)));
+    }
+
+    [Fact]
+    public void Stage_b4_names_the_operator_honestly_and_gives_each_standalone_run_one_ephemeral_loopback_certificate()
+    {
+        // B-12 (2026-10-06): the operator's identity provider is the harness's own DEV/TEST key, named once, in the one place
+        // the operator principal is built. The local demo provider, and every other provider, is named nowhere.
+        AssertNamedNowhere("LocalDemo", "local-demo", "EntraId");
+        Assert.Equal([FlowFile], Holders(new Regex(@"\bIdentityProviderId\b")));
+        Assert.Equal(1, Regex.Count(Read(FlowFile), @"\bIdentityProviderId\."));
+        Assert.Contains("public const string OperatorProviderKey = \"wce-dev-harness\";", Read(FlowFile), StringComparison.Ordinal);
+        Assert.Contains("new ExternalIdentity(IdentityProviderId.From(OperatorProviderKey), OperatorSubject)", Read(FlowFile), StringComparison.Ordinal);
+        Assert.Equal(1, Regex.Count(string.Concat(HarnessSources().Select(Read)), @"new ExternalIdentity\("));
+
+        // The per-run attestation: one exact answer, compared exactly, in one file.
+        var attestation = Read(AttestationFile);
+        Assert.Contains("public const string Answer = \"attest\";", attestation, StringComparison.Ordinal);
+        Assert.Contains("public static bool IsGiven(string? line) => string.Equals(line, Answer, StringComparison.Ordinal);", attestation, StringComparison.Ordinal);
+
+        // B-13 (2026-10-06): the certificate names the loopback address and nothing else, is valid for one day at most, is
+        // no authority, and its PKCS#12 copy is cleared once loaded.
+        var certificate = Read(TlsCertificateFile);
+        foreach (var pinned in new[]
+                 {
+                     "public static readonly TimeSpan Validity = TimeSpan.FromDays(1);",
+                     "public static readonly TimeSpan Backdating = TimeSpan.FromMinutes(1);",
+                     "using var created = request.CreateSelfSigned(notBefore, notBefore + Validity);",
+                     "names.AddIpAddress(IPAddress.Loopback);",
+                     "new X509BasicConstraintsExtension(certificateAuthority: false, hasPathLengthConstraint: false, pathLengthConstraint: 0, critical: true)",
+                     "new X509EnhancedKeyUsageExtension([new Oid(ServerAuthentication)], critical: false)",
+                     "public const string ServerAuthentication = \"1.3.6.1.5.5.7.3.1\";",
+                     "var pkcs12 = created.Export(X509ContentType.Pfx);",
+                     "CryptographicOperations.ZeroMemory(pkcs12);",
+                 })
+        {
+            Assert.Equal(1, Regex.Count(certificate, Regex.Escape(pinned)));
+        }
+
+        Assert.Equal(1, Regex.Count(certificate, @"\.Add\w*(IpAddress|DnsName|Uri|EmailAddress|UserPrincipalName)\("));
+        Assert.Equal(1, Regex.Count(certificate, @"\.Export\("));
+        foreach (var path in new[] { TlsCertificateFile, AttestationFile })
+        {
+            Assert.DoesNotMatch(
+                new Regex(@"IConfiguration|configuration\[|GetSection\(|HarnessOptions|HarnessSeams|Environment\.|\bILogger\b|\bConsole\.|\bDebug\.|\bTrace\.|File\.|Directory\."),
+                Read(path));
+            Assert.DoesNotMatch(new Regex(@"\bstatic\s+(?!readonly\b)[\w<>\[\]?,]+\s+\w+\s*[=;]"), Read(path));
+        }
+
+        // The fixed callback port: one constant, required by the standalone entry point only.
+        Assert.Contains("public const int OperatorCallbackPort = 47443;", Read(OptionsFile), StringComparison.Ordinal);
+        Assert.Equal([OptionsFile, ProgramFile], Holders(new Regex(@"\bOperatorCallbackPort\b")));
+        Assert.Equal(1, Regex.Count(Read(ProgramFile), @"\bOperatorCallbackPort\b"));
+
+        // The certificate is created only by the standalone entry point, once, after the fixed port and the database were
+        // accepted; its fingerprint is shown and the attestation required before the host is started with it; and it is
+        // disposed with the run.
+        Assert.Equal([ProgramFile], Holders(new Regex(@"OperatorTlsCertificate\.Create\(")));
+        Assert.Equal([ProgramFile], Holders(new Regex(@"OperatorAttestation\.IsGiven\(")));
+        var program = Read(ProgramFile);
+        Assert.Equal(1, Regex.Count(program, @"OperatorTlsCertificate\.Create\("));
+        Assert.Equal(1, Regex.Count(program, @"\bcertificate\s*=[^=>]"));
+        int At(string fragment)
+        {
+            Assert.Equal(1, Regex.Count(program, Regex.Escape(fragment)));
+            return program.IndexOf(fragment, StringComparison.Ordinal);
+        }
+
+        int[] order =
+        [
+            At("if (options.OperatorPort != HarnessOptions.OperatorCallbackPort)"),
+            At("if (!HarnessStandaloneGate.Permits(options))"),
+            At("using var certificate = OperatorTlsCertificate.Create(TimeProvider.System.GetUtcNow());"),
+            At("$\"harness: operator TLS certificate SHA-256 fingerprint {OperatorTlsCertificate.Fingerprint(certificate)}\""),
+            At("if (!OperatorAttestation.IsGiven(await input.ReadLineAsync(cancellationToken)))"),
+            At("var started = await HarnessHost.StartAsync(options, new HarnessSeams { RunBackboneLoops = true, OperatorCertificate = certificate }, cancellationToken);"),
+        ];
+        Assert.Equal(order.Order(), order);
     }
 
     private static void AssertNamedNowhere(params string[] fragments)

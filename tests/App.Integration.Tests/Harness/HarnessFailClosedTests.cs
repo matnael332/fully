@@ -193,9 +193,20 @@ public sealed class HarnessFailClosedTests(DatabaseFixture fixture)
             Assert.Equal("harness: not started (TenantMissingOrMalformed)" + Environment.NewLine, output.ToString());
         }
 
-        // Fully configured, for the suite's own database and for any other name: no database is approved for a
-        // standalone run, so it stops before it opens a listener or a connection. The second address answers nothing,
-        // and the answer is the same.
+        // Valid, but the redirect address names a port other than the fixed operator callback port (owner decision B-13):
+        // refused before the database gate, and so before any certificate exists.
+        foreach (var port in new[] { HarnessTestHost.FreePort(), 8443, HarnessOptions.OperatorCallbackPort + 1 })
+        {
+            using var output = new StringWriter();
+            var configuration = HarnessTestHost.ConfigurationFor(fixture.ApplicationConnectionString, TenantId.New(), UserId.New(), port);
+            Assert.Equal(HarnessRefusal.None, HarnessOptions.Read(configuration).Refusal);
+            Assert.Equal(HarnessProgram.NotConfigured, await HarnessProgram.RunAsync(configuration, input, output, Token));
+            Assert.Equal("harness: not started (RedirectNotTheFixedCallbackPort)" + Environment.NewLine, output.ToString());
+        }
+
+        // Fully configured, on the fixed port, for the suite's own database and for any other name: no database is
+        // approved for a standalone run, so it stops before it creates a certificate, asks for the attestation, or opens
+        // a listener or a connection. The second address answers nothing, and the answer is the same.
         foreach (var connectionString in new[]
                  {
                      fixture.ApplicationConnectionString,
@@ -203,11 +214,14 @@ public sealed class HarnessFailClosedTests(DatabaseFixture fixture)
                  })
         {
             using var output = new StringWriter();
-            var configuration = HarnessTestHost.ConfigurationFor(connectionString, TenantId.New(), UserId.New(), HarnessTestHost.FreePort());
+            var configuration = HarnessTestHost.ConfigurationFor(connectionString, TenantId.New(), UserId.New(), HarnessOptions.OperatorCallbackPort);
             Assert.Equal(HarnessProgram.NotApproved, await HarnessProgram.RunAsync(configuration, input, output, Token));
             Assert.Equal("harness: not started (StandaloneDatabaseNotApproved)" + Environment.NewLine, output.ToString());
             Assert.False(HarnessStandaloneGate.Permits(Assert.IsType<HarnessOptions>(HarnessOptions.Read(configuration).Options)));
         }
+
+        // No run read a line: nothing was asked of the operator.
+        Assert.Equal("authorize", await input.ReadLineAsync(Token));
     }
 
     [Fact]

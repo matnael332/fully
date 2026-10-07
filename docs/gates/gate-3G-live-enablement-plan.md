@@ -33,7 +33,14 @@ Azure behaves.
   "3G — Stage B owner decision B-1 (approved 2026-10-06)"). **B-7, B-10 and B-11 are APPROVED — 2026-10-06** (recorded
   in the same file, section "3G — Stage B owner decisions B-7, B-10 and B-11 (approved 2026-10-06)"). **B-14 and B-15
   are APPROVED — 2026-10-06** (same file, section "3G — Stage B owner decisions B-14 and B-15 (approved 2026-10-06)").
-  **B-2 to B-6, B-8, B-9, B-12, B-13 and B-16 to B-19 remain PROPOSED — NOT APPROVED.**
+  **B-12 and B-13 are APPROVED — 2026-10-06** (same file, section "3G — Stage B owner decisions B-12 and B-13 and Stage
+  B4 authorization (approved 2026-10-06)"). **B-2 to B-6, B-8, B-9 and B-16 to B-19 remain PROPOSED — NOT APPROVED.**
+- Status update, 2026-10-06: **Stage B4** (operator identity and loopback TLS) was authorized by the owner for offline
+  implementation only, in a narrowed scope: the honest DEV/TEST operator identity, an ephemeral loopback certificate and
+  its fingerprint, one fixed callback port (chosen under the owner's delegation: `47443`) and that certificate supplied
+  to the existing host path; no Stage B2 seam wiring, no BEFORE-WIRING work and no `HarnessStandaloneGate` entry. It is
+  implemented and validated locally, uncommitted, CI NOT RUN, and **NOT PASS**. See the eleventh update at the end of
+  this file.
 - Status update, 2026-10-06: **Stage B3** (standalone database and transport preparation) was authorized by the owner
   for offline implementation only; it is now **PASS — OFFLINE SLICE COMPLETE** (see the fifth status update below). Later the
   same day the owner approved the B-14 seed clarification (the seed prepares only one fresh tenant and one fresh
@@ -637,8 +644,8 @@ Planning recorded on 2026-10-06 at baseline `446fa5a1b1e77223d3eedfd89569c338dfd
 This section is planning only. **At planning time every decision B-1 to B-19 was PROPOSED — NOT APPROVED**, and none
 may be read as an owner decision until the product owner approves it in their own words. Since then only B-1 has been
 approved (2026-10-06, see the update below), then B-7, B-10 and B-11 (2026-10-06, see the second update below), and then
-B-14 and B-15 (2026-10-06, see their entries and the fifth update below); **B-2 to B-6, B-8, B-9, B-12, B-13 and B-16 to
-B-19 remain PROPOSED — NOT APPROVED.**
+B-14 and B-15 (2026-10-06, see their entries and the fifth update below), and then B-12 and B-13 (2026-10-06, see their
+entries and the eleventh update below); **B-2 to B-6, B-8, B-9 and B-16 to B-19 remain PROPOSED — NOT APPROVED.**
 
 - **D3G-1 remains fully in force**, as clarified by the owner on 2026-10-06: it prohibits every real-credential adapter
   and every real connection to Azure or Key Vault.
@@ -822,7 +829,7 @@ inbound: no webhook, no Signing Secret, no public ingress. Those belong to Stage
 - Alternatives: a dedicated PostgreSQL container and a dedicated emulator instance; each changes `infra/local` and
   needs its own approval.
 
-### Proposed owner decisions B-1 to B-19 (B-1, B-7, B-10, B-11, B-14, B-15 APPROVED — 2026-10-06; all others PROPOSED — NOT APPROVED)
+### Proposed owner decisions B-1 to B-19 (B-1, B-7, B-10, B-11, B-12, B-13, B-14, B-15 APPROVED — 2026-10-06; all others PROPOSED — NOT APPROVED)
 
 Each entry gives the question, the recommendation, the alternatives, the practical and security effect, why it is
 needed now, what approval would enable, what stays prohibited, and whether an existing decision changes. Each entry
@@ -951,13 +958,21 @@ records the proposal as written at planning time; an approval is recorded in the
 - Recommended: a blanket ban may be replaced only by an equal-or-stricter pinned allowance in exactly named files, with
   targeted mutation evidence. No existing guard is deleted.
 
-**B-12 — Operator identity. PROPOSED — NOT APPROVED.**
+**B-12 — Operator identity. APPROVED — 2026-10-06.**
+
+- *Owner approval, 2026-10-06:* approved "exactly as proposed in the current Gate 3G plan". Implemented offline in Stage
+  B4 with the key `wce-dev-harness` and a per-run console attestation. Record: `docs/gates/gate-3-scope.md`, section
+  "3G — Stage B owner decisions B-12 and B-13 and Stage B4 authorization (approved 2026-10-06)".
 
 - Recommended: an honest harness provider key (for example `wce-dev-harness`); the current console and loopback model
   kept, explicitly DEV/TEST only; an owner attestation per run; Gate 7 replaces it for production.
 - Closes open question 3 of the offline report and settles the operator-identity row of the 3G contradiction audit.
 
-**B-13 — Loopback TLS. PROPOSED — NOT APPROVED.**
+**B-13 — Loopback TLS. APPROVED — 2026-10-06.**
+
+- *Owner approval, 2026-10-06:* approved "exactly as proposed in the current Gate 3G plan", with the choice of the fixed
+  callback port delegated; the port chosen is `47443`. Implemented offline in Stage B4. Record: `docs/gates/gate-3-scope.md`,
+  section "3G — Stage B owner decisions B-12 and B-13 and Stage B4 authorization (approved 2026-10-06)".
 
 - Recommended: the ephemeral in-memory certificate with a printed fingerprint, a one-time browser warning, a fixed
   callback port and no trust-store change.
@@ -1065,6 +1080,13 @@ records the proposal as written at planning time; an approval is recorded in the
     unless separately authorized; the persistent database and the seed run each stay a separate approval.
 - **B4 — Operator and TLS.** The honest operator key; the ephemeral certificate and its fingerprint; the standalone
   wiring of the certificate and the seams. Offline. Approval: B-12, B-13.
+  - *Update, 2026-10-06:* B-12 and B-13 were approved and Stage B4 was authorized for offline implementation only, in a
+    narrowed scope: the certificate is supplied to the existing host path, but the Stage B2 seams are **not** wired, the
+    four BEFORE-WIRING requirements stay open, and `HarnessStandaloneGate` stays empty. The fixed callback port is
+    `47443`. Stage B4 is IN PROGRESS — OFFLINE IMPLEMENTATION ONLY, validated locally, uncommitted, **NOT PASS**.
+  - *Update, 2026-10-07:* the owner accepted the per-user key-container file as satisfying B-13 (orphan-file residual
+    recorded, no trust-store change) and chose exact-commit CI after the checkpoint as Stage B4's clean verification (no
+    temporary database). See the twelfth update.
 - **B5 — Live-run preparation package.** A run book: preflight (effective permissions, privileges, empty session),
   abort criteria, an evidence template and the cleanup procedure. Offline, documentation only. Approval: B-6, B-17 to
   B-19.
@@ -1279,3 +1301,37 @@ SLICE COMPLETE (checkpoint `736db05`, CI run 37509953860 — SUCCESS); the tempo
 TEMPORARY via PUBLIC the approved non-blocking follow-up; the persistent standalone database not created and the seed
 not run. No live wiring; no real credential or provider behavior proven. No other Stage B slice authorized; next owner
 boundary: selecting and authorizing the next Stage B slice and the owner decisions it requires.**
+
+*Eleventh update, 2026-10-06 (status only):* the product owner approved B-12 and B-13 "exactly as proposed in the current
+Gate 3G plan", authorized "Stage B4 offline implementation" in "the narrowed B4 scope", and delegated the choice of the
+fixed callback port (record: `docs/gates/gate-3-scope.md`, section "3G — Stage B owner decisions B-12 and B-13 and Stage
+B4 authorization (approved 2026-10-06)"). Stage B4 is implemented offline: the operator's identity provider is
+`wce-dev-harness`; the standalone entry point requires the redirect address on the fixed port `47443`, then, past its
+still-empty database gate, creates the ephemeral loopback certificate for the run, prints its SHA-256 fingerprint,
+requires the owner's per-run DEV/TEST attestation and supplies the certificate to the existing host. No Stage B2 seam is
+wired, no BEFORE-WIRING requirement is addressed, and no trust store is touched. The implementation record, the port's
+evidence and a platform note on the Windows key container are in `docs/gates/gate-3-scope.md`, section "3G — Stage B4
+implementation record (2026-10-06, offline, uncommitted)", and in `docs/gates/gate-3G-offline-report.md`, "Addendum —
+Stage B4 operator identity and loopback TLS".
+
+Status after the eleventh update: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN.
+Real execution: NOT AUTHORIZED. Gate closure: NOT AUTHORIZED. Approved: B-1 (authoring only), B-7, B-10, B-11, B-12,
+B-13, B-14 (as clarified on 2026-10-06), B-15 — 2026-10-06; every other B decision: PROPOSED — NOT APPROVED. Stage B2
+and Stage B3: PASS — OFFLINE SLICE COMPLETE. Four BEFORE-WIRING requirements open. Stage B4: IN PROGRESS — OFFLINE
+IMPLEMENTATION ONLY; validated locally, uncommitted, CI NOT RUN, NOT PASS. Persistent standalone database not created;
+seed not run; `HarnessStandaloneGate` empty. No live wiring; no real credential or provider behavior proven. No other
+Stage B slice authorized; next owner boundary: the owner's review of Stage B4 and the authorization of its checkpoint.**
+
+*Twelfth update, 2026-10-07 (status only):* the product owner made the two open Stage B4 decisions (record:
+`docs/gates/gate-3-scope.md`, section "3G — Stage B4 owner decisions on the B-13 key container and clean verification
+(approved 2026-10-07)"). First, the ephemeral loopback certificate may use a temporary per-user private-key container file
+while in use, deleted on dispose; a hard crash or power loss may leave an orphan file; no trust-store change occurs; this
+is accepted as satisfying B-13, with the residual risk recorded. Second, Stage B4's clean verification is exact-commit CI
+after the checkpoint: no temporary isolated database is required, and CI must run the full suite on a fresh environment,
+including the 14 role-altering tests.
+
+Status after the twelfth update: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN.
+Real execution: NOT AUTHORIZED. Gate closure: NOT AUTHORIZED. Stage B4: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY;
+validated locally, uncommitted, CI NOT RUN, NOT PASS; it can PASS only after a successful exact-commit CI run on its
+checkpoint, by the owner's decision. Next owner boundary: the authorization of the Stage B4 checkpoint commit (exactly
+the 15 Stage B4 paths); its push, the review of its CI and the PASS decision follow as separate approvals.**
