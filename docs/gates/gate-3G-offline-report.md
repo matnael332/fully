@@ -1618,10 +1618,12 @@ Status:
 
 ## Addendum — Stage B4 operator identity and loopback TLS
 
-Recorded on 2026-10-06 on top of `519d440` (the Stage B3 PASS record). **Status: IN PROGRESS — OFFLINE IMPLEMENTATION
-ONLY; implemented and validated locally; uncommitted; CI NOT RUN; NOT PASS.** No real credential or certificate of any
-provider was used; there was no Azure, Entra, Key Vault, monday or OAuth contact, no browser authorization and no
-deployment; no certificate store or trust setting was changed.
+Recorded on 2026-10-06 on top of `519d440` (the Stage B3 PASS record). **Status when recorded: IN PROGRESS — OFFLINE
+IMPLEMENTATION ONLY; implemented and validated locally; uncommitted; CI NOT RUN; NOT PASS.** Stage B4 is now **PASS —
+OFFLINE SLICE COMPLETE** (approved by the owner on 2026-10-07; see "Checkpoint, CI and owner PASS (2026-10-07)" at the
+end of this addendum). No real credential or certificate of any provider was used; there was no Azure, Entra, Key
+Vault, monday or OAuth contact, no browser authorization and no deployment; no certificate store or trust setting was
+changed.
 
 ### Authorization
 
@@ -1733,7 +1735,7 @@ environment (Stage B3 decision 6). CI has not run on this tree.
 The three review agents (canonical-auditor, tenant-security-reviewer, gate-verifier) are run on the final tree,
 including this addendum; their verdicts are reported to the owner with it and are not part of the reviewed text.
 
-### Status
+### Status before the checkpoint (superseded below)
 
 - **Stage B4: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**, implemented and validated locally, uncommitted, CI NOT RUN,
   **NOT PASS**. On 2026-10-07 the owner accepted the B-13 key-container deviation (above) and chose exact-commit CI
@@ -1746,3 +1748,38 @@ including this addendum; their verdicts are reported to the owner with it and ar
   run; no Stage B2 seam is wired.
 - **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Gate 3: IN PROGRESS. Real acceptance: NOT PROVEN. Real
   execution: NOT AUTHORIZED. Gate 3G and Gate 3 closure: NOT AUTHORIZED.**
+
+### Checkpoint, CI and owner PASS (2026-10-07)
+
+- The Stage B4 tree, with the owner's decisions of 2026-10-07 recorded, was committed as
+  `ba6a086fae4ee6b1c62ba67bdaf498b7921654f2` ("feat: checkpoint Gate 3G Stage B4 offline operator TLS", parent
+  `519d440`, exactly the 15 Stage B4 paths) and pushed, each by separate owner authorization.
+- **CI run 37638185897 — SUCCESS** on that exact commit (attempt 1): 1,962 total, 1,949 passed, 0 failed, 13 skipped
+  (the expected Service Bus emulator tests in CI). This is the clean verification the owner chose on 2026-10-07: the
+  full suite on a fresh environment, with no temporary database.
+- **All 14 role-altering tests (Stage B3 decision 6) executed and passed in CI.**
+- **The Stage B4-specific tests executed and passed in CI.**
+- The product owner then explicitly approved **"Stage B4 — PASS, OFFLINE SLICE COMPLETE"** (2026-10-07).
+
+The PASS does not mean any of the following:
+- Gate 3G PASS or Gate 3 PASS;
+- real acceptance proven;
+- real execution or live wiring authorized;
+- Azure, Entra, Key Vault or monday execution authorized;
+- the persistent standalone database created or authorized, or the seed run;
+- any other Stage B slice authorized.
+
+Status:
+- **Stage B4: PASS — OFFLINE SLICE COMPLETE** (checkpoint `ba6a086fae4ee6b1c62ba67bdaf498b7921654f2`, CI run 37638185897
+  — SUCCESS). It needs no further work unless separately authorized.
+- **The B-13 key-container residual remains recorded:** a hard crash, a forced kill or a power loss before disposal can
+  leave one orphan private-key file; no trust-store change is allowed.
+- No Stage B2 seam is wired; **the four Stage B2 BEFORE-WIRING requirements: OPEN.**
+- `HarnessStandaloneGate` is empty; the persistent standalone database has not been created; the seed has not been run.
+- **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Gate 3: IN PROGRESS. Real acceptance: NOT PROVEN. Real
+  execution: NOT AUTHORIZED. Gate 3G and Gate 3 closure: NOT AUTHORIZED.**
+- The approved B decisions remain B-1 (authoring only), B-7, B-10, B-11, B-12, B-13, B-14 (as clarified) and B-15; every
+  other B decision is PROPOSED — NOT APPROVED. No other Stage B slice is authorized; the next owner boundary is selecting
+  and authorizing the next Stage B slice and the owner decisions it requires.
+- No real credential or certificate of any provider was used; there was no Azure, Entra, Key Vault, monday or OAuth
+  contact, no browser authorization and no deployment; no certificate store or trust setting was changed.
