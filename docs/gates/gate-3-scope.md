@@ -12,7 +12,7 @@
 | 3E — API reconciliation and authoritative reread | **PASS** — approved by the product owner on 2026-10-02 |
 | 3F — Initial sync, watermark and buffered replay | **PASS** — approved by the product owner on 2026-10-03 |
 | 3B maintenance before 3G — PKCE verifier cleanup | **PASS** — approved by the product owner on 2026-10-03 |
-| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; Stage B decisions B-1 (authoring only), B-7, B-10, B-11, B-12, B-13, B-14 and B-15 APPROVED 2026-10-06, B-2, B-3, B-4, B-8 and B-9 APPROVED 2026-10-08 (authoring approvals only), all other B decisions PROPOSED — NOT APPROVED; Stage B2 (real transport and token source) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-06; checkpoint `d1468bb`, CI run 37434239946 SUCCESS), four BEFORE-WIRING requirements open, no live wiring, Stage B3 (standalone database and transport preparation) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-06; checkpoint `736db05`, exact-commit CI run 37509953860 SUCCESS: 1,945 tests, 1,932 passed, 0 failed, 13 expected Service Bus emulator skips; the 14 owner-excluded role-bootstrap tests executed and passed in CI, none skipped) under B-14 and B-15, with the B-14 seed clarification (the seed prepares only one fresh tenant and one fresh canonical user), the owner-run tool structure (`eng/harness-standalone.ps1`), one temporary isolated validation database, the owner's six review decisions (one-tenant isolation evidence for Stage B3 only, multi-tenant acceptance OPEN for Gate 3G) and the temporary-relation clarification (the TEMPORARY privilege inherited through PUBLIC a NON-BLOCKING FOLLOW-UP; revoking it a separate owner decision outside Stage B3), all APPROVED 2026-10-06; no further work unless separately authorized (the temporary database was used for validation only and dropped; persistent standalone database NOT created; seed NOT RUN; `HarnessStandaloneGate` empty; no live run); Stage B4 (operator identity and loopback TLS) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-07; checkpoint `ba6a086`, exact-commit CI run 37638185897 SUCCESS: 1,962 tests, 1,949 passed, 0 failed, 13 expected Service Bus emulator skips; all 14 role-altering tests and the Stage B4 tests executed and passed in CI) under B-12 and B-13, authorized by the product owner on 2026-10-06 in a narrowed scope (no Stage B2 seam wiring, no BEFORE-WIRING work, `HarnessStandaloneGate` empty; fixed callback port `47443`), with the per-user key-container file of the ephemeral certificate accepted on 2026-10-07 as satisfying B-13 and the orphan-file residual recorded, and exact-commit CI after the checkpoint as the clean verification, no temporary database; no further work unless separately authorized; Stage B1 (IaC authoring) **AUTHORIZED 2026-10-08, IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** under B-2, B-3, B-4, B-8 and B-9 (authoring only: nothing created, deployed or contacted), its owner review decisions approved and its checkpoint commit of exactly the 16 Stage B1 paths authorized on 2026-10-10 (no push; NOT PASS); every other Stage B slice not authorized or started; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
+| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; Stage B decisions B-1 (authoring only), B-7, B-10, B-11, B-12, B-13, B-14 and B-15 APPROVED 2026-10-06, B-2, B-3, B-4, B-8 and B-9 APPROVED 2026-10-08 (authoring approvals only), all other B decisions PROPOSED — NOT APPROVED; Stage B2 (real transport and token source) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-06; checkpoint `d1468bb`, CI run 37434239946 SUCCESS), four BEFORE-WIRING requirements open, no live wiring, Stage B3 (standalone database and transport preparation) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-06; checkpoint `736db05`, exact-commit CI run 37509953860 SUCCESS: 1,945 tests, 1,932 passed, 0 failed, 13 expected Service Bus emulator skips; the 14 owner-excluded role-bootstrap tests executed and passed in CI, none skipped) under B-14 and B-15, with the B-14 seed clarification (the seed prepares only one fresh tenant and one fresh canonical user), the owner-run tool structure (`eng/harness-standalone.ps1`), one temporary isolated validation database, the owner's six review decisions (one-tenant isolation evidence for Stage B3 only, multi-tenant acceptance OPEN for Gate 3G) and the temporary-relation clarification (the TEMPORARY privilege inherited through PUBLIC a NON-BLOCKING FOLLOW-UP; revoking it a separate owner decision outside Stage B3), all APPROVED 2026-10-06; no further work unless separately authorized (the temporary database was used for validation only and dropped; persistent standalone database NOT created; seed NOT RUN; `HarnessStandaloneGate` empty; no live run); Stage B4 (operator identity and loopback TLS) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-07; checkpoint `ba6a086`, exact-commit CI run 37638185897 SUCCESS: 1,962 tests, 1,949 passed, 0 failed, 13 expected Service Bus emulator skips; all 14 role-altering tests and the Stage B4 tests executed and passed in CI) under B-12 and B-13, authorized by the product owner on 2026-10-06 in a narrowed scope (no Stage B2 seam wiring, no BEFORE-WIRING work, `HarnessStandaloneGate` empty; fixed callback port `47443`), with the per-user key-container file of the ephemeral certificate accepted on 2026-10-07 as satisfying B-13 and the orphan-file residual recorded, and exact-commit CI after the checkpoint as the clean verification, no temporary database; no further work unless separately authorized; Stage B1 (IaC authoring) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-10; checkpoint `310e3ff`, exact-commit CI run 38044980337 SUCCESS: 2,050 tests, 2,037 passed, 0 failed, 13 expected Service Bus emulator skips; Bicep build and lint passed on Linux) under B-2, B-3, B-4, B-8 and B-9 (authorized 2026-10-08; authoring only: nothing created, deployed or contacted), with the owner review decisions of 2026-10-10 (one Fully tenant per harness run the current operating rule, multi-tenant acceptance OPEN, B-18 OPEN); no further offline work unless separately authorized; every other Stage B slice not authorized or started; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -4385,3 +4385,53 @@ Consequences recorded here, not added to the decisions:
 
 **Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate 3G
 closure are NOT AUTHORIZED.
+
+## 3G — Stage B1 owner PASS (2026-10-10)
+
+The product owner explicitly declared **"Stage B1 — PASS, OFFLINE SLICE COMPLETE"**, dated 2026-10-10.
+
+The owner's accepted basis:
+- the checkpoint commit `310e3ff069bd2edb5d478ca1098547456aca1cad` ("feat: checkpoint Gate 3G Stage B1 offline IaC",
+  parent `5822698`, exactly the 16 Stage B1 paths), committed and then pushed as a fast-forward, each by separate owner
+  authorization;
+- exact-commit CI run 38044980337 — SUCCESS (head SHA `310e3ff069bd2edb5d478ca1098547456aca1cad`, attempt 1), all
+  three jobs successful: the secret scan; build, verify and test, with 2,050 total, 2,037 passed, 0 failed and 13
+  skipped, the 13 being the expected Service Bus emulator tests in CI; and the container images (Release build, no
+  push). This run is the clean verification boundary the owner named on 2026-10-10 (decision 5 of section "3G — Stage
+  B1 owner review decisions and checkpoint authorization (approved 2026-10-10)");
+- Bicep build and lint passed on Linux: the CI step "Bicep build and lint" ran `./eng/infra.ps1 build` and `lint` under
+  PowerShell and built and linted `infra/bicep/harness-vault.bicep` (BICEP BUILD: PASS, BICEP LINT: PASS).
+
+Recorded with it, not added to the owner's basis: the total is the Stage B4 run's 1,962 plus the 88 Stage B1 tests, and
+none of the 88 has a skip path; their PowerShell sandbox fails rather than passes when no PowerShell is found. With 0
+failed, all 88 therefore executed and passed in that CI run, the sandbox tests running the two owner scripts under
+`pwsh` on Linux. The CI log reports totals and does not name skipped tests.
+
+**Stage B1: PASS — OFFLINE SLICE COMPLETE.** Stage B1 requires no further offline work unless separately authorized.
+
+It does **not** mean any of the following:
+- Gate 3G PASS or Gate 3 PASS;
+- real acceptance proven;
+- real execution or live wiring authorized;
+- any Azure, Entra, Graph, Key Vault or monday action authorized: deploying the harness vault, assigning its role,
+  creating the Entra application, service principal and certificate credential, the monday app and the runs each stay a
+  separate owner approval;
+- the persistent standalone database created or authorized: it has not been created, the seed has not been run, and
+  `HarnessStandaloneGate` stays empty unless separately authorized;
+- any other Stage B slice authorized.
+
+Unchanged by this PASS:
+- Nothing exists in Azure or Entra for the harness: no resource group, vault, workspace, role, assignment, application,
+  service principal, certificate or secret.
+- No live wiring exists and no Stage B2 seam is wired. **The four Stage B2 BEFORE-WIRING requirements remain OPEN.**
+- One Fully tenant per harness run remains the current operating rule; multi-tenant acceptance remains OPEN and is not
+  proven by B1.
+- **B-18 remains OPEN** (PROPOSED — NOT APPROVED).
+
+The approved B decisions remain exactly B-1 (authoring only), B-2, B-3, B-4, B-7, B-8, B-9, B-10, B-11, B-12, B-13, B-14
+(as clarified) and B-15; B-5, B-6 and B-16 to B-19 remain PROPOSED — NOT APPROVED. This PASS authorizes no other Stage B
+slice: B0 and B5 are not authorized or started. The next owner boundary is the owner's selection and authorization of
+the next Stage B slice, together with the owner decisions that slice requires.
+
+**Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**, and Gate 3 stays IN PROGRESS. Real acceptance is NOT
+PROVEN; real execution and the closure of Gate 3G and of Gate 3 are NOT AUTHORIZED.

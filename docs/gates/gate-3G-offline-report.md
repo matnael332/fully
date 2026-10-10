@@ -1786,9 +1786,10 @@ Status:
 
 ## Addendum — Stage B1 IaC authoring
 
-Recorded on 2026-10-08 on top of `5822698` (the Stage B4 PASS record). **Status: IN PROGRESS — OFFLINE IMPLEMENTATION
-ONLY; implemented and validated locally; uncommitted; CI NOT RUN; NOT PASS.** Nothing was created, deployed or
-contacted: no resource group, vault, workspace, role, assignment, Entra application, service principal, certificate or
+Recorded on 2026-10-08 on top of `5822698` (the Stage B4 PASS record). **Status when recorded: IN PROGRESS — OFFLINE
+IMPLEMENTATION ONLY; implemented and validated locally; uncommitted; CI NOT RUN; NOT PASS.** Stage B1 is now **PASS —
+OFFLINE SLICE COMPLETE** (approved by the owner on 2026-10-10; see "Checkpoint, CI and owner PASS (2026-10-10)" at the
+end of this addendum). Nothing was created, deployed or contacted: no resource group, vault, workspace, role, assignment, Entra application, service principal, certificate or
 secret exists; there was no `az login`, Azure validation, what-if, deployment, Entra, Graph, Key Vault, monday or other
 provider contact; no certificate store or trust setting was opened or changed.
 
@@ -1963,7 +1964,7 @@ Before the checkpoint, the unchanged tree was verified again on 2026-10-10: solu
 through `./eng/infra.ps1`; the scripts parse without error; the six frozen documents unchanged; `git diff --check`
 clean; no leaks in the history or in any of the 16 paths.
 
-### Status
+### Status at the checkpoint (superseded below)
 
 - **Stage B1: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**, implemented and validated locally, CI NOT RUN, **NOT PASS**.
   The owner approved its review decisions and authorized its checkpoint commit on 2026-10-10. It can PASS only after the
@@ -1972,3 +1973,45 @@ clean; no leaks in the history or in any of the 16 paths.
   and B-15; B-5, B-6 and B-16 to B-19 are PROPOSED — NOT APPROVED. No other Stage B slice is authorized.
 - **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Gate 3: IN PROGRESS. Real acceptance: NOT PROVEN. Real
   execution: NOT AUTHORIZED. Gate 3G and Gate 3 closure: NOT AUTHORIZED.**
+
+### Checkpoint, CI and owner PASS (2026-10-10)
+
+- The Stage B1 tree, with the owner's review decisions of 2026-10-10 recorded, was committed as
+  `310e3ff069bd2edb5d478ca1098547456aca1cad` ("feat: checkpoint Gate 3G Stage B1 offline IaC", parent `5822698`,
+  exactly the 16 Stage B1 paths) and pushed as a fast-forward, each by separate owner authorization.
+- **CI run 38044980337 — SUCCESS** on that exact commit (attempt 1, the only run for it), all three jobs successful:
+  the secret scan (gitleaks); build, verify and test, with the build at 0 warnings and 0 errors and 2,050 tests: 2,037
+  passed, 0 failed, 13 skipped (the expected Service Bus emulator tests in CI); and the container images (Release
+  build, no push). This is the exact-commit CI the owner named on 2026-10-10 as the next clean verification boundary.
+- **Bicep build and lint passed on Linux:** the CI step "Bicep build and lint (local compile only, no Azure login)" ran
+  `./eng/infra.ps1 build` and `./eng/infra.ps1 lint` under PowerShell (`pwsh`) and built and linted
+  `infra/bicep/harness-vault.bicep` with `main.bicep` (BICEP BUILD: PASS, BICEP LINT: PASS).
+- **The 88 Stage B1 tests executed and passed in CI:** the total is the Stage B4 run's 1,962 plus these 88. None of them
+  has a skip path, and their PowerShell sandbox fails rather than passes when no PowerShell is found, so with 0 failed
+  each one ran and passed, the sandbox tests running the two owner scripts under `pwsh` on Linux. The CI log reports
+  totals and does not name skipped tests.
+- The product owner then explicitly declared **"Stage B1 — PASS, OFFLINE SLICE COMPLETE"** (2026-10-10).
+
+The PASS does not mean any of the following:
+- Gate 3G PASS or Gate 3 PASS;
+- real acceptance proven;
+- real execution or live wiring authorized;
+- any Azure, Entra, Graph, Key Vault or monday action authorized, including deploying the harness vault and creating
+  the Entra identity and its certificate credential;
+- the persistent standalone database created or authorized, or the seed run;
+- any other Stage B slice authorized.
+
+Status:
+- **Stage B1: PASS — OFFLINE SLICE COMPLETE** (checkpoint `310e3ff069bd2edb5d478ca1098547456aca1cad`, CI run
+  38044980337 — SUCCESS). It requires no further offline work unless separately authorized.
+- Nothing was created, deployed or contacted: no resource group, vault, workspace, role, assignment, Entra application,
+  service principal, certificate or secret exists.
+- One Fully tenant per harness run remains the current operating rule; multi-tenant acceptance: OPEN. **B-18: OPEN**
+  (PROPOSED — NOT APPROVED).
+- No live wiring; no Stage B2 seam is wired; **the four Stage B2 BEFORE-WIRING requirements: OPEN.**
+- `HarnessStandaloneGate` is empty; the persistent standalone database has not been created; the seed has not been run.
+- **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Gate 3: IN PROGRESS. Real acceptance: NOT PROVEN. Real
+  execution: NOT AUTHORIZED. Gate 3G and Gate 3 closure: NOT AUTHORIZED.**
+- The approved B decisions remain B-1 (authoring only), B-2, B-3, B-4, B-7, B-8, B-9, B-10, B-11, B-12, B-13, B-14 (as
+  clarified) and B-15; B-5, B-6 and B-16 to B-19 are PROPOSED — NOT APPROVED. No other Stage B slice is authorized; the
+  next owner boundary is selecting and authorizing the next Stage B slice and the owner decisions it requires.

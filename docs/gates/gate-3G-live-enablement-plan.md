@@ -6,27 +6,32 @@ owner says so in their own words. When this plan was written (2026-10-05), S-1 t
 **PROPOSED, NOT APPROVED**. The document implements nothing, authorizes nothing, and is not evidence of how monday or
 Azure behaves.
 
-## Current status (2026-10-08)
+## Current status (2026-10-10)
 
 - **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN. Real execution is NOT
   AUTHORIZED. Gate closure is NOT AUTHORIZED.
 - *Status update, 2026-10-08:* **B-2, B-3, B-4, B-8 and B-9 are APPROVED — 2026-10-08** (authoring approvals only), and
   **Stage B1 (IaC authoring) was authorized** for offline implementation only (record: `docs/gates/gate-3-scope.md`,
   section "3G — Stage B owner decisions B-2, B-3, B-4, B-8 and B-9 and Stage B1 authorization (approved 2026-10-08)").
-  Stage B1 is IN PROGRESS — OFFLINE IMPLEMENTATION ONLY, implemented and validated locally, uncommitted, CI NOT RUN,
-  **NOT PASS**; nothing was created, deployed or contacted. See the fourteenth update at the end of this file.
+  Stage B1 was then IN PROGRESS — OFFLINE IMPLEMENTATION ONLY, implemented and validated locally, uncommitted, CI NOT
+  RUN, **NOT PASS** (see the fourteenth update at the end of this file); it is now **PASS — OFFLINE SLICE COMPLETE**
+  (see the status updates below). Nothing was created, deployed or contacted.
 - *Status update, 2026-10-10:* the owner approved the remaining Stage B1 review decisions exactly as recommended and
   authorized the checkpoint commit of exactly the 16 Stage B1 paths, with no push (record: `docs/gates/gate-3-scope.md`,
-  section "3G — Stage B1 owner review decisions and checkpoint authorization (approved 2026-10-10)"). Stage B1 stays
-  **NOT PASS**. See the fifteenth update at the end of this file.
-- Current repository pointer (2026-10-08): `main` == `origin/main` == `5822698ebfbbe7d9a6552990cb641e71ec2c7714` ("docs:
-  record Gate 3G Stage B4 PASS", documentation only, CI run 37747426660 SUCCESS); its parent
-  `ba6a086fae4ee6b1c62ba67bdaf498b7921654f2` ("feat:
-  checkpoint Gate 3G Stage B4 offline operator TLS") is the latest code checkpoint; CI run 37638185897
-  succeeded on that exact commit (1,962 tests: 1,949 passed, 0 failed, 13 expected Service Bus emulator skips). The
-  offline harness, the offline Key Vault adapter (`446fa5a`, CI run 37409608267), the Stage B2 transport and token
-  source (`d1468bb`, CI run 37434239946), the Stage B3 preparation (`736db05`, CI run 37509953860) and the Stage B4
-  operator identity and loopback TLS are integrated on `main`.
+  section "3G — Stage B1 owner review decisions and checkpoint authorization (approved 2026-10-10)"). Stage B1 was then
+  still **NOT PASS** (see the fifteenth update at the end of this file).
+- *Later status update, 2026-10-10:* **Stage B1: PASS — OFFLINE SLICE COMPLETE** (approved by the owner on 2026-10-10;
+  checkpoint `310e3ff`, CI run 38044980337 — SUCCESS: 2,050 tests, 2,037 passed, 0 failed, 13 expected Service Bus
+  emulator skips; Bicep build and lint passed on Linux). It is not Gate 3G PASS, and it authorizes no deployment, no
+  Azure, Entra, Graph, Key Vault or monday action, no wiring, no real execution, no persistent standalone database, no
+  seed run and no other Stage B slice; B-18 stays OPEN. See the sixteenth update at the end of this file.
+- Current repository pointer (2026-10-10): the latest code checkpoint is `310e3ff069bd2edb5d478ca1098547456aca1cad`
+  ("feat: checkpoint Gate 3G Stage B1 offline IaC"), pushed to `origin/main`; CI run 38044980337 succeeded on that exact
+  commit (2,050 tests: 2,037 passed, 0 failed, 13 expected Service Bus emulator skips). The documentation-only record of
+  the Stage B1 PASS is committed on top of it. The offline harness, the offline Key Vault adapter (`446fa5a`, CI run
+  37409608267), the Stage B2 transport and token source (`d1468bb`, CI run 37434239946), the Stage B3 preparation
+  (`736db05`, CI run 37509953860), the Stage B4 operator identity and loopback TLS (`ba6a086`, CI run 37638185897) and
+  the Stage B1 harness IaC and owner-run scripts are integrated on `main`.
 - S-1 to S-5 were approved by the product owner on 2026-10-05 exactly as defined in this plan, in the version with
   SHA-256
   `8a9ade1c5b1e4db227bc790f892268b48b859a16e88bfcdf5d06cebf1da19dc9` (the blob of this file at commit `446fa5a`). The
@@ -1104,7 +1109,11 @@ records the proposal as written at planning time; an approval is recorded in the
     B-8 and B-9 and Stage B1 authorization (approved 2026-10-08)"). Under the approved B-8 the role is assignable within
     the dedicated harness resource group and assigned at the vault only, so the stop condition is the owner's: "If the
     exact three-action custom role cannot be authored with zero Actions, or the role assignment cannot be scoped to the
-    vault, STOP and report." Stage B1 is IN PROGRESS — OFFLINE IMPLEMENTATION ONLY, NOT PASS.
+    vault, STOP and report." Stage B1 was then IN PROGRESS — OFFLINE IMPLEMENTATION ONLY, NOT PASS.
+  - *Update, 2026-10-10:* the owner approved the Stage B1 review decisions and the checkpoint (see the fifteenth
+    update), and then **Stage B1: PASS — OFFLINE SLICE COMPLETE** (checkpoint `310e3ff`, CI run 38044980337 SUCCESS;
+    Bicep build and lint passed on Linux). No further offline work unless separately authorized; nothing was deployed
+    or created. See the sixteenth update.
 - **B2 — Real transport and token source.** Under `tests/App.Harness.Monday/Live/`: the handler factory, destination
   guard and Entra certificate token source, tested only against fake inner handlers, with guards replaced under B-11
   and mutation evidence. Offline. Approval: B-1, B-7, B-10, B-11 (all four approved on 2026-10-06; B2 itself is NOT
@@ -1457,7 +1466,7 @@ words: `docs/gates/gate-3-scope.md`, section "3G — Stage B1 owner review decis
 
 These decisions change no other B decision.
 
-Current status: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT
+Status after the fifteenth update (superseded below): **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT
 AUTHORIZED. Gate 3G closure: NOT AUTHORIZED. Approved: B-1 (authoring only), B-7, B-10, B-11, B-12, B-13, B-14 (as
 clarified on 2026-10-06), B-15 — 2026-10-06; B-2, B-3, B-4, B-8, B-9 — 2026-10-08 (authoring approvals only); B-5, B-6
 and B-16 to B-19: PROPOSED — NOT APPROVED (B-18 OPEN). Stage B2, Stage B3 and Stage B4: PASS — OFFLINE SLICE COMPLETE.
@@ -1467,3 +1476,25 @@ or secret exists. Four BEFORE-WIRING requirements open; no Stage B2 seam wired. 
 created; seed not run; `HarnessStandaloneGate` empty. No live wiring; no real credential or provider behavior proven. No
 other Stage B slice authorized; next owner boundary: the authorization of the Stage B1 checkpoint's push, then its
 exact-commit CI and the Stage B1 PASS decision.**
+
+*Sixteenth update, 2026-10-10 (status only):* the Stage B1 checkpoint `310e3ff069bd2edb5d478ca1098547456aca1cad` (the
+16 Stage B1 paths) was committed and pushed as a fast-forward, each by separate owner authorization; exact-commit CI run
+38044980337 succeeded (attempt 1; all three jobs; 2,050 tests: 2,037 passed, 0 failed, 13 expected Service Bus emulator
+skips; the Bicep build and lint of `harness-vault.bicep` passed on Linux; the secret scan and the container Release
+builds passed). The owner then declared "Stage B1 — PASS, OFFLINE SLICE COMPLETE" (record: `docs/gates/gate-3-scope.md`,
+section "3G — Stage B1 owner PASS (2026-10-10)"). The PASS changes no B decision of this plan: B-18 remains OPEN, and B-5,
+B-6 and B-16 to B-19 remain PROPOSED — NOT APPROVED. It deploys nothing and authorizes no deployment, no Azure, Entra,
+Graph, Key Vault or monday action, no wiring and no other Stage B slice; nothing exists in Azure or Entra for the
+harness. The persistent standalone database has not been created, the seed has not been run, and
+`HarnessStandaloneGate` stays empty unless separately authorized.
+
+Current status: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT
+AUTHORIZED. Gate 3G closure: NOT AUTHORIZED. Approved: B-1 (authoring only), B-7, B-10, B-11, B-12, B-13, B-14 (as
+clarified on 2026-10-06), B-15 — 2026-10-06; B-2, B-3, B-4, B-8, B-9 — 2026-10-08 (authoring approvals only); B-5, B-6
+and B-16 to B-19: PROPOSED — NOT APPROVED (B-18 OPEN). Stage B1, Stage B2, Stage B3 and Stage B4: PASS — OFFLINE SLICE
+COMPLETE (Stage B1: checkpoint `310e3ff`, CI run 38044980337 — SUCCESS); no vault, role, assignment, identity,
+certificate or secret exists. One Fully tenant per harness run is the current operating rule; multi-tenant acceptance
+OPEN. Four BEFORE-WIRING requirements open; no Stage B2 seam wired. Persistent standalone database not created; seed not
+run; `HarnessStandaloneGate` empty. No live wiring; no real credential or provider behavior proven. No other Stage B
+slice authorized; next owner boundary: selecting and authorizing the next Stage B slice and the owner decisions it
+requires.**
