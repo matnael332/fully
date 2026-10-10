@@ -12,7 +12,7 @@
 | 3E — API reconciliation and authoritative reread | **PASS** — approved by the product owner on 2026-10-02 |
 | 3F — Initial sync, watermark and buffered replay | **PASS** — approved by the product owner on 2026-10-03 |
 | 3B maintenance before 3G — PKCE verifier cleanup | **PASS** — approved by the product owner on 2026-10-03 |
-| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; Stage B decisions B-1 (authoring only), B-7, B-10, B-11, B-12, B-13, B-14 and B-15 APPROVED 2026-10-06, all other B decisions PROPOSED — NOT APPROVED; Stage B2 (real transport and token source) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-06; checkpoint `d1468bb`, CI run 37434239946 SUCCESS), four BEFORE-WIRING requirements open, no live wiring, Stage B3 (standalone database and transport preparation) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-06; checkpoint `736db05`, exact-commit CI run 37509953860 SUCCESS: 1,945 tests, 1,932 passed, 0 failed, 13 expected Service Bus emulator skips; the 14 owner-excluded role-bootstrap tests executed and passed in CI, none skipped) under B-14 and B-15, with the B-14 seed clarification (the seed prepares only one fresh tenant and one fresh canonical user), the owner-run tool structure (`eng/harness-standalone.ps1`), one temporary isolated validation database, the owner's six review decisions (one-tenant isolation evidence for Stage B3 only, multi-tenant acceptance OPEN for Gate 3G) and the temporary-relation clarification (the TEMPORARY privilege inherited through PUBLIC a NON-BLOCKING FOLLOW-UP; revoking it a separate owner decision outside Stage B3), all APPROVED 2026-10-06; no further work unless separately authorized (the temporary database was used for validation only and dropped; persistent standalone database NOT created; seed NOT RUN; `HarnessStandaloneGate` empty; no live run); Stage B4 (operator identity and loopback TLS) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-07; checkpoint `ba6a086`, exact-commit CI run 37638185897 SUCCESS: 1,962 tests, 1,949 passed, 0 failed, 13 expected Service Bus emulator skips; all 14 role-altering tests and the Stage B4 tests executed and passed in CI) under B-12 and B-13, authorized by the product owner on 2026-10-06 in a narrowed scope (no Stage B2 seam wiring, no BEFORE-WIRING work, `HarnessStandaloneGate` empty; fixed callback port `47443`), with the per-user key-container file of the ephemeral certificate accepted on 2026-10-07 as satisfying B-13 and the orphan-file residual recorded, and exact-commit CI after the checkpoint as the clean verification, no temporary database; no further work unless separately authorized; every other Stage B slice not authorized or started; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
+| 3G — Real monday end-to-end acceptance and Gate closure | **IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** (authorized by the product owner on 2026-10-05); real execution NOT AUTHORIZED; Gate 3 closure NOT AUTHORIZED; real acceptance NOT PROVEN; Stage B decisions B-1 (authoring only), B-7, B-10, B-11, B-12, B-13, B-14 and B-15 APPROVED 2026-10-06, B-2, B-3, B-4, B-8 and B-9 APPROVED 2026-10-08 (authoring approvals only), all other B decisions PROPOSED — NOT APPROVED; Stage B2 (real transport and token source) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-06; checkpoint `d1468bb`, CI run 37434239946 SUCCESS), four BEFORE-WIRING requirements open, no live wiring, Stage B3 (standalone database and transport preparation) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-06; checkpoint `736db05`, exact-commit CI run 37509953860 SUCCESS: 1,945 tests, 1,932 passed, 0 failed, 13 expected Service Bus emulator skips; the 14 owner-excluded role-bootstrap tests executed and passed in CI, none skipped) under B-14 and B-15, with the B-14 seed clarification (the seed prepares only one fresh tenant and one fresh canonical user), the owner-run tool structure (`eng/harness-standalone.ps1`), one temporary isolated validation database, the owner's six review decisions (one-tenant isolation evidence for Stage B3 only, multi-tenant acceptance OPEN for Gate 3G) and the temporary-relation clarification (the TEMPORARY privilege inherited through PUBLIC a NON-BLOCKING FOLLOW-UP; revoking it a separate owner decision outside Stage B3), all APPROVED 2026-10-06; no further work unless separately authorized (the temporary database was used for validation only and dropped; persistent standalone database NOT created; seed NOT RUN; `HarnessStandaloneGate` empty; no live run); Stage B4 (operator identity and loopback TLS) **PASS — OFFLINE SLICE COMPLETE** (approved by the product owner on 2026-10-07; checkpoint `ba6a086`, exact-commit CI run 37638185897 SUCCESS: 1,962 tests, 1,949 passed, 0 failed, 13 expected Service Bus emulator skips; all 14 role-altering tests and the Stage B4 tests executed and passed in CI) under B-12 and B-13, authorized by the product owner on 2026-10-06 in a narrowed scope (no Stage B2 seam wiring, no BEFORE-WIRING work, `HarnessStandaloneGate` empty; fixed callback port `47443`), with the per-user key-container file of the ephemeral certificate accepted on 2026-10-07 as satisfying B-13 and the orphan-file residual recorded, and exact-commit CI after the checkpoint as the clean verification, no temporary database; no further work unless separately authorized; Stage B1 (IaC authoring) **AUTHORIZED 2026-10-08, IN PROGRESS — OFFLINE IMPLEMENTATION ONLY** under B-2, B-3, B-4, B-8 and B-9 (authoring only: nothing created, deployed or contacted), its owner review decisions approved and its checkpoint commit of exactly the 16 Stage B1 paths authorized on 2026-10-10 (no push; NOT PASS); every other Stage B slice not authorized or started; precondition kept: its host runs the PKCE verifier cleanup at start-up and every 5 minutes |
 | Premium Gates P1 to P11 | Not started; not authorized |
 
 Baseline: `main` == `origin/main` == `999d2f9` (the Premium Gate P0 closure), working tree clean, the frozen Core
@@ -4131,3 +4131,257 @@ next Stage B slice, together with the owner decisions that slice requires.
 
 **Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**, and Gate 3 stays IN PROGRESS. Real acceptance is NOT
 PROVEN; real execution and the closure of Gate 3G and of Gate 3 are NOT AUTHORIZED.
+
+## 3G — Stage B owner decisions B-2, B-3, B-4, B-8 and B-9 and Stage B1 authorization (approved 2026-10-08)
+
+On 2026-10-08, after the Stage B4 PASS was recorded and pushed as `5822698` (CI run 37747426660 SUCCESS), and after a
+read-only review in the working session of the decisions Stage B1 still needed, the product owner explicitly approved the
+following. The lists reproduce the owner's text.
+
+**B-2 — Dedicated vault: APPROVED — 2026-10-08.**
+
+- one new dedicated DEV/TEST harness Key Vault;
+- Standard SKU, Azure RBAC;
+- dedicated resource group in North Europe;
+- firewall default deny;
+- dedicated Log Analytics workspace in that resource group;
+- separate Bicep entry point, not referenced by main.bicep or existing Dev/Synthetic parameter files;
+- authoring only; nothing is created.
+
+**B-3 — Soft-delete retention: APPROVED — 2026-10-08.**
+
+- soft-delete retention = 7 days.
+
+**B-4 — Purge protection: APPROVED — 2026-10-08.**
+
+- purge protection = OFF for this DEV/TEST harness vault.
+
+**B-8 — Runtime RBAC: APPROVED — 2026-10-08.**
+
+- one custom role with exactly: `Microsoft.KeyVault/vaults/secrets/getSecret/action`,
+  `Microsoft.KeyVault/vaults/secrets/setSecret/action`, `Microsoft.KeyVault/vaults/secrets/delete`;
+- zero Actions, NotActions, NotDataActions, wildcards or conditions;
+- AssignableScopes = dedicated harness resource group;
+- assignment itself = dedicated vault scope only;
+- principal ID supplied as a parameter;
+- never widen permissions silently.
+
+**B-9 — Administration separation and identity creation: APPROVED — 2026-10-08.**
+
+- Product Owner is infrastructure administrator/operator;
+- Azure resources stay in Bicep;
+- Entra application, service principal and certificate credential are authored through one reviewed idempotent
+  PowerShell script under eng/ using Azure CLI;
+- script must refuse writes without -Approve and verify results by read-back;
+- single-tenant app;
+- no API permissions, redirect URI or app roles in B1;
+- service principal has no directory role/group ownership;
+- private key is generated non-exportable locally and never leaves the machine;
+- Microsoft Graph Bicep extension is NOT approved;
+- for this harness only, this reviewed/versioned script is accepted as satisfying invariant 69.
+
+In the owner's words: "These approvals are authoring approvals only."
+
+**Stage B1 — IaC authoring: AUTHORIZED — 2026-10-08. IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** In the owner's words:
+"Implement Stage B1 — IaC authoring — offline only, under the Product Owner-approved B-2, B-3, B-4, B-8 and B-9
+decisions."
+
+Excluded by the same authorization, as the owner lists it: running `az login`; running Azure validate or what-if;
+deploying or creating any Azure resource; creating Entra or Graph objects; creating a certificate; contacting monday,
+Azure, Entra, Key Vault or any provider; modifying `src/`; adding packages; modifying existing Dev or Synthetic templates
+or parameter files; wiring Stage B2; resolving unrelated follow-ups. "D3G-1 remains in force except for the
+already-approved authoring carve-out." No stage, commit or push.
+
+Stop conditions, as the owner lists them: "If the exact three-action custom role cannot be authored with zero Actions,
+or the role assignment cannot be scoped to the vault, STOP and report." Stop also if completion requires Azure, Entra,
+Graph or provider contact; modifying `src/`; a new dependency; broadening the approved role; changing existing Dev or
+Synthetic infrastructure; or resolving work outside B1.
+
+Acceptance, recorded before code from the owner's success criteria and verification list:
+
+- an isolated harness infrastructure entry point;
+- dedicated resource group, vault, logging, network and RBAC definitions matching B-2, B-3, B-4 and B-8;
+- an owner-run deployment path that is inert without explicit approval;
+- the reviewed Entra provisioning script described by B-9;
+- documentation recording the five owner decisions and the Stage B1 authorization;
+- nothing real created or contacted;
+- offline verification only: Bicep build and lint of the new entry point; static validation of the PowerShell scripts;
+  the relevant architecture and security tests; both repository verifiers; the frozen-document hash check;
+  `git diff --check`; the secret scan; a contradiction check against the canonical documents; targeted mutation evidence
+  for every guard added or changed; and the canonical-auditor, tenant-security-reviewer and gate-verifier reviews of the
+  final tree. Stage B1 is not declared PASS by its implementation; that is the owner's decision.
+
+Consequences recorded here, not added to the decisions:
+
+- Approved Stage B decisions: **B-1** (authoring only), **B-2**, **B-3**, **B-4**, **B-7**, **B-8**, **B-9**, **B-10**,
+  **B-11**, **B-12**, **B-13**, **B-14** (as clarified) and **B-15**. B-5, B-6 and B-16 to B-19 remain **PROPOSED — NOT
+  APPROVED**.
+- Where `docs/gates/gate-3G-live-enablement-plan.md` proposed a role "assignable at the dedicated vault only" (area C)
+  and a B1 stop condition on a "vault-only assignable scope", the approved B-8 governs: the assignable scope is the
+  dedicated harness resource group, and the assignment is made at the vault only.
+- The invariant 69 acceptance of B-9 applies to this harness only. Every other piece of Azure infrastructure stays in
+  Bicep.
+- Nothing is created by these decisions or by Stage B1: no resource group, vault, workspace, role, assignment, Entra
+  application, service principal, certificate or secret, and no deployment.
+- Stage B2, Stage B3 and Stage B4 remain **PASS — OFFLINE SLICE COMPLETE**. The four Stage B2 BEFORE-WIRING requirements
+  remain OPEN, no Stage B2 seam is wired, `HarnessStandaloneGate` stays empty, the persistent standalone database has not
+  been created and the seed has not been run. No other Stage B slice (B0, B5) is authorized.
+- D3G-1 to D3G-8 (D3G-4 as superseded by B-14), S-1 to S-5, R3B-1, R3B-2, D3B-1 and every earlier Gate 3 decision are
+  unchanged.
+
+**Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate 3G
+closure are NOT AUTHORIZED.
+
+## 3G — Stage B1 implementation record (2026-10-08, offline, uncommitted)
+
+Implemented as authorized above, offline only, on the uncommitted tree at `5822698`. Evidence and the facts left for a
+future real deployment: `docs/gates/gate-3G-offline-report.md`, "Addendum — Stage B1 IaC authoring".
+
+New:
+- `infra/bicep/harness-vault.bicep`: the separate subscription-scope entry point. It creates the dedicated resource group
+  `rg-wce-harness-neu` in `northeurope` (both fixed in the template) and the custom role
+  `wce-harness-keyvault-secrets-runtime`, and deploys the module into that resource group. Its only parameters are
+  `runtimePrincipalObjectId` and `allowedIpv4Address`, both empty by default.
+- `infra/bicep/modules/harnessVault.bicep`: the vault `kv-wce-harness-<token>`, its audit workspace
+  `log-wce-harness-neu` (the existing `logAnalytics.bicep` module, unchanged: 30-day retention, 1 GB daily cap), the
+  vault's `AuditEvent` diagnostic setting, and the runtime role's one assignment.
+- `eng/harness-vault.ps1`: the owner-run preview and deployment path. `eng/harness-identity.ps1`: the owner-run Entra
+  identity script.
+- 88 security tests in `tests/App.Security.Tests/` (`HarnessVaultInfrastructureTests.cs`,
+  `HarnessVaultDeployScriptTests.cs`, `HarnessIdentityScriptTests.cs`) and their sandbox (`HarnessAzureCliSandbox.cs`).
+
+Changed: `eng/infra.ps1` (`build` and `lint` also compile and lint `harness-vault.bicep`, so CI does; `validate`,
+`whatif` and `deploy` still take `main.bicep` only); `infra/bicep/README.md`; the status documents. Not changed: anything
+under `src/`; any package; every Dev and Synthetic template and parameter file (`main.bicep`, `environment.bicep`, every
+existing module, both parameter files); every workflow; the harness project and the Stage B2 `Live/` files (unwired);
+`HarnessStandaloneGate` (empty); the six frozen documents.
+
+**B-2 as implemented.** Standard SKU (`family: 'A'`, `name: 'standard'`), `enableRbacAuthorization: true`, no access
+policy, `enabledForDeployment`, `enabledForDiskEncryption` and `enabledForTemplateDeployment` false; the firewall
+`defaultAction: 'Deny'` with `bypass: 'None'`, no virtual-network rule and an IP rule only when `allowedIpv4Address` is
+given; `publicNetworkAccess: 'Enabled'`, because disabling it would also override every firewall rule. The vault's
+`AuditEvent` logs go from creation to the dedicated workspace in the same resource group; nothing names a Dev or
+Synthetic resource. No secret is created by the templates. `main.bicep` and the parameter files never reference the
+entry point; the module is referenced only by it.
+
+**B-3 as implemented.** `var softDeleteRetentionInDays = 7`: a constant of the template, not a parameter.
+
+**B-4 as implemented.** `enablePurgeProtection` is absent from both harness templates: Azure accepts no `false` for it,
+and leaving it out is how the existing foundation module keeps purge protection off.
+
+**B-8 as implemented.** The role's permissions are exactly `actions: []`, `notActions: []`, `notDataActions: []` and the
+three `dataActions` `Microsoft.KeyVault/vaults/secrets/getSecret/action`, `.../setSecret/action` and `.../delete`, with no
+wildcard and no condition; `assignableScopes` is the dedicated resource group only. The one assignment is in the
+module, `scope: vault`, `principalType: 'ServicePrincipal'`, no condition, and is deployed only when
+`runtimePrincipalObjectId` is given. The template compiled locally (Bicep CLI 0.47.16) to ARM JSON in which the role
+definition holds exactly those permissions and assignable scope, and the role assignment's `scope` is the vault. **The
+owner's stop condition did not trigger.**
+
+**B-9 as implemented.** Azure resources are only in the Bicep above; the Microsoft Graph Bicep extension is used nowhere
+and no `bicepconfig.json` exists. `eng/harness-identity.ps1` reaches Entra only through the Azure CLI (`az account show`,
+and `az rest` against `https://graph.microsoft.com/v1.0`), with commands `create`, `add-credential`, `remove-credential`
+and `verify`:
+- every command refuses without `-Approve`, shows its plan first, requires an explicit lower-case `-TenantId`, and
+  refuses unless the Azure CLI is already signed in to that tenant as a user; it never signs in;
+- `create` is idempotent: it finds the application by its exact display name `wce-dev-harness-keyvault-runtime`, refuses
+  when more than one has it, and creates the application (single-tenant `AzureADMyOrg`, display name and notes only) and
+  its service principal only when missing; it never repairs an existing deviating object;
+- every write is followed by a read-back of the application, the service principal, its transitive memberships, owned
+  objects, application-permission assignments and delegated grants, checked by 14 named checks: single-tenant; no API
+  permission, redirect URI (web, SPA or public client), app role, exposed API or client secret; the service principal has
+  no credential of its own, no group membership or directory role, owns nothing and holds no permission grant; and the
+  application credentials as each command requires;
+- `add-credential` requires the application to have no credential and the store to hold no harness certificate, creates
+  a certificate in `Cert:\CurrentUser\My` with a non-exportable 3,072-bit RSA key from the Microsoft Software Key Storage
+  Provider (signing only, SHA-256, valid 1 to 24 hours as given), proves the key non-exportable before anything is sent
+  and deletes it otherwise, sends only the public certificate as the application's only key credential, and reads it
+  back by its name and end date;
+- `remove-credential` removes every application key credential, reads that back, and deletes the local certificate and
+  its key by exact thumbprint.
+
+Implementation choices made within the decisions, for the owner's review (not owner decisions): the optional single
+admitted public IPv4 address, empty by default, without which the owner's machine could never reach the vault's data
+plane in an approved run; no trusted-service bypass; the `AuditEvent` category only, to a workspace that reuses the
+existing module as it is (its shared-key ingestion stays enabled, as that module documents for Dev); `-Approve` also for
+the read-only `whatif` and `verify`, because each contacts Azure or Entra; a refusal of service-principal sessions in
+both scripts; `remove-credential`, because B-7's credential is valid only for the run window and removed afterwards
+(when it is used belongs to the post-run procedure, B-6, PROPOSED); the software key storage provider, not a TPM, because
+a TPM key's PS256 signature is unproven offline; and `eng/infra.ps1` building and linting the new entry point, so CI
+compiles it.
+
+**Local verification (2026-10-08, uncommitted tree; no Azure, Entra, Key Vault, monday or other provider contact):**
+
+- Bicep: `harness-vault.bicep` built and linted with the local Bicep CLI, no diagnostic; `./eng/infra.ps1 build` and
+  `lint` PASS for both entry points and both parameter files (the Azure CLI's version check and telemetry turned off for
+  the run; no sign-in).
+- PowerShell: both scripts and `eng/infra.ps1` parse with no error, plain ASCII, LF only; every parameter the script
+  passes to `New-SelfSignedCertificate` exists with a valid value (read from the cmdlet's metadata; the cmdlet was not run).
+- Solution build: 0 warnings, 0 errors. Unit 949/949; security 313/313 (225 before, 88 new); architecture 47/47.
+- `eng/verify-architecture.py` PASS; `eng/verify-local-env.py` PASS; the six frozen documents unchanged (working copy and
+  HEAD blob).
+- Targeted mutation of the new guards: **52 of 52 CAUGHT** (24 template mutants, 2 of `eng/infra.ps1`, 9 of the
+  deployment path, 16 of the identity script, and one probe file naming the harness among the Dev templates), each run
+  against the new test classes it concerns, with the three unmutated controls passing first; every file was restored and
+  its SHA-256 checked, and the probe file was deleted.
+
+**Not run, and why.** ARM validation and what-if, any Entra call, certificate creation and deployment are real steps
+outside this authorization, so the templates are proven only by compilation, linting, static pins and the compiled ARM
+JSON, and the identity script's certificate commands only by static checks and their refusals. The integration suite was
+not run: B1 changes no code it exercises, and a clean run needs a separately approved isolated database. CI has not run
+on this tree.
+
+Status: **Stage B1: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**, implemented and validated locally, uncommitted, CI NOT
+RUN, NOT PASS. The next owner boundary is the owner's review of Stage B1 and the authorization of its checkpoint; Stage B1
+may PASS only by the owner's own decision.
+
+**Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate 3G
+closure are NOT AUTHORIZED.
+
+## 3G — Stage B1 owner review decisions and checkpoint authorization (approved 2026-10-10)
+
+On 2026-10-10, after the Stage B1 report (the implementation record above, revalidated on 2026-10-10 on the unchanged
+tree, and the canonical-auditor, tenant-security-reviewer and gate-verifier verdicts CONFORMS WITH FOLLOW-UP, PASS WITH
+FOLLOW-UP and READY WITH FOLLOW-UP), the product owner approved "the remaining Stage B1 review decisions exactly as
+recommended" and authorized "committing exactly the 16 Stage B1 paths". The list reproduces the owner's text:
+
+1. B-9 / invariant-69 interpretation:
+   - Azure/ARM infrastructure remains Bicep.
+   - For this DEV/TEST harness only, the reviewed, versioned, idempotent eng/ script for Entra app/service-principal/
+     certificate creation is accepted as satisfying invariant 69.
+   - This does not amend the frozen canonical documents and does not establish a general project-wide exception.
+2. The implementation choices a–h from the Stage B1 report:
+   - a. optional single admitted public IPv4 address;
+   - b. Key Vault bypass = None;
+   - c. AuditEvent-only logging to the dedicated workspace using the existing Log Analytics module as-is;
+   - d. -Approve required for read-only whatif and verify as well;
+   - e. service-principal CLI sessions refused;
+   - f. remove-credential remains included, but its real use stays gated by B-6;
+   - g. software KSP, RSA 3072, signing-only, Cert:\CurrentUser\My, no TPM requirement for this slice;
+   - h. eng/infra.ps1 build/lint covers the new harness entry point.
+3. One Fully tenant per harness run is accepted as the current operating rule. Multi-tenant acceptance remains OPEN and
+   is not proven by B1.
+4. B-18 remains OPEN. Do not resolve or expand audit-log policy beyond the current B1 implementation.
+5. The local Integration suite omission is accepted for this checkpoint. Exact-commit CI is the next clean verification
+   boundary.
+6. Do not change the local approval-guard hook in B1. That remains outside this slice.
+
+**Checkpoint authorization — 2026-10-10.** A checkpoint commit of exactly these 16 paths, in the owner's list: modified
+`CLAUDE.md`, `INIT.md`, `docs/canonical/PROJECT-STATUS.md`, `docs/gates/gate-3-scope.md`,
+`docs/gates/gate-3G-live-enablement-plan.md`, `docs/gates/gate-3G-offline-report.md`, `eng/infra.ps1`,
+`infra/bicep/README.md`; added `eng/harness-identity.ps1`, `eng/harness-vault.ps1`, `infra/bicep/harness-vault.bicep`,
+`infra/bicep/modules/harnessVault.bicep`, `tests/App.Security.Tests/HarnessAzureCliSandbox.cs`,
+`tests/App.Security.Tests/HarnessIdentityScriptTests.cs`, `tests/App.Security.Tests/HarnessVaultDeployScriptTests.cs`,
+`tests/App.Security.Tests/HarnessVaultInfrastructureTests.cs`. "Do not push."
+
+Consequences recorded here, not added to the decisions:
+- Decision 1 answers the canonical-auditor's question whether B-9 also covers the "IaC: Bicep" lines of PRD v1 §18 and
+  System Architecture v1 §9: Azure and ARM infrastructure stays in Bicep, and the script's acceptance holds for this
+  harness only. No frozen document changes.
+- Decision 3 is the operating rule that `docs/gates/gate-3G-offline-report.md` records in its Stage B1 limitations.
+- B-5, B-6 and B-16 to B-19 remain PROPOSED — NOT APPROVED; B-18 stays OPEN.
+- **Stage B1 stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY, NOT PASS.** Stage B1 can PASS only after the owner
+  separately authorizes the push, the exact-commit CI succeeds, and the owner decides. Nothing was created, deployed or
+  contacted, and no real step is authorized.
+
+**Gate 3G stays IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN; real execution and Gate 3G
+closure are NOT AUTHORIZED.

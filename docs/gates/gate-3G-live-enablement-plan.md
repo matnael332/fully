@@ -6,12 +6,23 @@ owner says so in their own words. When this plan was written (2026-10-05), S-1 t
 **PROPOSED, NOT APPROVED**. The document implements nothing, authorizes nothing, and is not evidence of how monday or
 Azure behaves.
 
-## Current status (2026-10-07)
+## Current status (2026-10-08)
 
 - **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY.** Real acceptance is NOT PROVEN. Real execution is NOT
   AUTHORIZED. Gate closure is NOT AUTHORIZED.
-- Current repository pointer (2026-10-07): `main` == `origin/main` == `ba6a086fae4ee6b1c62ba67bdaf498b7921654f2` ("feat:
-  checkpoint Gate 3G Stage B4 offline operator TLS"), which is also the latest code checkpoint; CI run 37638185897
+- *Status update, 2026-10-08:* **B-2, B-3, B-4, B-8 and B-9 are APPROVED — 2026-10-08** (authoring approvals only), and
+  **Stage B1 (IaC authoring) was authorized** for offline implementation only (record: `docs/gates/gate-3-scope.md`,
+  section "3G — Stage B owner decisions B-2, B-3, B-4, B-8 and B-9 and Stage B1 authorization (approved 2026-10-08)").
+  Stage B1 is IN PROGRESS — OFFLINE IMPLEMENTATION ONLY, implemented and validated locally, uncommitted, CI NOT RUN,
+  **NOT PASS**; nothing was created, deployed or contacted. See the fourteenth update at the end of this file.
+- *Status update, 2026-10-10:* the owner approved the remaining Stage B1 review decisions exactly as recommended and
+  authorized the checkpoint commit of exactly the 16 Stage B1 paths, with no push (record: `docs/gates/gate-3-scope.md`,
+  section "3G — Stage B1 owner review decisions and checkpoint authorization (approved 2026-10-10)"). Stage B1 stays
+  **NOT PASS**. See the fifteenth update at the end of this file.
+- Current repository pointer (2026-10-08): `main` == `origin/main` == `5822698ebfbbe7d9a6552990cb641e71ec2c7714` ("docs:
+  record Gate 3G Stage B4 PASS", documentation only, CI run 37747426660 SUCCESS); its parent
+  `ba6a086fae4ee6b1c62ba67bdaf498b7921654f2` ("feat:
+  checkpoint Gate 3G Stage B4 offline operator TLS") is the latest code checkpoint; CI run 37638185897
   succeeded on that exact commit (1,962 tests: 1,949 passed, 0 failed, 13 expected Service Bus emulator skips). The
   offline harness, the offline Key Vault adapter (`446fa5a`, CI run 37409608267), the Stage B2 transport and token
   source (`d1468bb`, CI run 37434239946), the Stage B3 preparation (`736db05`, CI run 37509953860) and the Stage B4
@@ -34,7 +45,9 @@ Azure behaves.
   in the same file, section "3G — Stage B owner decisions B-7, B-10 and B-11 (approved 2026-10-06)"). **B-14 and B-15
   are APPROVED — 2026-10-06** (same file, section "3G — Stage B owner decisions B-14 and B-15 (approved 2026-10-06)").
   **B-12 and B-13 are APPROVED — 2026-10-06** (same file, section "3G — Stage B owner decisions B-12 and B-13 and Stage
-  B4 authorization (approved 2026-10-06)"). **B-2 to B-6, B-8, B-9 and B-16 to B-19 remain PROPOSED — NOT APPROVED.**
+  B4 authorization (approved 2026-10-06)"). **B-2, B-3, B-4, B-8 and B-9 are APPROVED — 2026-10-08** (same file,
+  section "3G — Stage B owner decisions B-2, B-3, B-4, B-8 and B-9 and Stage B1 authorization (approved 2026-10-08)").
+  **B-5, B-6 and B-16 to B-19 remain PROPOSED — NOT APPROVED.**
 - Status update, 2026-10-06: **Stage B4** (operator identity and loopback TLS) was authorized by the owner for offline
   implementation only, in a narrowed scope: the honest DEV/TEST operator identity, an ephemeral loopback certificate and
   its fingerprint, one fixed callback port (chosen under the owner's delegation: `47443`) and that certificate supplied
@@ -650,7 +663,8 @@ This section is planning only. **At planning time every decision B-1 to B-19 was
 may be read as an owner decision until the product owner approves it in their own words. Since then only B-1 has been
 approved (2026-10-06, see the update below), then B-7, B-10 and B-11 (2026-10-06, see the second update below), and then
 B-14 and B-15 (2026-10-06, see their entries and the fifth update below), and then B-12 and B-13 (2026-10-06, see their
-entries and the eleventh update below); **B-2 to B-6, B-8, B-9 and B-16 to B-19 remain PROPOSED — NOT APPROVED.**
+entries and the eleventh update below), and then B-2, B-3, B-4, B-8 and B-9 (2026-10-08, see their entries and the
+fourteenth update below); **B-5, B-6 and B-16 to B-19 remain PROPOSED — NOT APPROVED.**
 
 - **D3G-1 remains fully in force**, as clarified by the owner on 2026-10-06: it prohibits every real-credential adapter
   and every real connection to Azure or Key Vault.
@@ -747,6 +761,11 @@ inbound: no webhook, no Signing Secret, no public ingress. Those belong to Stage
   and so open a path to granting itself data access.
 - The recover, purge and readMetadata action names are taken from Microsoft's RBAC documentation as read in planning;
   they are to be re-verified against the published documentation before the IaC slice is approved.
+  - *Dated note, 2026-10-08:* re-verified on 2026-10-08, during the read-only review that preceded the IaC slice's
+    approval, against Microsoft's published
+    [Azure permissions for Security](https://learn.microsoft.com/en-us/azure/role-based-access-control/permissions/security)
+    page. The approved B-8 (see its entry) makes the role assignable within the dedicated harness resource group, not at
+    the vault; the assignment itself stays at the vault only.
 
 **D. Retention and purge.** See B-3 to B-6.
 
@@ -834,7 +853,7 @@ inbound: no webhook, no Signing Secret, no public ingress. Those belong to Stage
 - Alternatives: a dedicated PostgreSQL container and a dedicated emulator instance; each changes `infra/local` and
   needs its own approval.
 
-### Proposed owner decisions B-1 to B-19 (B-1, B-7, B-10, B-11, B-12, B-13, B-14, B-15 APPROVED — 2026-10-06; all others PROPOSED — NOT APPROVED)
+### Proposed owner decisions B-1 to B-19 (B-1, B-7, B-10, B-11, B-12, B-13, B-14, B-15 APPROVED — 2026-10-06; B-2, B-3, B-4, B-8, B-9 APPROVED — 2026-10-08; all others PROPOSED — NOT APPROVED)
 
 Each entry gives the question, the recommendation, the alternatives, the practical and security effect, why it is
 needed now, what approval would enable, what stays prohibited, and whether an existing decision changes. Each entry
@@ -866,7 +885,13 @@ records the proposal as written at planning time; an approval is recorded in the
 - Changes an existing decision: **yes — a narrow, explicit supersession of D3G-1 as clarified on 2026-10-06.** Until
   the owner decides it, D3G-1 stays fully in force.
 
-**B-2 — Dedicated vault. PROPOSED — NOT APPROVED.**
+**B-2 — Dedicated vault. APPROVED — 2026-10-08.**
+
+- *Owner approval, 2026-10-08:* approved, in the owner's words: "one new dedicated DEV/TEST harness Key Vault; Standard
+  SKU, Azure RBAC; dedicated resource group in North Europe; firewall default deny; dedicated Log Analytics workspace in
+  that resource group; separate Bicep entry point, not referenced by main.bicep or existing Dev/Synthetic parameter
+  files; authoring only; nothing is created." Record: `docs/gates/gate-3-scope.md`, section "3G — Stage B owner decisions
+  B-2, B-3, B-4, B-8 and B-9 and Stage B1 authorization (approved 2026-10-08)".
 
 - Recommended: one new vault in its own resource group, for DEV/TEST harness use only; defined by a separate Bicep entry
   point under `infra/bicep/` that `main.bicep` never deploys; deployed only through an `-Approve` path; RBAC mode; audit
@@ -877,14 +902,18 @@ records the proposal as written at planning time; an approval is recorded in the
 - Security: invariants 68 and 69 and System Architecture v1 §8 honored. Enables: B1 authoring. Still prohibited:
   creating the vault. Changes an existing decision: no.
 
-**B-3 — Soft-delete retention. PROPOSED — NOT APPROVED.**
+**B-3 — Soft-delete retention. APPROVED — 2026-10-08.**
+
+- *Owner approval, 2026-10-08:* "soft-delete retention = 7 days." Record: as for B-2.
 
 - Recommended: **7 days.** Deleted credential residue stays recoverable for the shortest time; unique GUID-based names
   mean reserved deleted names never block a test.
 - Alternative: 90 days, a longer forensic window and a longer recoverable residue.
 - Note: fixed at creation. Closes part of the S-4 deferral. Changes an existing decision: no.
 
-**B-4 — Purge protection. PROPOSED — NOT APPROVED.**
+**B-4 — Purge protection. APPROVED — 2026-10-08.**
+
+- *Owner approval, 2026-10-08:* "purge protection = OFF for this DEV/TEST harness vault." Record: as for B-2.
 
 - Recommended: **off** for this DEV/TEST vault, so the owner can purge residue right after a run and the vault can be
   torn down cleanly; this matches the documented foundation default of `keyVault.bicep`.
@@ -925,13 +954,30 @@ records the proposal as written at planning time; an approval is recorded in the
 - Note: System Architecture v1 §8 asks for managed workload identities "where possible"; here it is not possible, and
   the reason is recorded.
 
-**B-8 — Runtime RBAC. PROPOSED — NOT APPROVED.**
+**B-8 — Runtime RBAC. APPROVED — 2026-10-08.**
+
+- *Owner approval, 2026-10-08:* approved, in the owner's words: "one custom role with exactly:
+  Microsoft.KeyVault/vaults/secrets/getSecret/action, Microsoft.KeyVault/vaults/secrets/setSecret/action,
+  Microsoft.KeyVault/vaults/secrets/delete; zero Actions, NotActions, NotDataActions, wildcards or conditions;
+  AssignableScopes = dedicated harness resource group; assignment itself = dedicated vault scope only; principal ID
+  supplied as a parameter; never widen permissions silently." Record: as for B-2. *Note, not part of the decision:* the
+  approved assignable scope (the dedicated resource group) differs from area C's proposal (the vault); Microsoft
+  recommends management-group, subscription or resource-group assignable scopes and states that access is determined by
+  the assignment, which B-8 keeps at the vault.
 
 - Recommended: the exact three-DataAction custom role of area C, one assignment at vault scope, and an
   effective-permission check before every run. If the live run shows get needs more, stop and decide; never widen
   silently.
 
-**B-9 — Administration separation and how identities are created. PROPOSED — NOT APPROVED.**
+**B-9 — Administration separation and how identities are created. APPROVED — 2026-10-08.**
+
+- *Owner approval, 2026-10-08:* approved, in the owner's words: "Product Owner is infrastructure administrator/operator;
+  Azure resources stay in Bicep; Entra application, service principal and certificate credential are authored through
+  one reviewed idempotent PowerShell script under eng/ using Azure CLI; script must refuse writes without -Approve and
+  verify results by read-back; single-tenant app; no API permissions, redirect URI or app roles in B1; service principal
+  has no directory role/group ownership; private key is generated non-exportable locally and never leaves the machine;
+  Microsoft Graph Bicep extension is NOT approved; for this harness only, this reviewed/versioned script is accepted as
+  satisfying invariant 69." Record: as for B-2.
 
 - Recommended: the owner's account acts as infrastructure administrator. The vault, custom role and assignment are
   created through Bicep; the Entra app and certificate credential through a reviewed, idempotent `eng/` script gated
@@ -1053,6 +1099,12 @@ records the proposal as written at planning time; an approval is recorded in the
   script. Local Bicep compile only; static tests pin exactly three DataActions, zero Actions, vault scope and the B-3
   and B-4 parameters. Offline. Approval: B-1, B-2 to B-4, B-8, B-9. Stop if Bicep cannot express a vault-only assignable
   scope.
+  - *Update, 2026-10-08:* B-2, B-3, B-4, B-8 and B-9 were approved and **Stage B1 was authorized for offline
+    implementation only** (record: `docs/gates/gate-3-scope.md`, section "3G — Stage B owner decisions B-2, B-3, B-4,
+    B-8 and B-9 and Stage B1 authorization (approved 2026-10-08)"). Under the approved B-8 the role is assignable within
+    the dedicated harness resource group and assigned at the vault only, so the stop condition is the owner's: "If the
+    exact three-action custom role cannot be authored with zero Actions, or the role assignment cannot be scoped to the
+    vault, STOP and report." Stage B1 is IN PROGRESS — OFFLINE IMPLEMENTATION ONLY, NOT PASS.
 - **B2 — Real transport and token source.** Under `tests/App.Harness.Monday/Live/`: the handler factory, destination
   guard and Entra certificate token source, tested only against fake inner handlers, with guards replaced under B-11
   and mutation evidence. Offline. Approval: B-1, B-7, B-10, B-11 (all four approved on 2026-10-06; B2 itself is NOT
@@ -1357,7 +1409,7 @@ emulator skips; all 14 role-altering tests and the Stage B4-specific tests execu
 and creates no persistent standalone database: the database has not been created, the seed has not been run, and
 `HarnessStandaloneGate` stays empty unless separately authorized. The B-13 key-container residual stays recorded.
 
-Current status: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT
+Status after the thirteenth update (superseded below): **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT
 AUTHORIZED. Gate 3G closure: NOT AUTHORIZED. Approved: B-1 (authoring only), B-7, B-10, B-11, B-12, B-13, B-14 (as
 clarified on 2026-10-06), B-15 — 2026-10-06; every other B decision: PROPOSED — NOT APPROVED. Stage B2 and Stage B3:
 PASS — OFFLINE SLICE COMPLETE. Stage B4: PASS — OFFLINE SLICE COMPLETE (checkpoint `ba6a086`, CI run 37638185897 —
@@ -1365,3 +1417,53 @@ SUCCESS); the B-13 key-container residual recorded. Four BEFORE-WIRING requireme
 Persistent standalone database not created; seed not run; `HarnessStandaloneGate` empty. No live wiring; no real
 credential or provider behavior proven. No other Stage B slice authorized; next owner boundary: selecting and
 authorizing the next Stage B slice and the owner decisions it requires.**
+
+*Fourteenth update, 2026-10-08 (status only):* after the Stage B4 PASS record `5822698` was pushed (CI run 37747426660
+SUCCESS) and a read-only review recommended the decisions Stage B1 needed, the product owner approved B-2, B-3, B-4, B-8
+and B-9 as authoring approvals only and authorized Stage B1 for offline implementation only (record:
+`docs/gates/gate-3-scope.md`, section "3G — Stage B owner decisions B-2, B-3, B-4, B-8 and B-9 and Stage B1 authorization
+(approved 2026-10-08)"; the owner's text is in the entries above). Under the approved B-8 the runtime role is assignable
+within the dedicated harness resource group and assigned at the vault only. Stage B1 is implemented offline (record: the
+same file, section "3G — Stage B1 implementation record (2026-10-08, offline, uncommitted)", and
+`docs/gates/gate-3G-offline-report.md`, "Addendum — Stage B1 IaC authoring"): the entry point
+`infra/bicep/harness-vault.bicep` and its module, the owner-run deployment path `eng/harness-vault.ps1`, the identity
+script `eng/harness-identity.ps1`, `eng/infra.ps1` building and linting the new entry point, and 88 security tests. The
+stop condition did not trigger: the compiled template holds the role with exactly the three data actions and zero
+Actions, and its one assignment is scoped to the vault. Nothing was created, deployed or contacted.
+
+Status after the fourteenth update (superseded below): **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT
+AUTHORIZED. Gate 3G closure: NOT AUTHORIZED. Approved: B-1 (authoring only), B-7, B-10, B-11, B-12, B-13, B-14 (as
+clarified on 2026-10-06), B-15 — 2026-10-06; B-2, B-3, B-4, B-8, B-9 — 2026-10-08 (authoring approvals only); B-5, B-6
+and B-16 to B-19: PROPOSED — NOT APPROVED. Stage B2, Stage B3 and Stage B4: PASS — OFFLINE SLICE COMPLETE. Stage B1: IN
+PROGRESS — OFFLINE IMPLEMENTATION ONLY; implemented and validated locally, uncommitted, CI NOT RUN, NOT PASS; no vault,
+role, assignment, identity, certificate or secret exists. Four BEFORE-WIRING requirements open; no Stage B2 seam wired.
+Persistent standalone database not created; seed not run; `HarnessStandaloneGate` empty. No live wiring; no real
+credential or provider behavior proven. No other Stage B slice authorized; next owner boundary: the owner's review of
+Stage B1 and the authorization of its checkpoint.**
+
+*Fifteenth update, 2026-10-10 (status only):* the owner approved the remaining Stage B1 review decisions exactly as
+recommended and authorized the checkpoint commit of exactly the 16 Stage B1 paths, with no push (record, in the owner's
+words: `docs/gates/gate-3-scope.md`, section "3G — Stage B1 owner review decisions and checkpoint authorization (approved
+2026-10-10)"). The decisions:
+- B-9 / invariant 69: Azure and ARM infrastructure remains Bicep, and the `eng/` identity script is accepted as
+  satisfying invariant 69 for this DEV/TEST harness only, amending no frozen document and making no project-wide
+  exception.
+- The implementation choices a to h of the Stage B1 report are approved.
+- One Fully tenant per harness run is the current operating rule; multi-tenant acceptance remains OPEN.
+- B-18 remains OPEN.
+- The local Integration suite omission is accepted for this checkpoint, exact-commit CI being the next clean
+  verification boundary.
+- The local approval-guard hook is not changed in B1.
+
+These decisions change no other B decision.
+
+Current status: **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Real acceptance: NOT PROVEN. Real execution: NOT
+AUTHORIZED. Gate 3G closure: NOT AUTHORIZED. Approved: B-1 (authoring only), B-7, B-10, B-11, B-12, B-13, B-14 (as
+clarified on 2026-10-06), B-15 — 2026-10-06; B-2, B-3, B-4, B-8, B-9 — 2026-10-08 (authoring approvals only); B-5, B-6
+and B-16 to B-19: PROPOSED — NOT APPROVED (B-18 OPEN). Stage B2, Stage B3 and Stage B4: PASS — OFFLINE SLICE COMPLETE.
+Stage B1: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY; implemented and validated locally; its review decisions approved and
+its checkpoint commit authorized on 2026-10-10; CI NOT RUN; NOT PASS; no vault, role, assignment, identity, certificate
+or secret exists. Four BEFORE-WIRING requirements open; no Stage B2 seam wired. Persistent standalone database not
+created; seed not run; `HarnessStandaloneGate` empty. No live wiring; no real credential or provider behavior proven. No
+other Stage B slice authorized; next owner boundary: the authorization of the Stage B1 checkpoint's push, then its
+exact-commit CI and the Stage B1 PASS decision.**

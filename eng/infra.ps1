@@ -30,6 +30,9 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $BicepRoot = Join-Path $Root "infra/bicep"
 $MainTemplate = Join-Path $BicepRoot "main.bicep"
+# The Gate 3G DEV/TEST harness vault's own entry point (Stage B1): built and linted here like main.bicep, so that CI
+# compiles it, and never validated, previewed or deployed here. It has its own owner-run path.
+$HarnessTemplate = Join-Path $BicepRoot "harness-vault.bicep"
 # Location of the subscription-level deployment metadata. Resource locations come from the parameter files.
 $Location = "northeurope"
 
@@ -136,9 +139,11 @@ function Protect-Images([string]$EnvironmentName) {
 }
 
 function Invoke-Build {
-    Write-Host "Building $MainTemplate"
-    az bicep build --file $MainTemplate --stdout | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "bicep build failed for main.bicep" }
+    foreach ($template in @($MainTemplate, $HarnessTemplate)) {
+        Write-Host "Building $template"
+        az bicep build --file $template --stdout | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "bicep build failed for $(Split-Path -Leaf $template)" }
+    }
 
     foreach ($parameterFile in Get-ChildItem (Join-Path $BicepRoot "parameters") -Filter *.bicepparam) {
         Write-Host "Building $($parameterFile.FullName)"
@@ -150,9 +155,12 @@ function Invoke-Build {
 }
 
 function Invoke-Lint {
-    Write-Host "Linting $MainTemplate"
-    az bicep lint --file $MainTemplate
-    if ($LASTEXITCODE -ne 0) { throw "bicep lint failed for main.bicep" }
+    foreach ($template in @($MainTemplate, $HarnessTemplate)) {
+        Write-Host "Linting $template"
+        az bicep lint --file $template
+        if ($LASTEXITCODE -ne 0) { throw "bicep lint failed for $(Split-Path -Leaf $template)" }
+    }
+
     Write-Host "BICEP LINT: PASS" -ForegroundColor Green
 }
 

@@ -1783,3 +1783,192 @@ Status:
   and authorizing the next Stage B slice and the owner decisions it requires.
 - No real credential or certificate of any provider was used; there was no Azure, Entra, Key Vault, monday or OAuth
   contact, no browser authorization and no deployment; no certificate store or trust setting was changed.
+
+## Addendum — Stage B1 IaC authoring
+
+Recorded on 2026-10-08 on top of `5822698` (the Stage B4 PASS record). **Status: IN PROGRESS — OFFLINE IMPLEMENTATION
+ONLY; implemented and validated locally; uncommitted; CI NOT RUN; NOT PASS.** Nothing was created, deployed or
+contacted: no resource group, vault, workspace, role, assignment, Entra application, service principal, certificate or
+secret exists; there was no `az login`, Azure validation, what-if, deployment, Entra, Graph, Key Vault, monday or other
+provider contact; no certificate store or trust setting was opened or changed.
+
+### Authorization
+
+On 2026-10-08 the product owner approved B-2 (dedicated vault), B-3 (soft-delete retention, 7 days), B-4 (purge
+protection OFF), B-8 (runtime RBAC) and B-9 (administration separation and identity creation) as authoring approvals only,
+and authorized Stage B1 offline only. Record, with the owner's text: `docs/gates/gate-3-scope.md`, section "3G — Stage B
+owner decisions B-2, B-3, B-4, B-8 and B-9 and Stage B1 authorization (approved 2026-10-08)". Under the approved B-8 the
+runtime role is assignable within the dedicated resource group and assigned at the vault only; the owner's stop condition
+("If the exact three-action custom role cannot be authored with zero Actions, or the role assignment cannot be scoped to
+the vault, STOP and report.") did not trigger.
+
+### Exact scope
+
+New:
+- `infra/bicep/harness-vault.bicep`: the subscription-scope entry point (the dedicated resource group `rg-wce-harness-neu`
+  in North Europe, the custom role `wce-harness-keyvault-secrets-runtime`, the module call).
+- `infra/bicep/modules/harnessVault.bicep`: the vault, its audit workspace, its `AuditEvent` diagnostic setting and the
+  runtime role's one assignment at the vault.
+- `eng/harness-vault.ps1`: the owner-run preview and deployment path of that entry point only.
+- `eng/harness-identity.ps1`: the owner-run Entra application, service principal and certificate-credential script.
+- `tests/App.Security.Tests/HarnessVaultInfrastructureTests.cs`, `HarnessVaultDeployScriptTests.cs`,
+  `HarnessIdentityScriptTests.cs` and `HarnessAzureCliSandbox.cs`.
+
+Changed: `eng/infra.ps1` (`build` and `lint` only); `infra/bicep/README.md`; `CLAUDE.md`, `INIT.md`,
+`docs/canonical/PROJECT-STATUS.md`, `docs/gates/gate-3-scope.md`, `docs/gates/gate-3G-live-enablement-plan.md` and this
+addendum.
+
+Not changed: anything under `src/`; any package or project reference; every Dev and Synthetic template and parameter
+file and every existing module; every workflow and Dockerfile; the harness project and the Stage B2 `Live/` files (still
+unwired); `HarnessStandaloneGate` (empty); the seed, evidence and wrapper tools; the six frozen documents.
+
+How each decision is implemented, and the implementation choices made within them for the owner's review, are recorded
+in `docs/gates/gate-3-scope.md`, section "3G — Stage B1 implementation record (2026-10-08, offline, uncommitted)".
+
+### Tests
+
+88 new security tests, none of which reaches a provider:
+- `HarnessVaultInfrastructureTests` (7): the Bicep read as text. The separate entry point and its fixed resource group
+  and region, referenced by nothing of Dev or Synthetic; the role's exact three data actions, empty actions, exclusions
+  and conditions, and its resource-group assignable scope; its one conditional assignment at the vault; the vault's
+  Standard SKU, Azure RBAC, constant 7-day retention, absent purge protection, closed firewall and absent secrets; its
+  audit events to the dedicated workspace only; no Bicep extension or Microsoft Graph anywhere; `eng/infra.ps1` building
+  and linting the entry point and never deploying it; only the two owner-run paths invoking `az deployment`.
+- `HarnessVaultDeployScriptTests` (6) and `HarnessVaultDeployScriptRunTests` (31): the deployment path read as text and
+  run by PowerShell in a sandbox whose stand-in `az` records each call. Without `-Approve` the plan is shown and nothing is
+  called; every invalid identifier and every non-public, malformed or ranged address is refused before anything runs; a
+  session that is not signed in, holds another subscription or is a service principal is refused after the one session
+  read; an approved what-if and deployment call the Azure CLI exactly as reviewed, the deployment with
+  `--confirm-with-what-if`; a failed or declined deployment is reported as not completed.
+- `HarnessIdentityScriptTests` (6) and `HarnessIdentityScriptRunTests` (38): the identity script read as text and run
+  in the same kind of sandbox, whose stand-in `az` answers as Microsoft Graph would. Every refusal before any call; the
+  session checks; `verify` reading everything back and establishing a clean identity, and failing on each of 16
+  deviations from B-9; never guessing between applications; `create` writing exactly the reviewed application and
+  service principal bodies and nothing when both exist, and never repairing a deviating application.
+
+`add-credential` and `remove-credential` are run only up to their refusals: past them they would open the machine's
+certificate store, and no test gives them a signed-in session. Their certificate handling is pinned statically: the
+store, the key's non-exportable policy, provider, size and usage, the bounded validity, the proof before sending, the
+export of the public certificate only, and the two exact deletions.
+
+### Verification
+
+All local, 2026-10-08, on the uncommitted tree:
+- `infra/bicep/harness-vault.bicep` built and linted with the local Bicep CLI 0.47.16, no diagnostic; the compiled ARM
+  JSON shows the role with empty actions and exclusions, exactly the three data actions and the resource-group
+  assignable scope, and the role assignment scoped to the vault, deployed only with a principal, without a condition.
+- `./eng/infra.ps1 build` and `./eng/infra.ps1 lint`: PASS for `main.bicep`, `harness-vault.bicep` and both parameter
+  files (the Azure CLI's version check and telemetry turned off; no sign-in).
+- Both scripts and `eng/infra.ps1` parse with no error; both scripts are plain ASCII with LF line breaks; every parameter
+  passed to `New-SelfSignedCertificate` exists with a valid value, read from the cmdlet's metadata without running it.
+- Solution build: 0 warnings, 0 errors. Unit 949/949; security 313/313; architecture 47/47.
+- `eng/verify-architecture.py` PASS; `eng/verify-local-env.py` PASS; the six frozen documents unchanged.
+
+Not run: ARM validation, what-if, any Entra call, certificate creation and deployment, which are real steps outside the
+authorization; the integration suite, which B1 does not exercise and whose clean run needs a separately approved
+isolated database. The sandbox tests ran under Windows PowerShell 5.1; CI runs them under PowerShell 7 on Linux. CI has
+not run on this tree.
+
+### Mutation evidence
+
+**52 of 52 CAUGHT**, none survived, none invalid. Each mutant was one exact replacement whose original text was first
+found exactly once (or one temporary new file), run against the new test classes it concerns after the three unmutated
+controls passed (7, 37 and 44 tests); every file was restored byte for byte and its SHA-256 checked, and the new file was
+deleted.
+- **Templates (24):** a fourth data action (`readMetadata`), a control-plane action, a wildcard, a non-empty
+  NotDataActions, the subscription as assignable scope, another region, the Dev resource group, an address admitted by
+  default, an extra deployment parameter; the assignment at the resource group, without a principal, or with a
+  condition; retention of 90 days, purge protection on, a firewall that allows, a trusted-service bypass, access
+  policies instead of RBAC, the Premium SKU, another audit category, audit events to the Dev workspace, a secret placed
+  by the template, template deployments allowed to read secrets, every address admitted, an access-policy list.
+- **`eng/infra.ps1` (2):** the harness entry point no longer built; `deploy` taking the harness entry point.
+- **Deployment path (9):** no approval needed; no what-if confirmation; `main.bicep` as the template; a private address
+  admitted; no explicit subscription; a service-principal session accepted; another subscription accepted; a prefix
+  length accepted; upper-case identifiers accepted.
+- **Identity script (16):** no approval needed; a multi-tenant application; an exportable key; the private key exported;
+  membership and directory roles not checked; a client secret not checked; another tenant accepted; create writing over
+  an existing application; the machine store; a validity beyond 24 hours; create without its read-back; only web
+  redirect addresses checked; direct membership only; a service-principal session accepted; the first of several
+  applications taken; two credentials accepted.
+- **Probe (1):** a new Bicep file outside the harness naming it.
+
+### Facts left for a future real deployment [C]
+
+None of these can be established offline; each is to be observed in a separately approved real step.
+- Whether `getSecret/action` alone answers a read of a secret's latest version, without `readMetadata`. If not, the run
+  stops for the owner's decision (B-8: never widened silently).
+- That Azure accepts the subscription-scope role definition, assignable within the resource group created in the same
+  deployment, and how long it takes before an assignment of it succeeds (the assignment is made in a later deployment,
+  once the principal exists).
+- How Microsoft Graph answers the identity script: replication delay after a new application (create is idempotent and
+  can be re-run), and a key credential's `displayName` and `endDateTime` as read back.
+- Whether the product owner's Azure CLI session, a personal Microsoft account in its own directory, may create the
+  application through Microsoft Graph.
+- That the key from the Microsoft Software Key Storage Provider, with signing-only usage, produces the PS256 assertion of
+  Stage B2's token source.
+- The Key Vault firewall admits IPv4 only: the owner's public address may change between a deployment and a run, and a
+  request over IPv6 would be refused (fail closed).
+- The Free Trial subscription ends on 2026-10-27 unless upgraded; a deleted vault's name stays reserved for 7 days unless
+  purged.
+
+### Known limitations and follow-ups (outside B1)
+
+- **The runtime role reaches every secret of the vault**, `wce-monday-client-secret` included, because the token and
+  verifier names are created at run time. The plan accepts this (area A: integrity and availability, not disclosure); a
+  second vault or Key Vault's name conditions (in preview) could narrow it later.
+- **One Fully tenant per run is a hard operating rule of this vault.** The token and verifier names embed the tenant
+  and connection, and the one runtime principal can read, write and delete every one of them: if a second tenant's
+  secrets were ever written into the same vault, they would be within that principal's reach, a cross-tenant path.
+  Nothing in B1 enforces the rule; it rests on the plan (area A and B-2: one tenant per run) and on B-14 and B-15 (a
+  fresh tenant per run). Any run with more than one tenant needs a separate vault and workspace or its own owner
+  decision; multi-tenant acceptance stays OPEN for Gate 3G. *Owner decision, 2026-10-10:* "One Fully tenant per harness
+  run is accepted as the current operating rule. Multi-tenant acceptance remains OPEN and is not proven by B1."
+- **What the vault's audit logs will hold.** The `AuditEvent` records carry, for each operation, the secret's name (and
+  so the tenant and connection identifiers it embeds), the caller's identity and IP address, never a value. They go
+  only to the dedicated harness workspace, which reuses the existing module as it is (30-day retention, a 1 GB daily cap,
+  shared-key ingestion and public query enabled). Accepting this content and that configuration belongs to B-18 (live
+  evidence and logging), which is PROPOSED — NOT APPROVED. *Owner decision, 2026-10-10:* "B-18 remains OPEN. Do not
+  resolve or expand audit-log policy beyond the current B1 implementation."
+- **The local approval guard** asks before `eng/infra.ps1 ... -Approve` but does not know the two new owner scripts.
+  Changing local tooling is excluded by D3G-1; recorded for the owner.
+- **Still open, by decision:** B-5 (recover and purge authority), B-6 (post-run cleanup and orphaned names) and B-16 to
+  B-19 (the monday app, the scope of the first run, evidence and logging, the approval format of each run) are PROPOSED —
+  NOT APPROVED; the four Stage B2 BEFORE-WIRING requirements; the TEMPORARY privilege through PUBLIC; multi-tenant
+  acceptance; the shared suite database's relay starvation. B1 addresses none of them.
+
+### Reviews
+
+The three review agents (canonical-auditor, tenant-security-reviewer, gate-verifier) are run on the final tree,
+including this addendum; their verdicts are reported to the owner with it and are not part of the reviewed text.
+
+### Owner review decisions and checkpoint authorization (2026-10-10)
+
+The product owner approved "the remaining Stage B1 review decisions exactly as recommended" and authorized "committing
+exactly the 16 Stage B1 paths"; the owner's text is recorded in `docs/gates/gate-3-scope.md`, section "3G — Stage B1 owner
+review decisions and checkpoint authorization (approved 2026-10-10)". In short:
+- B-9 and invariant 69: Azure and ARM infrastructure remains Bicep; for this DEV/TEST harness only, the reviewed,
+  versioned, idempotent `eng/` script is accepted as satisfying invariant 69; no frozen document is amended and no
+  project-wide exception is made.
+- The implementation choices a to h of the Stage B1 report are approved, `remove-credential`'s real use staying gated by
+  B-6.
+- One Fully tenant per harness run is the current operating rule; multi-tenant acceptance remains OPEN.
+- B-18 remains OPEN, and the audit-log policy stays as implemented.
+- The local Integration suite omission is accepted for this checkpoint; exact-commit CI is the next clean verification
+  boundary.
+- The local approval-guard hook is not changed in B1.
+- "Do not push."
+
+Before the checkpoint, the unchanged tree was verified again on 2026-10-10: solution build 0 warnings and 0 errors; unit
+949/949, security 313/313, architecture 47/47; both repository verifiers PASS; Bicep build and lint clean, directly and
+through `./eng/infra.ps1`; the scripts parse without error; the six frozen documents unchanged; `git diff --check`
+clean; no leaks in the history or in any of the 16 paths.
+
+### Status
+
+- **Stage B1: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY**, implemented and validated locally, CI NOT RUN, **NOT PASS**.
+  The owner approved its review decisions and authorized its checkpoint commit on 2026-10-10. It can PASS only after the
+  owner separately authorizes the push, the exact-commit CI succeeds, and the owner decides.
+- Approved B decisions: B-1 (authoring only), B-2, B-3, B-4, B-7, B-8, B-9, B-10, B-11, B-12, B-13, B-14 (as clarified)
+  and B-15; B-5, B-6 and B-16 to B-19 are PROPOSED — NOT APPROVED. No other Stage B slice is authorized.
+- **Gate 3G: IN PROGRESS — OFFLINE IMPLEMENTATION ONLY. Gate 3: IN PROGRESS. Real acceptance: NOT PROVEN. Real
+  execution: NOT AUTHORIZED. Gate 3G and Gate 3 closure: NOT AUTHORIZED.**
